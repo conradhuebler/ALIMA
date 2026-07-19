@@ -46,12 +46,12 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "search_term": "Cadmium",
                     "results": {
                         "Toxicology of Cadmium": {
-                            "gndid": ["4007249-3"],
-                            "ddc_codes": ["577"],
+                            "gnd_ids": ["4007249-3"],
+                            "classifications": {"ddc": ["577"]},
                         },
                         "Cadmium in Soil": {
-                            "gndid": ["4007249-3"],
-                            "ddc_codes": ["631.4"],
+                            "gnd_ids": ["4007249-3"],
+                            "classifications": {"ddc": ["631.4"]},
                         },
                     },
                 },
@@ -59,8 +59,8 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "search_term": "Boden",
                     "results": {
                         "Cadmium in Soil": {
-                            "gndid": ["4007249-3"],
-                            "ddc_codes": ["631.4"],
+                            "gnd_ids": ["4007249-3"],
+                            "classifications": {"ddc": ["631.4"]},
                         },
                     },
                 },
@@ -90,14 +90,14 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "search_term": "Halbleiter",
                     "results": {
                         "Halbleiter": {
-                            "gndid": ["4129772-7"],
-                            "ddc_codes": ["530"],
+                            "gnd_ids": ["4129772-7"],
+                            "classifications": {"ddc": ["530"]},
                             "count": 1,
                             "display_count": 87,
                         },
                         "Silizium": {
-                            "gndid": ["4130826-8"],
-                            "ddc_codes": ["546"],
+                            "gnd_ids": ["4130826-8"],
+                            "classifications": {"ddc": ["546"]},
                         },
                     },
                 },

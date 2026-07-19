@@ -1409,9 +1409,8 @@ class BiblioClient:
                 search_term: {
                     subject: {
                         "count": int,
-                        "gndid": set(),
-                        "ddc": set(),
-                        "dk": set()
+                        "gnd_ids": set(),
+                        "classifications": {}
                     }
                 }
             }
@@ -1459,12 +1458,12 @@ class BiblioClient:
     def _reduce_records_to_subjects(
         self, processed_items: List[Dict[str, Any]]
     ) -> Dict[str, Dict[str, Any]]:
-        """Reduce parsed catalog records to ``{subject: {count,gndid,ddc,dk}}``.
+        """Reduce parsed catalog records to the canonical ``{subject: {count, gnd_ids, classifications}}``.
 
         Extracted from :meth:`search_subjects` so the same reduction backs both
         the live path and the WP2 raw-cache transform-on-read. Byte-identical:
         subjects are the union of ``subjects`` + ``mab_subjects``, ``count`` is
-        the occurrence tally, ``gndid``/``ddc``/``dk`` start empty (gndid filled
+        the occurrence tally, ``gnd_ids`` starts empty (filled
         later by SWB validation), and the result is capped at the top 50 by
         count. - Claude Generated
         """
@@ -1480,14 +1479,20 @@ class BiblioClient:
                 if subject not in term_subjects:
                     term_subjects[subject] = {
                         "count": 1,
-                        "gndid": set(),  # Will be filled by SWB validation later
-                        "ddc": ddc_set.copy(),
-                        "dk": dk_set.copy(),
+                        "gnd_ids": set(),  # Will be filled by SWB validation later
+                        "classifications": {
+                            system: codes.copy()
+                            for system, codes in (("ddc", ddc_set), ("dk", dk_set))
+                            if codes
+                        },
                     }
                 else:
                     term_subjects[subject]["count"] += 1
-                    term_subjects[subject]["ddc"].update(ddc_set)
-                    term_subjects[subject]["dk"].update(dk_set)
+                    cls = term_subjects[subject]["classifications"]
+                    if ddc_set:
+                        cls.setdefault("ddc", set()).update(ddc_set)
+                    if dk_set:
+                        cls.setdefault("dk", set()).update(dk_set)
 
         # Limit subjects per term to prevent excessive results - Claude Generated
         if len(term_subjects) > 50:

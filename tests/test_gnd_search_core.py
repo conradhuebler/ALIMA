@@ -23,15 +23,13 @@ from src.core.gnd_search_core import (
 
 class TestMergeCodeEntry(unittest.TestCase):
     def test_set_fields_updated_in_place(self):
-        """Classic shape: gndid/ddc/dk are sets, merged via union, count via max."""
-        target = {"count": 3, "gndid": {"1"}, "ddc": set(), "dk": {"a"}}
-        source = {"count": 7, "gndid": {"1", "2"}, "ddc": {"x"}, "dk": set()}
-        merge_code_entry(target, source, code_fields=("gndid", "ddc", "dk"))
+        """Nested shape: code fields are sets, merged via union, count via max."""
+        target = {"count": 3, "gnd_ids": {"1"}}
+        source = {"count": 7, "gnd_ids": {"1", "2"}}
+        merge_code_entry(target, source, code_fields=("gnd_ids",))
         self.assertEqual(target["count"], 7)
-        self.assertEqual(target["gndid"], {"1", "2"})
-        self.assertEqual(target["ddc"], {"x"})
-        self.assertEqual(target["dk"], {"a"})
-        self.assertIsInstance(target["gndid"], set)
+        self.assertEqual(target["gnd_ids"], {"1", "2"})
+        self.assertIsInstance(target["gnd_ids"], set)
 
     def test_list_fields_order_preserving_dedup(self):
         """Agentic shape: code fields are lists — dedup but keep first-seen order."""
@@ -59,10 +57,12 @@ class TestMergeCodeEntry(unittest.TestCase):
         self.assertEqual(source["classifications"], {"dk": ["530.145", "539"], "rvk": ["UK 1000"]})
 
     def test_missing_fields_are_noops(self):
-        target = {"count": 2, "gndid": {"1"}}
-        merge_code_entry(target, {}, code_fields=("gndid", "ddc", "dk"))
+        target = {"count": 2, "gnd_ids": {"1"}}
+        merge_code_entry(target, {}, code_fields=("gnd_ids",),
+                         classifications_field="classifications")
         self.assertEqual(target["count"], 2)
-        self.assertEqual(target["gndid"], {"1"})
+        self.assertEqual(target["gnd_ids"], {"1"})
+        self.assertNotIn("classifications", target)
 
 
 class TestMergeIntoPool(unittest.TestCase):
@@ -93,8 +93,8 @@ class TestParseBatchResponse(unittest.TestCase):
     PAYLOAD = {
         "results": {
             "Cadmium": {
-                "Cadmium": {"gndid": ["1"], "ddc": ["546"], "dk": [], "count": 5},
-                "Schwermetall": {"gndid": ["2"], "ddc": [], "dk": [], "count": 9},
+                "Cadmium": {"gnd_ids": ["1"], "classifications": {"ddc": ["546"]}, "count": 5},
+                "Schwermetall": {"gnd_ids": ["2"], "classifications": {}, "count": 9},
             }
         }
     }
@@ -110,7 +110,7 @@ class TestParseBatchResponse(unittest.TestCase):
 
     def test_entries_without_ids_or_title_skipped(self):
         out = parse_batch_response(
-            {"results": {"t": {"": {"gndid": [], "count": 0}}}}
+            {"results": {"t": {"": {"gnd_ids": [], "count": 0}}}}
         )
         self.assertEqual(out, {})
 

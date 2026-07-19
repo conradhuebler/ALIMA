@@ -32,7 +32,7 @@ from ..gnd_search_core import merge_into_pool, parse_batch_response, rank_pool
 
 logger = logging.getLogger(__name__)
 
-# {source: transform(raw_dict) -> {subject: {count, gndid, ddc, dk}}}
+# {source: transform(raw_dict) -> {subject: {count, gnd_ids, classifications}}}
 TransformMap = Dict[str, Callable[[Dict[str, Any]], Dict[str, Dict[str, Any]]]]
 
 
@@ -82,15 +82,14 @@ def _reduced_from_mapping(
         title = fact.title
         cnt = gnd_counts.get(gnd_id)
         if title in by_title:
-            by_title[title]["gndid"].add(gnd_id)
+            by_title[title]["gnd_ids"].add(gnd_id)
             if cnt is not None:
                 by_title[title]["count"] = max(by_title[title]["count"], int(cnt))
         else:
             by_title[title] = {
                 "count": int(cnt) if cnt is not None else 1,
-                "gndid": {gnd_id},
-                "ddc": set(),
-                "dk": set(),
+                "gnd_ids": {gnd_id},
+                "classifications": {},
             }
     return by_title or None
 
@@ -174,9 +173,10 @@ def nested_from_aggregate(agg: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, 
     """Reshape an aggregate result to the classic nested ``{term:{title:{...}}}`` view.
 
     Inverts ``terms_map`` (title→terms) so each search term maps to its confirmed
-    titles with the reduced fields in the suggester shape (``gndid``/``ddc``/``dk``
-    as fresh sets, ``count``, optional ``display_count``). This is the classic
-    GUI/CLI/Webapp contract, now derived from the raw-first pool. - Claude Generated
+    titles with the reduced fields in the canonical shape (``gnd_ids`` /
+    ``classifications`` as fresh sets per term, ``count``, optional
+    ``display_count``). This is the classic GUI/CLI/Webapp contract, now derived
+    from the raw-first pool. - Claude Generated
     """
     by_title = {e.get("title"): e for e in agg.get("pool", [])}
     nested: Dict[str, Dict[str, Dict[str, Any]]] = {}

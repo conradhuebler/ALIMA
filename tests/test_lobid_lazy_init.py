@@ -50,7 +50,7 @@ class LobidLazyInitTest(unittest.TestCase):
             prep.assert_called_once()  # memoised: no second load
             self.assertEqual(first, second)
             self.assertEqual(first["Wasser"]["count"], 7)
-            self.assertEqual(first["Wasser"]["gndid"], {"4064937-4"})
+            self.assertEqual(first["Wasser"]["gnd_ids"], {"4064937-4"})
 
     def test_default_data_dir_is_persistent_per_user(self):
         default = LobidSuggester.default_data_dir()

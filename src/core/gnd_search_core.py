@@ -143,13 +143,14 @@ def _merge_display_count(target: Dict[str, Any], source: Dict[str, Any]) -> None
 
 def _entry_from_kw_data(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str, Any]:
     """Build a canonical pool entry from a single suggester keyword payload."""
-    gnd_ids = [str(g) for g in kw_data.get("gndid", []) if g]
+    gnd_ids = [str(g) for g in kw_data.get("gnd_ids", []) if g]
     # Canonical classifications dict (WP-D1): {system: [codes]}, systems are
-    # equal-rank keys; only non-empty systems are carried.
+    # equal-rank keys; only non-empty systems are carried. Accepts sets (direct
+    # suggester output) and lists (JSON-serialized tool responses) alike.
     classifications = {
-        system: list(kw_data.get(system, []))
-        for system in ("ddc", "dk")
-        if kw_data.get(system)
+        system: list(codes)
+        for system, codes in (kw_data.get("classifications") or {}).items()
+        if codes
     }
     entry = {
         "title": kw_title,

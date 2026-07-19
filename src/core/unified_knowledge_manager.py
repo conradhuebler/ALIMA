@@ -1939,23 +1939,12 @@ class UnifiedKnowledgeManager:
         gnd_ids = []
         
         try:
-            if suggester_type == "lobid":
-                # Lobid results: {term: {keyword: {"gndid": set, ...}}}
+            if suggester_type in ("lobid", "swb"):
+                # Canonical suggester results: {term: {keyword: {"gnd_ids": set, ...}}}
                 for term_results in results.values():
                     for keyword_data in term_results.values():
-                        if "gndid" in keyword_data:
-                            gnd_set = keyword_data["gndid"]
-                            if isinstance(gnd_set, set):
-                                gnd_ids.extend(list(gnd_set))
-                            elif isinstance(gnd_set, list):
-                                gnd_ids.extend(gnd_set)
-                                
-            elif suggester_type == "swb":
-                # SWB results: similar structure to lobid
-                for term_results in results.values():
-                    for keyword_data in term_results.values():
-                        if "gndid" in keyword_data:
-                            gnd_set = keyword_data["gndid"]
+                        if "gnd_ids" in keyword_data:
+                            gnd_set = keyword_data["gnd_ids"]
                             if isinstance(gnd_set, set):
                                 gnd_ids.extend(list(gnd_set))
                             elif isinstance(gnd_set, list):

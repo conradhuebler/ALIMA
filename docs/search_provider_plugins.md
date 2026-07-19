@@ -39,7 +39,7 @@ Three overlapping layers, two parallel registries, one rigid result contract:
 
 1. **Suggester layer** (`src/utils/suggesters/`)
    - `BaseSuggester` (ABC, **QObject** — coupled to Qt signals) with one contract:
-     `search(terms) -> Dict[term][keyword]{count, gndid, ddc, dk}`.
+     `search(terms) -> Dict[term][keyword]{count, gnd_ids, classifications}` (Vertrag v2, July 19 2026: `classifications` ist `{system: set}` mit gleichrangigen Systemen dk/ddc/rvk).
    - Concrete: `LobidSuggester`, `SWBSuggester`, `BiblioSuggester` (catalog),
      `FincSuggester`.
    - `MetaSuggester`: orchestrator + mapping-first caching (baked in), wired by a
@@ -55,7 +55,7 @@ Three overlapping layers, two parallel registries, one rigid result contract:
      the current "selectable tools" mechanism for agentic workflows.
 
 3. **Result-format fragmentation**
-   - GND-keyword sources (lobid/swb/catalog): `{count, gndid, ddc, dk}`.
+   - GND-keyword sources (lobid/swb/catalog): `{count, gnd_ids, classifications: {system: codes}}` (Vertrag v2).
    - finc: **records** + facet distributions (`udk_raw_de105`, `rvk_facet`) — a
      different shape that the single `search()` contract cannot express.
 

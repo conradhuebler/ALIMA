@@ -148,7 +148,7 @@ class DisplayCountFlowTest(unittest.TestCase):
     """display_count must flow to the display layer but never into ranking."""
 
     def test_entry_carries_display_count_but_rank_ignores_it(self):
-        kw_data = {"count": 1, "gndid": {"g1"}, "ddc": set(), "dk": set(), "display_count": 47}
+        kw_data = {"count": 1, "gnd_ids": {"g1"}, "classifications": {}, "display_count": 47}
         entry = _entry_from_kw_data("Wassermanagement", kw_data)
         self.assertEqual(entry["count"], 1)
         self.assertEqual(entry["display_count"], 47)
@@ -162,10 +162,10 @@ class DisplayCountFlowTest(unittest.TestCase):
 
     def test_merge_max_merges_display_count(self):
         cached = _entry_from_kw_data(
-            "T", {"count": 1, "gndid": {"g1"}, "ddc": set(), "dk": set(), "display_count": 47}
+            "T", {"count": 1, "gnd_ids": {"g1"}, "classifications": {}, "display_count": 47}
         )
         live = _entry_from_kw_data(
-            "T", {"count": 3, "gndid": {"g2"}, "ddc": set(), "dk": set()}
+            "T", {"count": 3, "gnd_ids": {"g2"}, "classifications": {}}
         )
         pool = {}
         merge_into_pool(pool, {"T": cached})

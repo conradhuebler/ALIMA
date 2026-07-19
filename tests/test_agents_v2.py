@@ -675,12 +675,12 @@ class TestAlimaClassicMigration(unittest.TestCase):
         def _exec(tool, args):
             if tool == "search_swb":
                 return json.dumps({"results": {
-                    "kw1": {"Titel1": {"gndid": ["123-4"], "count": 5, "ddc": ["540"], "dk": []}},
+                    "kw1": {"Titel1": {"gnd_ids": ["123-4"], "count": 5, "classifications": {"ddc": ["540"]}}},
                 }})
             if tool == "search_lobid":
                 return json.dumps({"results": {
-                    "kw1": {"Titel1": {"gndid": ["999-9"], "count": 3, "ddc": [], "dk": ["DK1"]}},
-                    "kw2": {"Titel2": {"gndid": ["456-7"], "count": 2, "ddc": [], "dk": []}},
+                    "kw1": {"Titel1": {"gnd_ids": ["999-9"], "count": 3, "classifications": {"dk": ["DK1"]}}},
+                    "kw2": {"Titel2": {"gnd_ids": ["456-7"], "count": 2, "classifications": {}}},
                 }})
             if tool == "get_gnd_batch":
                 return json.dumps({"entries": {
@@ -830,16 +830,16 @@ class TestPoCWorkflows(unittest.TestCase):
         def _exec(tool, args):
             if tool == "search_swb":
                 return json.dumps({"results": {
-                    "q": {"Titel A": {"gndid": ["111"], "count": 10, "ddc": [], "dk": []}},
+                    "q": {"Titel A": {"gnd_ids": ["111"], "count": 10, "classifications": {}}},
                 }})
             if tool == "search_lobid":
                 return json.dumps({"results": {
-                    "q": {"Titel A": {"gndid": ["222"], "count": 3, "ddc": [], "dk": []},
-                          "Titel B": {"gndid": ["333"], "count": 1, "ddc": [], "dk": []}},
+                    "q": {"Titel A": {"gnd_ids": ["222"], "count": 3, "classifications": {}},
+                          "Titel B": {"gnd_ids": ["333"], "count": 1, "classifications": {}}},
                 }})
             if tool == "search_catalog":
                 return json.dumps({"results": {
-                    "q": {"Titel C": {"gndid": ["444"], "count": 2, "ddc": [], "dk": []}},
+                    "q": {"Titel C": {"gnd_ids": ["444"], "count": 2, "classifications": {}}},
                 }})
             if tool == "get_gnd_batch":
                 return json.dumps({"entries": {}})
@@ -926,7 +926,7 @@ class TestPoCWorkflows(unittest.TestCase):
                 return json.dumps({"entries": {}})
             if tool == "search_lobid":
                 return json.dumps({"results": {
-                    args["terms"][0]: {"Recovered": {"gndid": [args["terms"][0]], "count": 1, "ddc": ["540"]}},
+                    args["terms"][0]: {"Recovered": {"gnd_ids": [args["terms"][0]], "count": 1, "classifications": {"ddc": ["540"]}}},
                 }})
             return "{}"
 

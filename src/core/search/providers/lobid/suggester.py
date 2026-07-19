@@ -212,7 +212,7 @@ class LobidSuggester(BaseSuggester):
             self.prepare(False)
 
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
-        """Reduce a raw lobid response to the ``{subject: {count,gndid,ddc,dk}}`` view.
+        """Reduce a raw lobid response to the canonical ``{subject: {count, gnd_ids, classifications}}`` view.
 
         Deterministic; the only I/O is the memoised one-time lazy load of the
         GND subject table (``_ensure_subjects``). The parsing body is the exact
@@ -242,16 +242,15 @@ class LobidSuggester(BaseSuggester):
 
             # Add to results, creating a new entry or updating an existing one
             if subject in subjects:
-                subjects[subject]["gndid"].add(gnd_id)
+                subjects[subject]["gnd_ids"].add(gnd_id)
                 # Update count if the new one is higher
                 if count > subjects[subject]["count"]:
                     subjects[subject]["count"] = count
             else:
                 subjects[subject] = {
                     "count": count,
-                    "gndid": {gnd_id},
-                    "ddc": set(),
-                    "dk": set(),
+                    "gnd_ids": {gnd_id},
+                    "classifications": {},
                 }
         return subjects
 
@@ -274,8 +273,8 @@ class LobidSuggester(BaseSuggester):
         Composition of :meth:`fetch` (I/O) and :meth:`transform` (pure); the
         public reduced output is unchanged. Result structure::
 
-            {search_term: {keyword: {"count": int, "gndid": set,
-                                     "ddc": set, "dk": set}}}
+            {search_term: {keyword: {"count": int, "gnd_ids": set,
+                                     "classifications": dict}}}
         - Claude Generated
         """
         result_subjects = dict()
@@ -331,9 +330,8 @@ class LobidSuggester(BaseSuggester):
                 search_term: {
                     keyword: {
                         "count": int,
-                        "gndid": set,
-                        "ddc": set,
-                        "dk": set
+                        "gnd_ids": set,
+                        "classifications": dict,   # {system: set of codes}
                     }
                 }
             }

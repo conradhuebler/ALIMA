@@ -3,7 +3,7 @@
 Provides a BaseSuggester-conforming interface for the finc / VuFind-JSON
 catalog API. Unlike LobidSuggester / SWBSuggester (which return aggregated
 GND/DK/DDC data per term) or BiblioSuggester (which returns the legacy
-{count, gndid, ddc, dk} dict shape), FincSuggester returns **records**:
+{count, gnd_ids, classifications} dict shape), FincSuggester returns **records**:
 each search term maps to a list of normalized VuFind records plus a
 result_count, mirroring the operator-approved Biblio-style MCP tool
 output.

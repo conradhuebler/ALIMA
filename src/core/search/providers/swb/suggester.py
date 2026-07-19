@@ -42,7 +42,7 @@ class SWBSuggester(BaseSuggester):
             debug: Whether to enable debug output
         """
         super().__init__(data_dir, debug)
-        self.cache_filename = "swb_gnd_cache.json"
+        self.cache_filename = "swb_gnd_cache_v2.json"  # v2: canonical gnd_ids/classifications keys
         self.cache = self._load_cache()
 
     def _load_cache(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
@@ -58,38 +58,27 @@ class SWBSuggester(BaseSuggester):
 
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
-                # The cache format is complex because we store gndid as sets
-                # We need to reconstruct the sets when loading
+                # Sets are stored as lists in JSON — reconstruct them on load
+                # (canonical v2 shape: gnd_ids + classifications{system}).
                 data = json.load(f)
                 result = {}
 
                 for search_term, subjects in data.items():
                     result[search_term] = {}
                     for subject_name, subject_data in subjects.items():
-                        # Convert gndid back to a set
-                        if isinstance(subject_data.get("gndid"), list):
-                            subject_data["gndid"] = set(subject_data["gndid"])
-                        elif isinstance(subject_data.get("gndid"), str):
-                            subject_data["gndid"] = {subject_data["gndid"]}
-
-                        # Convert ddc and dk back to sets if they exist
-                        if isinstance(subject_data.get("ddc"), list):
-                            subject_data["ddc"] = set(subject_data["ddc"])
-                        elif isinstance(
-                            subject_data.get("ddc"), str
-                        ) and subject_data.get("ddc"):
-                            subject_data["ddc"] = {subject_data["ddc"]}
+                        gnd_ids = subject_data.get("gnd_ids")
+                        if isinstance(gnd_ids, list):
+                            subject_data["gnd_ids"] = set(gnd_ids)
+                        elif isinstance(gnd_ids, str):
+                            subject_data["gnd_ids"] = {gnd_ids}
                         else:
-                            subject_data["ddc"] = set()
+                            subject_data["gnd_ids"] = set()
 
-                        if isinstance(subject_data.get("dk"), list):
-                            subject_data["dk"] = set(subject_data["dk"])
-                        elif isinstance(
-                            subject_data.get("dk"), str
-                        ) and subject_data.get("dk"):
-                            subject_data["dk"] = {subject_data["dk"]}
-                        else:
-                            subject_data["dk"] = set()
+                        subject_data["classifications"] = {
+                            system: set(codes) if isinstance(codes, (list, set)) else {codes}
+                            for system, codes in (subject_data.get("classifications") or {}).items()
+                            if codes
+                        }
 
                         result[search_term][subject_name] = subject_data
 
@@ -109,10 +98,14 @@ class SWBSuggester(BaseSuggester):
                 for subject_name, subject_data in subjects.items():
                     serializable_subject = subject_data.copy()
 
-                    # Convert set to list for each field that might be a set
-                    for field in ["gndid", "ddc", "dk"]:
-                        if isinstance(subject_data.get(field), set):
-                            serializable_subject[field] = list(subject_data[field])
+                    # Convert sets to lists for JSON serialization
+                    if isinstance(subject_data.get("gnd_ids"), set):
+                        serializable_subject["gnd_ids"] = list(subject_data["gnd_ids"])
+                    if isinstance(subject_data.get("classifications"), dict):
+                        serializable_subject["classifications"] = {
+                            system: sorted(codes)
+                            for system, codes in subject_data["classifications"].items()
+                        }
 
                     serializable_data[search_term][subject_name] = serializable_subject
 
@@ -544,12 +537,11 @@ class SWBSuggester(BaseSuggester):
         # Prepare results in the desired format
         results = {}
         for subject_name, gnd_id in all_subjects.items():
-            # IMPORTANT: Save gndid as a set to match the format of the original SubjectSuggester
+            # Canonical suggester contract v2: gnd_ids set + classifications dict
             results[subject_name] = {
                 "count": 1,  # Default count
-                "gndid": {gnd_id},  # Save as SET - just like in the original!
-                "ddc": set(),  # Empty set for DDC
-                "dk": set(),  # Empty set for DK
+                "gnd_ids": {gnd_id},
+                "classifications": {},
             }
 
         # WP2: stash the REDUCED subject view (not the verbatim HTML pages) for the
@@ -565,9 +557,12 @@ class SWBSuggester(BaseSuggester):
                     "subjects": {
                         subj: {
                             "count": data["count"],
-                            "gndid": sorted(data["gndid"]),
-                            "ddc": sorted(data["ddc"]),
-                            "dk": sorted(data["dk"]),
+                            "gnd_ids": sorted(data["gnd_ids"]),
+                            "classifications": {
+                                system: sorted(codes)
+                                for system, codes in data["classifications"].items()
+                                if codes
+                            },
                         }
                         for subj, data in results.items()
                     },
@@ -594,12 +589,15 @@ class SWBSuggester(BaseSuggester):
         return results
 
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
-        """Reduce a cached SWB response to ``{subject: {count,gndid,ddc,dk}}`` — pure.
+        """Reduce a cached SWB response to the canonical
+        ``{subject: {count, gnd_ids, classifications}}`` view — pure.
 
-        Two cached shapes (transform-on-read counterpart for the WP2 raw cache):
-        * ``{"subjects": {...}}`` — the current compact form written by
-          :meth:`extract_gnd_from_swb`; reconstruct the code ``set``s. Small, always
-          cached, and carries the subject titles (no gnd_entries-fact dependency).
+        Cached storage shapes (transform-on-read counterpart for the WP2 raw cache):
+        * ``{"subjects": {...}}`` — the compact form written by
+          :meth:`extract_gnd_from_swb`; reconstruct the code ``set``s. Older rows
+          may still carry the pre-v2 ``gndid``/``ddc``/``dk`` keys — this is a
+          *storage-format* version fallback (like the ``pages`` branch below),
+          not a contract concession; rows age out of the raw cache anyway.
         * ``{"pages": [...]}`` — the legacy verbatim-HTML form; re-extract via
           :meth:`_extract_subjects_from_page` (kept for older cached rows).
         - Claude Generated
@@ -608,11 +606,18 @@ class SWBSuggester(BaseSuggester):
             out: Dict[str, Dict[str, Any]] = {}
             for subj, data in (raw.get("subjects") or {}).items():
                 data = data or {}
+                cls = {
+                    system: set(codes)
+                    for system, codes in (data.get("classifications") or {}).items()
+                    if codes
+                }
+                for legacy_key, system in (("ddc", "ddc"), ("dk", "dk")):
+                    if data.get(legacy_key):
+                        cls.setdefault(system, set()).update(data[legacy_key])
                 out[subj] = {
                     "count": data.get("count", 1),
-                    "gndid": set(data.get("gndid", [])),
-                    "ddc": set(data.get("ddc", [])),
-                    "dk": set(data.get("dk", [])),
+                    "gnd_ids": set(data.get("gnd_ids", data.get("gndid", []))),
+                    "classifications": cls,
                 }
             return out
 
@@ -623,9 +628,8 @@ class SWBSuggester(BaseSuggester):
         for subject_name, gnd_id in all_subjects.items():
             results[subject_name] = {
                 "count": 1,
-                "gndid": {gnd_id},
-                "ddc": set(),
-                "dk": set(),
+                "gnd_ids": {gnd_id},
+                "classifications": {},
             }
         return results
 
@@ -656,9 +660,8 @@ class SWBSuggester(BaseSuggester):
                 search_term: {
                     keyword: {
                         "count": int,
-                        "gndid": set,
-                        "ddc": set,
-                        "dk": set
+                        "gnd_ids": set,
+                        "classifications": dict,   # {system: set of codes}
                     }
                 }
             }

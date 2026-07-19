@@ -228,7 +228,7 @@ class AllExternalPluginsPocTest(unittest.TestCase):
 
             def search(self, search_terms, suggester_types):
                 recorded["suggester_types"] = list(suggester_types)
-                return {t: {"Wasserstoff": {"count": 3, "gndid": {"4064784-5"}}} for t in search_terms}
+                return {t: {"Wasserstoff": {"count": 3, "gnd_ids": {"4064784-5"}}} for t in search_terms}
 
         enabled = ["poc_lobid", "poc_swb", "poc_catalog"]  # built-ins disabled
         with patch("src.utils.pipeline_utils.SearchCLI", _FakeSearchCLI), patch(

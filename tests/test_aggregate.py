@@ -49,11 +49,11 @@ class AggregateTest(unittest.TestCase):
         self.km.store_raw_response("swb", "wasser", {"search_type": "kw", "max_pages": 5}, "{}")
         transforms = {
             "lobid": lambda raw: {
-                "Wasser": {"count": 47, "gndid": {"g1"}, "ddc": set(), "dk": set()},
+                "Wasser": {"count": 47, "gnd_ids": {"g1"}, "classifications": {}},
             },
             "swb": lambda raw: {
-                "Wasser": {"count": 1, "gndid": {"g1"}, "ddc": set(), "dk": set()},
-                "Klima": {"count": 1, "gndid": {"g2"}, "ddc": set(), "dk": set()},
+                "Wasser": {"count": 1, "gnd_ids": {"g1"}, "classifications": {}},
+                "Klima": {"count": 1, "gnd_ids": {"g2"}, "classifications": {}},
             },
         }
         out = aggregate_gnd_results(
@@ -123,7 +123,7 @@ class AggregateTest(unittest.TestCase):
 
 class _FakeSuggester:
     def transform(self, raw):
-        return {"Wasser": {"count": 9, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
+        return {"Wasser": {"count": 9, "gnd_ids": {"g1"}, "classifications": {}}}
 
 
 class _FakeProvider:
@@ -416,7 +416,7 @@ class SearchFromRawTest(unittest.TestCase):
         class _Sugg:
             @staticmethod
             def transform(raw):
-                return {"Wasser": {"count": 7, "gndid": {"g1"}, "ddc": set(), "dk": set()}}
+                return {"Wasser": {"count": 7, "gnd_ids": {"g1"}, "classifications": {}}}
 
         class _FakeGnd:
             id = "fake_l"

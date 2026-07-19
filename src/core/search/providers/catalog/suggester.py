@@ -100,9 +100,8 @@ class BiblioSuggester(BaseSuggester):
                 search_term: {
                     keyword: {
                         "count": int,
-                        "gndid": set,
-                        "ddc": set,
-                        "dk": set
+                        "gnd_ids": set,
+                        "classifications": dict,   # {system: set of codes}
                     }
                 }
             }
@@ -142,7 +141,7 @@ class BiblioSuggester(BaseSuggester):
             raise BiblioSuggesterError(error_msg) from e
 
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
-        """Reduce cached catalog records to the ``{subject:{count,gndid,ddc,dk}}`` view.
+        """Reduce cached catalog records to the canonical ``{subject: {count, gnd_ids, classifications}}`` view.
 
         Transform-on-read counterpart to :meth:`search` for the WP2 raw cache;
         delegates to the shared reduction on :class:`BiblioClient`. - Claude Generated

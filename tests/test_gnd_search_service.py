@@ -150,14 +150,14 @@ class SearchServiceTest(unittest.TestCase):
 
     def test_live_merge_across_sources(self):
         PROVIDER_REGISTRY["fake_a"] = _make_fake_provider("fake_a", {
-            "wasser": {"Wasser": {"count": 47, "gndid": {"g1"}, "ddc": set(),
-                                  "dk": set(), "display_count": 47}},
+            "wasser": {"Wasser": {"count": 47, "gnd_ids": {"g1"},
+                                  "classifications": {}, "display_count": 47}},
         })
         PROVIDER_REGISTRY["fake_b"] = _make_fake_provider("fake_b", {
             "wasser": {
-                "Wasser": {"count": 1, "gndid": {"g1", "g2"}, "ddc": {"5"},
-                           "dk": set(), "display_count": 10},
-                "Klima": {"count": 3, "gndid": {"g3"}, "ddc": set(), "dk": set()},
+                "Wasser": {"count": 1, "gnd_ids": {"g1", "g2"},
+                           "classifications": {"ddc": {"5"}}, "display_count": 10},
+                "Klima": {"count": 3, "gnd_ids": {"g3"}, "classifications": {}},
             },
         })
         results, errors = service.search_gnd_keywords(
@@ -202,7 +202,7 @@ class SearchServiceTest(unittest.TestCase):
         PROVIDER_REGISTRY["fake_a"] = _make_fake_provider(
             "fake_a", {"wasser": {}},
             transform=lambda raw: {
-                "Wasser": {"count": 47, "gndid": {"g1"}, "ddc": set(), "dk": set()},
+                "Wasser": {"count": 47, "gnd_ids": {"g1"}, "classifications": {}},
             },
         )
         results, errors = service.search_gnd_keywords(

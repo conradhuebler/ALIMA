@@ -64,8 +64,8 @@ class _FakeProvider:
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class GeneratedSearchToolTest(unittest.TestCase):
-    GND = {"t": {"Kw": {"count": 5, "gndid": {"4074335-4"}, "ddc": {"333"}, "dk": set()}}}
-    RAW = {"t": {"KwRaw": {"count": 2, "gndid": {"4055747-6"}, "ddc": set(), "dk": set()}}}
+    GND = {"t": {"Kw": {"count": 5, "gnd_ids": {"4074335-4"}, "classifications": {"ddc": {"333"}}}}}
+    RAW = {"t": {"KwRaw": {"count": 2, "gnd_ids": {"4055747-6"}, "classifications": {}}}}
 
     def _registry(self):
         from unittest.mock import MagicMock

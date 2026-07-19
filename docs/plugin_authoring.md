@@ -130,7 +130,7 @@ class MeinProvider:                      # oder SuggesterBackedProvider-Subklass
 Wenn die Quelle gecacht werden soll, stellt der Suggester bereit:
 - `last_raw: {term: raw_json_str}` — Verbatim-Antwort pro Begriff,
 - `last_http_status: {term: int}`, `last_errors: {term: str}`,
-- ein **pures** `transform(raw) -> {schlagwort: {count, gndid, ddc, dk}}`
+- ein **pures** `transform(raw) -> {schlagwort: {count, gnd_ids, classifications}}` — `classifications` ist das kanonische `{system: codes}`-Dict (dk/ddc/rvk gleichrangig, Vertrag v2 seit July 19 2026; die alte `gndid/ddc/dk`-Form ist abgeschafft)
   (kein I/O — es läuft auch beim Cache-Read).
 
 `SuggesterBackedProvider._gnd_search` übernimmt den Dual-Write; Standalone-

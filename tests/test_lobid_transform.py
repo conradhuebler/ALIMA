@@ -44,15 +44,13 @@ class LobidTransformGateTest(unittest.TestCase):
         expected = {
             "Wasser": {
                 "count": 50,  # max(47, 50) — dedup keeps the higher count
-                "gndid": {"4064937-4", "4064938-6"},
-                "ddc": set(),
-                "dk": set(),
+                "gnd_ids": {"4064937-4", "4064938-6"},
+                "classifications": {},
             },
             "4030550-8": {  # unknown id → subject falls back to the bare id
                 "count": 12,
-                "gndid": {"4030550-8"},
-                "ddc": set(),
-                "dk": set(),
+                "gnd_ids": {"4030550-8"},
+                "classifications": {},
             },
         }
         self.assertEqual(got, expected)

@@ -142,10 +142,9 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
             {
                 search_term: {
                     keyword: {
-                        "count": int,              # Number of occurrences
-                        "gndid": set,              # Set of GND IDs
-                        "ddc": set,                # Set of DDC classifications
-                        "dk": set                  # Set of DK classifications
+                        "count": int,               # Number of occurrences
+                        "gnd_ids": set,             # Set of GND IDs
+                        "classifications": dict,    # {system: set of codes} — dk/ddc/rvk equal-rank
                     }
                 }
             }
@@ -169,13 +168,12 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
         for term, keywords in search_results.items():
             for keyword, data in keywords.items():
                 # Get the first GND ID if available (or empty string)
-                gnd_id = next(iter(data.get("gndid", set())), "")
+                gnd_id = next(iter(data.get("gnd_ids", set())), "")
 
-                # Get the first DDC classification if available (or empty string)
-                ddc = next(iter(data.get("ddc", set())), "")
-
-                # Get the first DK classification if available (or empty string)
-                dk = next(iter(data.get("dk", set())), "")
+                cls = data.get("classifications") or {}
+                # First DDC / DK classification if available (or empty string)
+                ddc = next(iter(cls.get("ddc", set())), "")
+                dk = next(iter(cls.get("dk", set())), "")
 
                 # Get the count (default to 1 if not available)
                 count = data.get("count", 1)

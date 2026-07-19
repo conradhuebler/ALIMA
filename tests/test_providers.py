@@ -91,26 +91,8 @@ class RegistryTest(unittest.TestCase):
 
 
 class GndKeywordRoundTripTest(unittest.TestCase):
+    # Canonical suggester contract v2 — lossless round-trip.
     SAMPLE = {
-        "wasser": {
-            "Wassermanagement": {
-                "count": 47,
-                "gndid": {"gnd1", "gnd2"},
-                "ddc": {"333.7"},
-                "dk": set(),
-            },
-            "Wasserwirtschaft": {
-                "count": 3,
-                "gndid": {"gnd3"},
-                "ddc": set(),
-                "dk": {"AR 1000"},
-            },
-        }
-    }
-
-    # Canonical nested emission (WP-D1): legacy suggester input in,
-    # {count, gnd_ids, classifications} out.
-    EXPECTED = {
         "wasser": {
             "Wassermanagement": {
                 "count": 47,
@@ -125,11 +107,11 @@ class GndKeywordRoundTripTest(unittest.TestCase):
         }
     }
 
-    def test_canonical_emission_from_legacy_input(self):
+    def test_lossless_roundtrip(self):
         pr = ProviderResult.from_gnd_keywords(self.SAMPLE, errors={"wasser": "boom"})
         self.assertEqual(pr.capability, SearchCapability.GND_KEYWORDS)
         self.assertEqual(pr.errors, {"wasser": "boom"})
-        self.assertEqual(pr.to_gnd_keywords(), self.EXPECTED)
+        self.assertEqual(pr.to_gnd_keywords(), self.SAMPLE)
 
     def test_display_count_is_additive(self):
         # Without display_count the legacy shape is unchanged...
@@ -143,8 +125,7 @@ class GndKeywordRoundTripTest(unittest.TestCase):
 
 
 class GndProviderSearchTest(unittest.TestCase):
-    OUT = {"x": {"Kw": {"count": 5, "gndid": {"g1"}, "ddc": set(), "dk": set()}}}
-    OUT_CANONICAL = {"x": {"Kw": {"count": 5, "gnd_ids": {"g1"}, "classifications": {}}}}
+    OUT = {"x": {"Kw": {"count": 5, "gnd_ids": {"g1"}, "classifications": {}}}}
 
     def _provider_with_fake(self, pid, out, errors=None):
         prov = get_provider(pid)()
@@ -155,7 +136,7 @@ class GndProviderSearchTest(unittest.TestCase):
     def test_lobid_search_wraps_output(self):
         prov, fake = self._provider_with_fake("lobid", self.OUT, errors={"x": "err"})
         res = prov.search(SearchCapability.GND_KEYWORDS, ["x"], search_type="kw")
-        self.assertEqual(res.to_gnd_keywords(), self.OUT_CANONICAL)
+        self.assertEqual(res.to_gnd_keywords(), self.OUT)
         self.assertEqual(res.errors, {"x": "err"})
         self.assertEqual(fake.recorded_kwargs, {"search_type": "kw"})
 

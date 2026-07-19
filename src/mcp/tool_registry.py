@@ -392,6 +392,18 @@ class ToolRegistry:
     # ============================================================
 
     @staticmethod
+    def _serialize_result_row(data: Dict) -> Dict:
+        """JSON-safe copy of one canonical result row: top-level sets → lists,
+        nested ``classifications`` code sets → lists. - Claude Generated"""
+        row = {k: list(v) if isinstance(v, set) else v for k, v in data.items()}
+        if isinstance(row.get("classifications"), dict):
+            row["classifications"] = {
+                system: list(codes) if isinstance(codes, set) else codes
+                for system, codes in row["classifications"].items()
+            }
+        return row
+
+    @staticmethod
     def _serialize_suggester_results(results: Dict) -> Dict:
         """Convert per-term suggester results (with sets) to JSON-safe dicts - Claude Generated
 
@@ -402,15 +414,7 @@ class ToolRegistry:
         for term, keywords in results.items():
             serializable[term] = {}
             for kw, data in keywords.items():
-                row = {
-                    k: list(v) if isinstance(v, set) else v
-                    for k, v in data.items()
-                }
-                if isinstance(row.get("classifications"), dict):
-                    row["classifications"] = {
-                        system: list(codes) if isinstance(codes, set) else codes
-                        for system, codes in row["classifications"].items()
-                    }
+                row = ToolRegistry._serialize_result_row(data)
                 gnd_urls = [
                     u for g in (row.get("gnd_ids") or [])
                     if (u := gnd_url(str(g)))
@@ -1649,7 +1653,7 @@ class ToolRegistry:
                 serialized = {}
                 for term, keywords in results.items():
                     serialized[term] = {
-                        kw: {k: list(v) if isinstance(v, set) else v for k, v in data.items()}
+                        kw: self._serialize_result_row(data)
                         for kw, data in keywords.items()
                     }
             out = {"source": spec.source_label, "results": serialized}

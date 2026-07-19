@@ -1551,12 +1551,12 @@ def gnd_batch_metadata(
                 data = json.loads(raw) if isinstance(raw, str) else raw
                 for _term, kws in (data.get("results") or {}).items():
                     for title, kw in (kws or {}).items():
-                        if gid in (kw.get("gndid") or []):
+                        if gid in (kw.get("gnd_ids") or []):
                             entries[gid] = {
                                 "title": title,
                                 "description": "",
                                 "synonyms": [],
-                                "ddcs": list(kw.get("ddc", [])),
+                                "ddcs": list((kw.get("classifications") or {}).get("ddc", [])),
                             }
                             missing.remove(gid)
                             break

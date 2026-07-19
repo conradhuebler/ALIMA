@@ -119,7 +119,7 @@ class ProviderResult:
         per_term_dict: Dict[str, Dict[str, Dict[str, Any]]],
         errors: Optional[Dict[str, str]] = None,
     ) -> "ProviderResult":
-        """Build from the legacy ``{term: {keyword: {count, gndid, ddc, dk}}}`` shape."""
+        """Build from the canonical suggester ``{term: {keyword: {count, gnd_ids, classifications}}}`` shape (contract v2)."""
         per_term: Dict[str, List[ResultItem]] = {}
         for term, keywords in (per_term_dict or {}).items():
             items: List[ResultItem] = []
@@ -127,14 +127,14 @@ class ProviderResult:
                 data = data or {}
                 dc = data.get("display_count")
                 classifications = {
-                    system: set(data.get(system, set()) or set())
-                    for system in ("ddc", "dk")
-                    if data.get(system)
+                    system: set(codes or [])
+                    for system, codes in (data.get("classifications") or {}).items()
+                    if codes
                 }
                 items.append(
                     ResultItem(
                         label=kw,
-                        gnd_ids=set(data.get("gndid", set()) or set()),
+                        gnd_ids=set(data.get("gnd_ids", set()) or set()),
                         count=int(data.get("count", 0) or 0),
                         display_count=None if dc is None else int(dc),
                         classifications=classifications,

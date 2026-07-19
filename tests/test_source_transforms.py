@@ -35,8 +35,8 @@ class SwbTransformTest(unittest.TestCase):
         fake = _FakeSwb({"p1": {"A": "g1", "B": "g2"}, "p2": {"B": "g2b", "C": "g3"}})
         got = SWBSuggester.transform(fake, {"pages": ["p1", "p2"]})
         self.assertEqual(set(got.keys()), {"A", "B", "C"})
-        self.assertEqual(got["A"], {"count": 1, "gndid": {"g1"}, "ddc": set(), "dk": set()})
-        self.assertEqual(got["B"]["gndid"], {"g2b"})  # later page wins on key collision
+        self.assertEqual(got["A"], {"count": 1, "gnd_ids": {"g1"}, "classifications": {}})
+        self.assertEqual(got["B"]["gnd_ids"], {"g2b"})  # later page wins on key collision
 
     def test_empty_pages(self):
         self.assertEqual(SWBSuggester.transform(_FakeSwb({}), {"pages": []}), {})
@@ -45,11 +45,12 @@ class SwbTransformTest(unittest.TestCase):
         # The compact {"subjects": …} form extract_gnd_from_swb now writes (small,
         # always under the size cap, carries titles) must round-trip through
         # transform back to the reduced view — no gnd_entries facts needed.
-        results = {"Wasser": {"count": 1, "gndid": {"g1", "g2"}, "ddc": {"540"}, "dk": set()}}
+        results = {"Wasser": {"count": 1, "gnd_ids": {"g1", "g2"},
+                              "classifications": {"ddc": {"540"}}}}
         blob = {
             "subjects": {
-                subj: {"count": d["count"], "gndid": sorted(d["gndid"]),
-                       "ddc": sorted(d["ddc"]), "dk": sorted(d["dk"])}
+                subj: {"count": d["count"], "gnd_ids": sorted(d["gnd_ids"]),
+                       "classifications": {s: sorted(c) for s, c in d["classifications"].items()}}
                 for subj, d in results.items()
             }
         }
@@ -73,7 +74,7 @@ class CatalogReduceTest(unittest.TestCase):
         self.assertEqual(got["Wasser"]["count"], 1)
         self.assertEqual(got["Umwelt"]["count"], 1)
         self.assertNotIn("", got)
-        self.assertEqual(got["Klima"]["gndid"], set())  # filled later by SWB validation
+        self.assertEqual(got["Klima"]["gnd_ids"], set())  # filled later by SWB validation
 
     def test_top_50_cap(self):
         items = [{"subjects": [f"S{i}"], "mab_subjects": []} for i in range(60)]

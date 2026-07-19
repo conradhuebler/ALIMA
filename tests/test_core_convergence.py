@@ -74,7 +74,7 @@ class _FakeRegistry:
 
 
 def _hit(gnd_id, count):
-    return {"gndid": [gnd_id], "count": count, "ddc": [], "dk": []}
+    return {"gnd_ids": [gnd_id], "count": count, "classifications": {}}
 
 
 class TestGndBatchSearchConvergence(unittest.TestCase):
