@@ -216,7 +216,9 @@ Erledigt in Commit `9552d93` (2026-06-10, „WP12 WIP: unified render layer
 Branch `agent`. Der Worktree-Stand ist eingefroren; abhängige Arbeiten
 (§9.3, WP13) können sauber aufsetzen.
 
-### 9.2 Visuelle Verifikation (GUI + Browser) ⬜
+### 9.2 Visuelle Verifikation (GUI + Browser) — on the fly
+**Politik-Update July 19:** Klick-/Sichtprüfungen macht der Operator beim
+normalen Benutzen und meldet Brüche; die Liste unten ist Referenz, kein Gate.
 Bisher nur headless belegt (`QT_QPA_PLATFORM=offscreen`, `TestClient`,
 `node --check`). Checkliste für einen echten Lauf (gleiches Dokument durch
 beide Frontends):

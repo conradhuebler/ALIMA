@@ -109,142 +109,39 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **WP Chat-UX-Aufräumen (GUI + Webapp) ✅ CODE-COMPLETE (July 19):** 9 Commits
-  (`07537d1`…`6985c8b`) — Webapp-Einflächigkeit (`#stream-text` weg), Live-Markdown
-  beim Streamen, geteiltes Fehler-Chrome (`kind="error"`, wp12 §9.3 ✅), Theming via
-  `--alima-*` (Light-Mode erreicht das Log, §9.4 entschieden: beides-ein-Stil),
-  GUI-Status-Strip statt Verlaufs-Spam, leichte i18n (`locales/`, `UIConfig.ui_language`,
-  DE/EN), Chat-Doppelrender-Guard; §9.5 als stale geschlossen. Suite 1321. Details:
-  `AIChangelog.md` (July 19). **Offen (Operator, GUI/Browser):** Klick-Checkliste —
-  Live-Markdown, Fehlerkarte (Step+Chat), Status-Strip, Bubble-Optik, Reset-Hinweis,
-  Webapp Light/Dark, `ui_language`-Wechsel, WS-Reconnect ohne Duplikate — plus
-  wp12-§9.2-Liste. Follow-up notiert: `BusRenderBridge`-Extraktion (drei Konsumenten,
-  Ownership-Notizen in `_chat_panel_bus.py`/`render_bridge.py`).
-- **WP Struktur-Aufräumen ✅ DONE (July 19):** Audit ergab keine toten Module; Restschuld
-  behoben in 5 Commits (`04d9eb0`…`32670d5`): `suggesters/`-Rest + finc-Shims weg,
-  20 stale Docs → `docs/legacy/`, Lobid-Dump-Download aus dem Konstruktor (lazy,
-  persistenter Pfad `~/.config/alima/suggesters/`), `pipeline_utils.py` 5166→2041
-  (DK/RVK verbatim in `DkStepsMixin`/`RvkScoringMixin`). Suite 1308. Details:
-  `AIChangelog.md` (July 19); neue Register-Zeilen F-10/F-11 in
-  [`docs/cleanup_findings.md`](docs/cleanup_findings.md). **Offen (Operator):**
-  Counter-Bug-Vergleichslauf, Lobid-Download-Klick-Test (neuer Cache-Pfad).
-- **WP Plugin-Konvergenz — P1–P5 + P6a + P7 ✅ COMMITTED (July 19, `27a2901`):**
-  **Eine** Konfigurationswahrheit: `CatalogConfig`/`SearchProviderConfig` gelöscht,
-  `AlimaConfig.plugins` ist es allein — Lesen `factory.primary_settings(cfg, id,
-  enabled_only=…)`, Schreiben `set_primary_settings`; Legacy-JSON-Sektionen sind
-  einmalige Migrations-Eingabe (absente Keys **weggelassen**, sonst `None` an die
-  Provider-Konstruktoren). DOI-`SystemConfig`-Mirror bleibt (nicht P7). Drei
-  Planannahmen fielen: der größte Leser-Cluster war *tot* (`execute_dk_search`s
-  5 Params, AST-geprüft), der Dict-Umbau war eine `None`-Falle, und der Mirror
-  hatte einen Live-Bug (`catalog_web_record_url`-Kollision → keine OPAC-Links).
-  Suite 1305. Details: [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)
-  + `AIChangelog.md` (July 17). Klick-Tests: **OPAC-Links ✅ bestanden (July 19,
-  „bugfix hat gegriffen")**; noch offen — DK-Suche (Pipeline + UB-Katalog-Tab),
-  agentischer Lauf mit deaktiviertem finc (Harvest darf **nicht** mehr laufen),
-  First-Start-Wizard + `alima wizard` (Werte im Plugins-Tab?), Bundle
-  export→install, find_keywords.
-- **WP Data-Flow-Vereinheitlichung (`BibRecord`)** — ENTSCHEIDUNG OFFEN (July 10):
-  das Plugin-System hat die *Verrohrung* vereinheitlicht, nicht die *Daten*. Feldnamen-Audit:
-  Round-Trip-Rename-Shims (`gnd_search_core.py:116-128` ↔ `aggregate.py:188-193`), duale
-  DOI-Shapes, `ddc` mit 3 Werttypen, Klassifikation in 4 Kodierungen → `BibRecord`
-  gerechtfertigt; Draft unterspezifiziert `authors`-Typ / URL-Rollen / `count`-Konvention.
-  Doc: [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
-  Der zugehörige **Counter-Bug ist ✅ GEFIXT** (`038738e`, July 16, alle 4 C1-Edits +
-  Unit-Tests; [`docs/wp_gnd_counter_divergence.md`](docs/wp_gnd_counter_divergence.md)) —
-  **offen nur Operator-Vergleichslauf** (agentisch vs. klassisch, gleiche Häufigkeit, GUI).
-- **WP Lookup-Plugin-Integration (Pipeline+Agent) — Phase D** ✅ CODE-COMPLETE
-  (July 10): rvk_api/k10plus/dnb liefen bisher nur im Chat-Agent; jetzt *ein*
-  Aufrufpfad je Quelle. Geteilter `build_lookup(config,id)`
-  (`src/utils/lookups/resolve.py`, spiegelt `ToolRegistry._lookup_instances`);
-  Workflow-Preset `lookup` + rvk in `classification` (`default_presets.yaml`);
-  klassische Pipeline-RVK (`pipeline_utils.py`) + CLI/GUI-k10plus-Batch + DNB-GUI
-  routen übers Plugin (k10plus: neuer uncapped `fetch_records`-Kern, `fetch_package`
-  = Cap-Wrapper). Tests `test_lookup_plugins.py` +10, Suite 1241 grün.
-  Verhaltensänderung: RVK-Validierungs-Timeout 4s→Plugin-Default, CLI-Siegel nutzt
-  Plugin-`cache_dir`. Doc: `docs/wp_search_tool_plugin_potential.md` Phase D +
-  `AIChangelog.md` (July 10). **Offen:** Operator-Commit + GUI-Sign-off (k10plus-
-  Batch-Dialog, DNB-Sync-Click-Test).
-- **WP Website-RAG-Chatbot (`webindex`-Lookup-Plugin)** ✅ CODE-COMPLETE
-  (July 9): ALIMA als Chatbot für Webseiteninhalte. Eigenes Plugin hält eine DB
-  über alle URLs einer konfigurierten Haupt-URL + eine **zentral synchronisierte
-  Keyword-Tabelle**; Retrieval = Frage → Keyword-Match gegen `page_keywords`
-  → gerankte Trefferseiten (Cache oder Live-Fetch) → Text → Antwort.
-  Lookup-Plugin `src/utils/lookups/webindex/` (`store.py` eigene `webindex.db`
-  nach `LocalGndStore`-Muster; `indexer.py` BeautifulSoup-Crawler mit injiziertem
-  `keyword_extractor`; `provider.py` Tools `search_webindex`/`fetch_page`/
-  `list_webindex_keywords`; `keywords.py` Model-Auflösung + Extractor-Glue).
-  Indizieren: GUI-Button „Seite indizieren …" (`_TYPE_ACTIONS`-Registry +
-  `WebIndexCrawlWorker` in `src/ui/webindex_crawl.py`) ODER CLI
-  `alima webindex crawl/stats/list-keywords/search`. Keyword-Standprompt lebt als
-  Workflow `workflows/webindex_keywords.yaml` (tool-less `llm_agent`, **nicht**
-  prompts.json — veraltet); Antwort-Prompt `workflows/website_rag.yaml`.
-  Model: CLI-Flags → Instanz `llm_provider`/`llm_model` → globaler agentic Default.
-  Tests netzfrei (`test_webindex_{store,indexer,lookup,keywords,crawl_ui}.py`, 51),
-  Suite 1231 grün. **Offen:** Operator-E2E gegen echte Biblio-URL + Sign-off.
-  Sub-CLAUDE:
-  [`src/utils/lookups/webindex/CLAUDE.md`](src/utils/lookups/webindex/CLAUDE.md).
-- **WP GND-Suche vereinheitlicht / MetaSuggester retired** ✅ CODE-COMPLETE (July 8):
-  ein Single-Entry `src/core/search/service.py` (`search_gnd_keywords` /
-  `resolve_gnd_instances`) baut alle Provider über `factory.build_provider` aus
-  `PluginInstanceConfig`; Klassik (`SearchCLI`), MCP (`ToolRegistry._provider_for` +
-  `_source_transform`) und GUI (`find_keywords`) konvergiert; `meta_suggester.py`
-  gelöscht (`grep "MetaSuggester("`→0). Live gegen lobid verifiziert (Klassik
-  live/merge + raw-first, MCP-Tools, agentisches `aggregate_gnd_results`); Suite
-  1152 grün. Defaults: lobid+swb zero-config, catalog/finc `is_available()`-gated
-  Blueprints, gnd_local offline. (Residual finc-MCP-Handler: seit WP P7 auf
-  Instanzen umgestellt, `CatalogConfig` existiert nicht mehr.) **Offen:**
-  Operator-Click-Test `find_keywords` (GUI nicht headless verifizierbar).
-  Doc: [`AIChangelog.md`](AIChangelog.md) (July 8).
-- **WP Plugin-Blueprints + Security-Härtung** ✅ CODE-COMPLETE (July 6): alle 6
-  Built-in-Provider sind self-contained, kopierbare Plugin-Dirs
-  (`src/core/search/providers/<name>/` mit plugin.toml + README); Loader lädt
-  Multi-File-Plugins; Härtung: Symlink-Verbot, Hash über alle Dateien (⚠️ einmalige
-  Re-Approval bestehender Code-Plugins), entry-Validierung, `net_guard`
-  (SSRF/Timeouts), Secrets-Env-Override (`ALIMA_PLUGIN_<ID>_<KEY>`). E2E:
-  `test_plugin_blueprint_e2e.py`. Offen: Operator-GUI-Click-Test (Plugin-Tab:
-  Secret-Placeholder, URL-Warndialog, Approval-Dialog). Guide:
-  [`docs/plugin_authoring.md`](docs/plugin_authoring.md).
-- **WP Own-Plugins-Only POC** ✅ CODE-COMPLETE (July 6): alle 6 Built-ins als
-  kopierbare `poc_*`-Plugins nachbaubar + Built-ins abschaltbar → App läuft nur
-  auf eigenen Plugins. Deployer/Generator `examples/plugins_poc/deploy_poc.py`
-  (nur `id` umbenannt, Tool-Namen/`source_label` bleiben), klassischer
-  Leer-Schnittmengen-Fallback in `execute_gnd_search`, E2E
-  `test_all_external_plugins_poc.py` (agentisch+klassisch grün). Grenzen:
-  Built-in-*Klassen* bleiben registriert (nur Instanzen/Tools aus), WP2-Raw-Cache
-  weiter auf `lobid`/`swb` verdrahtet (`find_keywords` liest seit July 8 die
-  Instanzliste, lobid+swb nur noch Fallback). Offen:
-  Operator-GUI-Sign-off (`examples/plugins_poc/README.md` §Verifikation).
-  Guide: [`docs/plugin_authoring.md`](docs/plugin_authoring.md) §10.
-- **WP Institutional Bundles** ✅ (July 6): `alima bundle
-  {build,install,export,list,remove}` + GUI-Gruppe im Plugin-Tab — Einrichtungen
-  rollen Plugins + beratendes Config-Profil gebündelt aus; `export` erfasst die
-  laufende Einstellung (Secrets gestrippt+deklariert, synthetische declarative
-  Instanzen mit eindeutiger id, `--plugin`-Auswahl, Code-Plugin setzt
-  `enable_code_plugins`). Qt-frei in `src/utils/bundle.py` (CLI:
-  `cli/commands/bundle_cmd.py`, GUI: `ui/plugin_settings_tab.py`), Provenienz-Ledger
-  `AlimaConfig.installed_bundles` für präzises remove, `profile.json`-Whitelist
-  schützt `unified_config`/Secrets (fail-closed), Per-User-Secrets nur deklariert
-  (env-Override). Beispiel `examples/bundles/demo_institution/`, Tests
-  `test_bundle.py` (14). Advisory, kein Lock/Signing/Auto-Update (bewusst). Doc:
-  [`docs/institutional_bundles.md`](docs/institutional_bundles.md).
-- **WP2 Raw-First Response Cache** ✅ (July 2, P1–P5): source responses cached verbatim
-  (`search_response_cache`); pool + counter (`display_count`) + provenance derived from
-  raw via `aggregate_gnd_results` (raw-first + mapping fallback); both pipelines converged
-  (rollback `aggregate_from_raw`); `search_lobid` `agent_view` (member/totalItems); input
-  tools `cacheable`. ⚠️ **Klassisch default-on, GUI/Webapp-Verifikation + Vergleichslauf
-  offen** (Operator). Spec: [`docs/wp_raw_response_cache.md`](docs/wp_raw_response_cache.md).
-- **WP Tool-Data-Passthrough** 🚧: agenten-facing Tools sollen die *vollständigen*
-  Quelldaten durchreichen, nicht den alten Pipeline-Ausschnitt. DOI-Tools/`resolve_doi`/
-  `scrape_url`/`read_pdf` ✅ done; **`search_finc` ✅ audited — clean** (reicht `raw`
-  komplett durch; 8-Feld-Deckel ist der `fincsolrproxy` server-seitig, keine
-  ALIMA-Änderung; live verifiziert July 1). **`search_lobid` ✅ audited**: Subjekt-
-  Aggregation (Primärdaten) wird komplett durchgereicht (Buckets nur `{key,doc_count}`);
-  gedroppt werden nur die `member`-Resource-Records — aber der Mapping-First-Cache
-  umgeht Live-lobid, daher nicht zuverlässig surfacebar → Operator-Entscheid offen
-  (Empfehlung: Per-Subjekt-Details via `get_gnd_entry`, kein Overload). Offen:
-  **swb/catalog** (+ catalog_titles) — dort echte Per-Record-Reduktion; Pool braucht
-  `{count,gndid,ddc,dk}`, daher volles `record` *zusätzlich*. Spec: [`docs/wp_tool_data_passthrough.md`](docs/wp_tool_data_passthrough.md).
-- **Cleanup-Findings-Register** (prioritisiert, projektweit): offene Debt-Findings aus dem Juni-2026-Sweep + empfohlene Reihenfolge. Headline F-3 Search-Provider-Plugins + F-4 „Häufigkeit zeigt 1" ✅ DONE (June 29); F-6 webapp `app.py`-Split 2537→240 ✅ DONE (June 30, sandbox-verifiziert); F-5 GUI-God-Files ✅ CODE-COMPLETE (June 30, alle 5 gesplittet, statisch verifiziert — nur Operator-Click-Test-Sign-off offen). Offen: F-5/F-7 nur noch Operator-Click-Test (Refactor war nicht GUI-gated, nur das Sign-off), F-8 opportunistisch (decide-on-touch). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+- **➡️ Offene WPs: [`docs/open_workpackages.md`](docs/open_workpackages.md)** (July 19,
+  ausführungsreifes Register): Schwerpunkt Daten-Achse **D1 BibRecord P0** + **D2
+  Notation-Generalisierung**; Konsolidierungen **K1** BusRenderBridge, **K2**
+  Lobid-Label aus gnd_local, **K3** DOI-Mirror-Abbau (P8), **K4** Tool-Passthrough
+  swb/catalog, **K5** SearchTab-Refresh; T-Reihe anlassbezogen (Gemini+LlmService-Split,
+  Session-Persistenz, Keyring, i18n-Ausbau); V1 Agentic Hauptagent.
+- **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
+  beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
+  statischer Verifikation als DONE.
+- **WP Chat-UX-Aufräumen ✅ DONE (July 19):** 9 Commits (`07537d1`…`6985c8b`) +
+  Link-Fix `e4101fd` — eine Webapp-Anzeigefläche (`#stream-text` weg), Live-Markdown
+  beim Streamen, geteiltes Fehler-Chrome (`kind="error"`), `--alima-*`-Theming
+  (Light-Mode erreicht das Log), GUI-Status-Strip, leichte i18n (`locales/`,
+  `UIConfig.ui_language`), Chat-Doppelrender-Guard; wp12 §9.3–§9.5 geschlossen.
+  Suite 1323. Details: `AIChangelog.md` (July 19).
+- **WP Struktur-Aufräumen ✅ DONE (July 19):** keine toten Module; `suggesters/`-Rest +
+  finc-Shims weg, 20 Docs → `docs/legacy/`, Lobid-Download lazy + persistenter Pfad,
+  `pipeline_utils.py` 5166→2041 (`DkStepsMixin`/`RvkScoringMixin`). Register-Zeilen
+  F-10/F-11 in [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+- **WP Plugin-Konvergenz P1–P7 ✅ DONE (July 19, `27a2901`):** **eine**
+  Konfigurationswahrheit — `CatalogConfig`/`SearchProviderConfig` gelöscht,
+  `AlimaConfig.plugins` allein; Lesen `factory.primary_settings`, Schreiben
+  `set_primary_settings`; Legacy-JSON = einmalige Migrations-Eingabe (absente Keys
+  weggelassen). DOI-`SystemConfig`-Mirror bleibt (→ WP-K3). Doc:
+  [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md).
+- **Ältere ✅-WPs** (Lookup-Plugins Phase D `16ca53b`, webindex-RAG, GND-Suche/
+  MetaSuggester-Retire, Plugin-Blueprints+Härtung, Own-Plugins-POC, Institutional
+  Bundles, WP2 Raw-Cache, Counter-Bug `038738e`): Details in `AIChangelog.md` +
+  jeweiligen Docs/Sub-CLAUDEs; verbliebene Code-Reste sind ins WP-Register überführt
+  (Tool-Passthrough swb/catalog → K4; POC-Grenze: WP2-Raw-Cache noch auf lobid/swb
+  verdrahtet). BibRecord-Analyse → **WP-D1** ([`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md)).
+- **Cleanup-Findings-Register**: F-1…F-9 ✅ bzw. decide-on-touch (F-7/F-8), F-10/F-11
+  offen (→ K2 / Politik). Spec: [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
 
 ## [Instructions Block — Operator-Defined Tasks]
 
@@ -260,11 +157,10 @@ When documenting implemented features, the AI must apply these rules:
 2. **Pipeline Enhancement**: Templates, advanced configuration UI.
 3. **Batch Enhancement**: Extended image analysis, URL scraping.
 4. **Performance**: Connection pooling, result pagination, memory optimization.
-5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools.
-6. **Streaming-with-Tools Backend** (P-δ.5): Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers); Ollama/OpenAI/Anthropic ✅ stream with tools. Renderer is QWebEngineView-based (`src/ui/web_log_view.py`); see `AIChangelog.md` (June 9, 2026).
-7. **WP12 — Unified Render Layer (GUI ↔ Webapp)**: shared CSS+JS render layer + JSON render-event protocol; WP12.1–.4 committed in `9552d93`. Remaining work tracked as **WP12.5** §9.2–.5 (visual verification, error-event rendering, 2 operator decisions on webapp double-display & agentic tier). Spec: [`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md).
+5. **Agentic Hauptagent**: `main_agent:` block in YAML — meta-orchestrator that calls sub-workflows as tools. Spec-Skizze: [`docs/open_workpackages.md`](docs/open_workpackages.md) §WP-V1.
+6. **Streaming-with-Tools Backend** (P-δ.5): Remaining: Gemini (`_generate_gemini_with_tools` completes-then-delivers) — gekoppelt mit dem `LlmService`-Split (Register §WP-T1); Ollama/OpenAI/Anthropic ✅ stream with tools.
 
-(Erledigt + abgeräumt July 19: Chat-Agent-Phasen P-δ.4→P-ι ✅ Mai 2026, Roadmap `docs/chat_agent_roadmap.md`; WP13-Cleanup ✅ `93ccc19` inkl. SWB-Cache-Purge; Search-Provider-Plugins ✅ June 29 — Details im `AIChangelog.md`.)
+(Erledigt + abgeräumt July 19: Chat-Agent-Phasen P-δ.4→P-ι ✅ Mai 2026, Roadmap `docs/chat_agent_roadmap.md`; WP13-Cleanup ✅ `93ccc19`; Search-Provider-Plugins ✅ June 29; **WP12 Unified Render Layer ✅** — §9.3–§9.5 im Chat-UX-WP geschlossen, §9.2-Sichtprüfung läuft on the fly ([`docs/wp12_unified_render_layer.md`](docs/wp12_unified_render_layer.md)). Details im `AIChangelog.md`.)
 
 ## Module Documentation
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.
