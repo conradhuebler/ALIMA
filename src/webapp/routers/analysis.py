@@ -276,6 +276,22 @@ async def run_analysis(
             pipeline_config.workflow_name = None
             logger.info("🔒 Classic (non-agentic) pipeline mode selected")
 
+        # Chat-UX 5/9: classic-pipeline LLM tokens stream into the shared #log
+        # as stream blocks (identical chrome to the GUI). Agentic runs keep the
+        # buffer-only path — their chrome comes from the bus bridge, and the
+        # same stream_callback fires for both modes, so this MUST stay gated
+        # or agentic runs would render every step twice. - Claude Generated
+        is_classic = not pipeline_config.enable_agentic_mode
+        stream_state = {"step": None}
+
+        def _close_stream_block():
+            if stream_state["step"] is not None:
+                try:
+                    session_renderer.end_streaming_line()
+                except Exception:
+                    logger.debug("end_streaming_line failed", exc_info=True)
+                stream_state["step"] = None
+
         # Define callbacks for live updates - Claude Generated
         def on_step_started(step):
             session.current_step = step.step_id
@@ -283,6 +299,7 @@ async def run_analysis(
             logger.info(f"Step started: {step.step_id}")
 
         def on_step_completed(step):
+            _close_stream_block()
             session.current_step = step.step_id
             session.current_step_status = 'completed'  # Claude Generated
             logger.info(f"Step completed: {step.step_id}")
@@ -333,6 +350,7 @@ async def run_analysis(
                     logger.error(f"Auto-save error (continuing): {e}")
 
         def on_step_error(step, error_msg):
+            _close_stream_block()
             session.current_step = step.step_id
             session.error_message = error_msg
             logger.error(f"Step error: {step.step_id}: {error_msg}")
@@ -355,6 +373,7 @@ async def run_analysis(
                 logger.debug("agentic context step update failed", exc_info=True)
 
         def on_pipeline_completed(analysis_state):
+            _close_stream_block()
             logger.info(f"Pipeline completed, storing results")
 
             # Sync analysis state reference so autosave has access - Claude Generated
@@ -444,7 +463,22 @@ async def run_analysis(
                         "percent": percent
                     }
 
+            # Classic runs: mirror the token into the shared #log stream block
+            # (opened lazily on the first token of each step; the renderer has
+            # a single open-stream slot, classic steps are sequential).
+            if is_classic and step_id:
+                try:
+                    if stream_state["step"] != step_id:
+                        _close_stream_block()
+                        session_renderer.start_streaming_line(step_id)
+                        stream_state["step"] = step_id
+                    session_renderer.render_streaming_token(token, step_id)
+                except Exception:
+                    logger.debug("stream-block token render failed", exc_info=True)
+
             # Buffer tokens by step for periodic transmission via WebSocket
+            # (polling API / external consumers; the browser renders the
+            # stream events above, not these frames).
             if step_id:
                 session.add_streaming_token(token, step_id)
             logger.debug(f"Token [{step_id}]: {token[:30] if len(token) > 30 else token}...")
@@ -541,6 +575,11 @@ async def run_input_extraction(
         # Use execute_input_extraction from pipeline_utils (same as pipeline does) - Claude Generated
         from src.utils.pipeline_utils import execute_input_extraction
 
+        # Chat-UX 5/9: extraction progress renders as a shared #log stream
+        # block (the client no longer renders raw streaming_tokens frames).
+        extraction_renderer = _build_session_renderer(session)
+        extraction_stream = {"open": False}
+
         def stream_callback_wrapper(message: str):
             """Wrap stream callback for live progress - Claude Generated"""
             # Check for abort before updating - Claude Generated
@@ -548,6 +587,13 @@ async def run_input_extraction(
                 raise Exception("Pipeline execution cancelled by user")
 
             session.current_step = "input"
+            try:
+                if not extraction_stream["open"]:
+                    extraction_renderer.start_streaming_line("input")
+                    extraction_stream["open"] = True
+                extraction_renderer.render_streaming_token(message, "input")
+            except Exception:
+                logger.debug("extraction stream render failed", exc_info=True)
             # Use existing add_streaming_token method - correct parameter order: (token, step_id) - Claude Generated
             session.add_streaming_token(message, "input")
             logger.info(f"[Stream] {message}")
@@ -631,7 +677,14 @@ async def run_input_extraction(
             return extracted_text, source_info, extraction_method
 
         # Run extraction in executor to avoid blocking - Claude Generated
-        extracted_text, source_info, extraction_method = await asyncio.to_thread(execute_extraction)
+        try:
+            extracted_text, source_info, extraction_method = await asyncio.to_thread(execute_extraction)
+        finally:
+            if extraction_stream["open"]:
+                try:
+                    extraction_renderer.end_streaming_line()
+                except Exception:
+                    logger.debug("extraction stream close failed", exc_info=True)
 
         # Store extracted text in results - Claude Generated
         session.results = {

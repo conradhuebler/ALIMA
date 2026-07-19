@@ -59,8 +59,6 @@ class AlimaWebapp {
         this.cameraBlob = null;
         this.pendingSourceType = 'text';   // Source type for working title / filename - Claude Generated
         this.pendingInputSource = '';       // DOI, URL, or filename for working title - Claude Generated
-        this.streamRawBuffer = '';
-        this.streamRenderPending = false;
 
         // WP12: the shared alima_render.js auto-scrolls its host window; in the
         // webapp the render region is embedded, so disable it to avoid hijacking
@@ -138,7 +136,7 @@ class AlimaWebapp {
                 this.showResultsPanel();
                 this.enableExportButton(true);
                 localStorage.setItem('alima_running_session', this.sessionId);
-                this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse…\n`);
+                this.appendLocalNotice(`🔌 Wiederverbunden mit laufender Analyse …`);
                 this.connectWebSocket();
                 return true;
             } else if (data.status === 'completed') {
@@ -228,7 +226,7 @@ class AlimaWebapp {
             this.updateButtonState();
             this.setResultsPanelState('running');
             this.enableExportButton(true);
-            this.appendStreamText(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)\n`);
+            this.appendLocalNotice(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)`);
             this.connectWebSocket();
         } else {
             // Completed: fetch results from export endpoint (session poll no longer includes them).
@@ -241,7 +239,7 @@ class AlimaWebapp {
                         results,
                         current_step: data.current_step || 'classification'
                     });
-                    this.appendStreamText(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.\n`);
+                    this.appendLocalNotice(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.`);
                     localStorage.removeItem('alima_running_session');
                 });
         }
@@ -695,7 +693,7 @@ class AlimaWebapp {
             console.log('Session created via API:', this.sessionId);
         } catch (error) {
             console.error('Error creating session:', error);
-            this.appendStreamText(`❌ Error creating session: ${error.message}`);
+            this.appendLocalNotice(`❌ Session konnte nicht erstellt werden: ${error.message}`, 'error');
         }
     }
 
@@ -883,7 +881,7 @@ class AlimaWebapp {
 
         } catch (error) {
             console.error('Analysis error:', error);
-            this.appendStreamText(`❌ Error: ${error.message}`);
+            this.appendLocalNotice(`❌ Fehler: ${error.message}`, 'error');
             this.isAnalyzing = false;
             this.updateButtonState();
         }
@@ -926,19 +924,8 @@ class AlimaWebapp {
                     this.updatePipelineStatus(msg);
                     lastStep = data.current_step;
                 } else if (data.status === 'completed' || data.status === 'error') {
-                    // Display final streaming tokens before completing (Claude Generated)
-                    if (data.streaming_tokens && Object.keys(data.streaming_tokens).length > 0) {
-                        for (const [stepId, tokens] of Object.entries(data.streaming_tokens)) {
-                            if (Array.isArray(tokens) && tokens.length > 0) {
-                                // Add step separator between different steps - Claude Generated
-                                if (stepId && stepId !== 'input') {
-                                    this.appendStreamText(`\n───────────────────\n[${stepId}]\n───────────────────`);
-                                }
-                                this.appendStreamToken(tokens.join(''));
-                            }
-                        }
-                    }
-
+                    // Tokens render via the seq-deduped render events (Chat-UX
+                    // 5/9); streaming_tokens frames are no longer displayed.
                     clearInterval(this.pollInterval);
                     this.pollInterval = null;
 
@@ -964,7 +951,7 @@ class AlimaWebapp {
                 }
             } catch (error) {
                 console.error('Poll error:', error);
-                this.appendStreamText(`⚠️ Poll error: ${error.message}`);
+                this.appendLocalNotice(`⚠️ Poll-Fehler: ${error.message}`, 'error');
             }
 
             // Timeout after max polls
@@ -1040,7 +1027,7 @@ class AlimaWebapp {
                 // Error on an established connection - show recovery and fall back
                 if (this.isAnalyzing) {
                     this.showRecoveryOption();
-                    this.appendStreamText(`\n⚠️ WebSocket-Fehler, wechsle zu Polling…\n`);
+                    this.appendLocalNotice(`⚠️ WebSocket-Fehler, wechsle zu Polling …`);
                     this.connectViaPolling();
                 }
             } else {
@@ -1056,7 +1043,7 @@ class AlimaWebapp {
             // Code 1006 can also fire when the 2s timeout calls this.ws.close() before connection
             if ((event.code === 1006 || event.code === 1011) && wsConnected && this.isAnalyzing) {
                 this.showRecoveryOption();
-                this.appendStreamText(`\n⚠️ Verbindung unterbrochen, wechsle zu Polling…\n`);
+                this.appendLocalNotice(`⚠️ Verbindung unterbrochen, wechsle zu Polling …`);
                 this.connectViaPolling();
             }
         };
@@ -1222,34 +1209,17 @@ class AlimaWebapp {
             // Advance the bottom-bar pipeline-stepper. - Claude Generated
             this.updateStepper(msg.current_step, msg.current_step_status);
 
-            // DK search progress is logged to the raw stream for visibility.
-            if (msg.dk_search_progress && (msg.current_step === 'dk_search' || msg.current_step === 'search')) {
-                const progress = msg.dk_search_progress;
-                this.appendStreamText(`[${progress.current}/${progress.total}] (${progress.percent}%) DK-Suche…`);
+            // DK search progress: in-place pipeline-bar element (Chat-UX 5/9).
+            if (msg.current_step === 'dk_search' || msg.current_step === 'search') {
+                this.updateDkProgress(msg.dk_search_progress || null);
+            } else {
+                this.updateDkProgress(null);
             }
         }
 
-        // Display streaming tokens (Claude Generated - Real-time LLM output)
-        if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
-            // Track last displayed step to add separators - Claude Generated
-            if (!this.lastDisplayedStep) {
-                this.lastDisplayedStep = null;
-            }
-
-            for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
-                if (Array.isArray(tokens) && tokens.length > 0) {
-                    // Add step separator if step changed - Claude Generated
-                    if (stepId && stepId !== this.lastDisplayedStep && stepId !== 'input') {
-                        this.appendStreamText(`\n═══ [${stepId}] ═══`);
-                        this.lastDisplayedStep = stepId;
-                    }
-
-                    // Concatenate and display tokens for this step (no extra newlines)
-                    const tokenText = tokens.join('');
-                    this.appendStreamToken(tokenText);
-                }
-            }
-        }
+        // LLM tokens arrive as seq-deduped render events (stream blocks in the
+        // shared #log, Chat-UX 5/9); streaming_tokens frames stay for the
+        // polling API but are no longer rendered here.
 
         // NOTE: Results are displayed in handleAnalysisComplete() only, not during polling
         // This prevents duplicate display of extracted text - Claude Generated
@@ -1258,21 +1228,10 @@ class AlimaWebapp {
     // Handle analysis completion
     handleAnalysisComplete(msg) {
         console.log('Analysis complete:', msg);
+        this.updateDkProgress(null);
 
-        // Flush final streaming tokens buffered since the last 500ms status poll.
-        if (msg.streaming_tokens && Object.keys(msg.streaming_tokens).length > 0) {
-            for (const [stepId, tokens] of Object.entries(msg.streaming_tokens)) {
-                if (Array.isArray(tokens) && tokens.length > 0) {
-                    if (stepId && stepId !== this.lastDisplayedStep && stepId !== 'input') {
-                        this.appendStreamText(`\n═══ [${stepId}] ═══`);
-                        this.lastDisplayedStep = stepId;
-                    }
-                    this.appendStreamToken(tokens.join(''));
-                }
-            }
-        }
-
-        // WP12: flush any final shared chrome events (e.g. the DK card).
+        // WP12: flush any final shared chrome events (e.g. the DK card);
+        // final tokens are inside these events too (Chat-UX 5/9).
         this.dispatchRenderEvents(msg.render_events);
 
         if (msg.status === 'completed') {
@@ -1288,9 +1247,9 @@ class AlimaWebapp {
             const isExtractionOnly = msg.results && msg.results.input_mode === 'extraction_only';
 
             if (isExtractionOnly) {
-                this.appendStreamText(`\n✅ Text erfolgreich extrahiert!`);
+                this.appendLocalNotice(`✅ Text erfolgreich extrahiert!`);
             } else {
-                this.appendStreamText(`\n✅ Analyse erfolgreich abgeschlossen!`);
+                this.appendLocalNotice(`✅ Analyse erfolgreich abgeschlossen!`);
             }
 
             // Display extracted text if available (from input step) - Claude Generated
@@ -1323,7 +1282,7 @@ class AlimaWebapp {
                 this.displayResults(msg.results);
             }
         } else if (msg.status === 'error') {
-            this.appendStreamText(`\n❌ Fehler: ${msg.error}`);
+            this.appendLocalNotice(`❌ Fehler: ${msg.error}`, 'error');
         }
 
         this.isAnalyzing = false;
@@ -1499,117 +1458,13 @@ class AlimaWebapp {
     displayResults(results) {
         if (!results) return;
 
-        const initialKeywords = this.normalizeList(results.initial_keywords);
-        const finalKeywords = this.normalizeList(results.final_keywords);
-        const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
-        const rvkSummary = this.getRvkValidationSummary(classifications, results.classification_validation);
-
-        // Display original abstract
+        // Chat-UX 5/9: the old free-text recap into the stream region is
+        // gone — the server-side render cards (dk_search /
+        // dk_classifications / dk_statistics) already carry that content in
+        // the shared #log; the compact overview lives in the summary panel.
         if (results.original_abstract) {
             // Update input text field with extracted text - Claude Generated
             document.getElementById('text-input').value = results.original_abstract;
-
-            this.appendStreamText(`\n[${this.getTime()}] Originalabstract:`);
-            this.appendStreamText(`  ${results.original_abstract.substring(0, 150)}${results.original_abstract.length > 150 ? '...' : ''}`);
-        }
-
-        // Display initial keywords
-        if (initialKeywords.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] Initiale Schlagworte (frei):`);
-            initialKeywords.forEach(kw => {
-                this.appendStreamText(`  • ${kw}`);
-            });
-        }
-
-        // Display final GND-compliant keywords with verification status - Claude Generated
-        if (finalKeywords.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] GND-Schlagworte:`);
-            finalKeywords.forEach(kw => {
-                this.appendStreamText(`  ✓ ${kw}`);
-            });
-
-            // Display verification summary - Claude Generated
-            if (results.verification && results.verification.stats) {
-                const stats = results.verification.stats;
-                this.appendStreamText(`\n[${this.getTime()}] GND-Verifikation: ${stats.verified_count}/${stats.total_extracted} verifiziert`);
-                if (results.verification.rejected && results.verification.rejected.length > 0) {
-                    const rejectedNames = results.verification.rejected.map(r => r.split('(')[0].trim());
-                    this.appendStreamText(`  ⚠️ ${stats.rejected_count} entfernt: ${rejectedNames.join(', ')}`);
-                }
-            }
-        }
-
-        // Display DK/RVK classifications
-        if (classifications.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] DK/RVK Klassifikationen:`);
-            classifications.forEach(cls => {
-                this.appendStreamText(`  ${cls.display}`);
-            });
-
-            if (rvkSummary.nonStandard > 0) {
-                this.appendStreamText(`  ⚠️ ${rvkSummary.nonStandard} RVK-Notation(en) sind nicht standardisiert`);
-            } else if (rvkSummary.total > 0 && rvkSummary.errors === 0) {
-                this.appendStreamText(`  ✓ RVK-Prüfung: ${rvkSummary.standard}/${rvkSummary.total} standardisiert`);
-            }
-
-            if (rvkSummary.errors > 0) {
-                this.appendStreamText(`  ⚠️ RVK-Prüfung unvollständig: ${rvkSummary.errors} API-Fehler`);
-            }
-
-            const provenance = results.rvk_provenance || {};
-            const provenanceParts = [];
-            if (provenance.catalog_standard > 0) provenanceParts.push(`Katalog standard ${provenance.catalog_standard}`);
-            if (provenance.catalog_nonstandard > 0) provenanceParts.push(`Katalog lokal ${provenance.catalog_nonstandard}`);
-            if (provenance.rvk_gnd_index > 0) provenanceParts.push(`RVK-GND-Index ${provenance.rvk_gnd_index}`);
-            if (provenance.rvk_api > 0) provenanceParts.push(`RVK-API-Label ${provenance.rvk_api}`);
-            if (provenanceParts.length > 0) {
-                this.appendStreamText(`  ℹ️ RVK-Quellen: ${provenanceParts.join(', ')}`);
-            }
-        }
-
-        // Display DK search results summary. Two shapes exist:
-        //  - classic: keyword-centric [{keyword, classifications:[{titles}]}]
-        //  - agentic: flat dk-centric [{keyword:"", dk, titles, count}] (one
-        //    entry per notation). The old code assumed the classic shape and
-        //    spammed "unbekannt: 0 Klassifikationen" per flat entry. - Claude Generated
-        if (results.dk_search_results && results.dk_search_results.length > 0) {
-            this.appendStreamText(`\n[${this.getTime()}] DK-Suche:`);
-            const entries = results.dk_search_results;
-            const keywordCentric = entries.some(e => Array.isArray(e.classifications));
-            if (keywordCentric) {
-                entries.forEach(result => {
-                    const keyword = result.keyword || 'unbekannt';
-                    const classifications = Array.isArray(result.classifications) ? result.classifications : [];
-                    const titleSet = new Set();
-                    classifications.forEach(cls => {
-                        const titles = Array.isArray(cls.titles) ? cls.titles : [];
-                        titles.forEach(title => {
-                            const clean = String(title || '').trim();
-                            if (clean) titleSet.add(clean);
-                        });
-                    });
-
-                    if (titleSet.size > 0) {
-                        this.appendStreamText(`  ${keyword}: ${titleSet.size} Titel`);
-                    } else {
-                        this.appendStreamText(`  ${keyword}: ${classifications.length} Klassifikationen`);
-                    }
-                });
-            } else {
-                // Flat dk-centric shape: summarize once instead of per notation.
-                const dkSet = new Set();
-                const titleSet = new Set();
-                entries.forEach(e => {
-                    const dk = String(e.dk || e.code || '').trim();
-                    if (dk) dkSet.add(dk);
-                    const titles = Array.isArray(e.titles) ? e.titles : (e.title ? [e.title] : []);
-                    titles.forEach(title => {
-                        const clean = String(title || '').trim();
-                        if (clean) titleSet.add(clean);
-                    });
-                });
-                this.appendStreamText(`  ${dkSet.size} Notationen aus ${titleSet.size} Titeln`);
-            }
         }
 
         // Populate summary panel
@@ -1773,7 +1628,7 @@ class AlimaWebapp {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
 
-            this.appendStreamText(`Exportiert: ${filename}`);
+            this.appendLocalNotice(`💾 Exportiert: ${filename}`);
 
         } catch (error) {
             console.error('Export error:', error);
@@ -1811,19 +1666,6 @@ class AlimaWebapp {
     }
 
     // Stream text manipulation
-    appendStreamText(text) {
-        if (this.streamRawBuffer && !this.streamRawBuffer.endsWith('\n')) {
-            this.streamRawBuffer += '\n';
-        }
-        this.streamRawBuffer += `${text}\n`;
-        this.scheduleStreamRender();
-    }
-
-    appendStreamToken(text) {
-        this.streamRawBuffer += text;
-        this.scheduleStreamRender();
-    }
-
     // Reliable scroll to bottom - Claude Generated (2026-01-13)
     scrollToBottom(element) {
         // Method 1: Direct parent scroll
@@ -1849,45 +1691,37 @@ class AlimaWebapp {
     }
 
     clearStreamText() {
-        this.streamRawBuffer = '';
-        this.streamRenderPending = false;
-        const streamEl = document.getElementById('stream-text');
-        if (streamEl) {
-            streamEl.innerHTML = '';
-        }
-        // WP12: the shared render region lives in the same panel now.
+        // Chat-UX 5/9: the legacy #stream-text region is gone — everything
+        // renders in the shared #log; this clears it plus the seq cursor.
         if (typeof clearLog === 'function') {
             clearLog();
         }
         this._lastRenderSeq = -1;
-        this.lastDisplayedStep = null;
+        this.updateDkProgress(null);
     }
 
-    scheduleStreamRender() {
-        if (this.streamRenderPending) return;
-        this.streamRenderPending = true;
-        requestAnimationFrame(() => {
-            this.streamRenderPending = false;
-            this.renderStreamBuffer();
-        });
-    }
-
-    renderStreamBuffer() {
-        const streamEl = document.getElementById('stream-text');
-        if (!streamEl) return;
-        streamEl.innerHTML = this.streamBufferToHtml(this.streamRawBuffer);
-        this.scrollToBottom(streamEl);
-    }
-
-    streamBufferToHtml(text) {
-        // WP12: single source of truth — delegate to the shared stream formatter
-        // in alima_render.js (loaded before app.js) so the webapp #stream-text and
-        // the GUI #log render Jens Mittelbach's RVK-Zweitranking tables identically.
-        // - Claude Generated
-        if (typeof window.alimaFormatStreamBlockHtml === 'function') {
-            return window.alimaFormatStreamBlockHtml(text);
+    // Client-generated transient notice into the shared #log (reconnect,
+    // fallback, validation, abort …) — replaces the legacy #stream-text
+    // region (Chat-UX 5/9). Server-side content arrives as render events.
+    appendLocalNotice(text, level = 'info') {
+        const esc = (typeof _alimaEscapeHtml === 'function')
+            ? _alimaEscapeHtml : (s) => String(s);
+        const cls = level === 'error'
+            ? 'system-message system-message--error' : 'system-message';
+        if (typeof appendBlock === 'function') {
+            appendBlock(`<div class="${cls}">${esc(text)}</div>`);
+        } else {
+            console.log(`[notice:${level}]`, text);
         }
-        return this.escapeHtml(String(text || ''));
+    }
+
+    // DK-search progress as an in-place pipeline-bar element instead of one
+    // log line per poll frame. Pass null to clear.
+    updateDkProgress(progress) {
+        const el = document.getElementById('dk-progress');
+        if (!el) return;
+        el.textContent = progress
+            ? `DK-Suche ${progress.current}/${progress.total} (${progress.percent}%)` : '';
     }
 
     resetResultsPanelContent() {
@@ -1980,7 +1814,7 @@ class AlimaWebapp {
 
             const data = await response.json();
             console.log('Cancellation response:', data);
-            this.appendStreamText('\n❌ Analyse durch Benutzer abgebrochen\n');
+            this.appendLocalNotice('❌ Analyse durch Benutzer abgebrochen', 'error');
 
             // Stop polling
             this.isAnalyzing = false;
@@ -2001,7 +1835,7 @@ class AlimaWebapp {
             });
             const data = await response.json();
             console.log('Step-abort response:', data);
-            this.appendStreamText('\n🛑 Schritt abgebrochen – Pipeline läuft weiter\n');
+            this.appendLocalNotice('🛑 Schritt abgebrochen – Pipeline läuft weiter');
         } catch (error) {
             console.error('Error aborting step:', error);
             // Silent failure OK - step may have already finished
@@ -2012,7 +1846,7 @@ class AlimaWebapp {
     openDoiUrl() {
         const input = document.getElementById('doi-input').value.trim();
         if (!input) {
-            this.appendStreamText('⚠️ Bitte geben Sie eine DOI oder URL ein');
+            this.appendLocalNotice('⚠️ Bitte geben Sie eine DOI oder URL ein');
             return;
         }
         let url;
@@ -2035,7 +1869,7 @@ class AlimaWebapp {
 
         // Validation only in tab context - Claude Generated
         if (!doiUrl) {
-            this.appendStreamText(`⚠️ Bitte geben Sie eine DOI oder URL ein`);
+            this.appendLocalNotice(`⚠️ Bitte geben Sie eine DOI oder URL ein`);
             return;
         }
 
@@ -2047,7 +1881,7 @@ class AlimaWebapp {
     async processFileInput(file) {
         // Validation only in tab context - Claude Generated
         if (!file) {
-            this.appendStreamText(`⚠️ Bitte wählen Sie eine Datei aus`);
+            this.appendLocalNotice(`⚠️ Bitte wählen Sie eine Datei aus`);
             return;
         }
 
@@ -2067,7 +1901,7 @@ class AlimaWebapp {
     async extractAndFillTextField(inputType, content, file) {
         try {
             // Show extraction progress in stream
-            this.appendStreamText(`\n🔄 Extrahiere Text aus ${inputType === 'doi' ? 'DOI/URL' : inputType}...`);
+            this.appendLocalNotice(`🔄 Extrahiere Text aus ${inputType === 'doi' ? 'DOI/URL' : inputType} …`);
 
             // Create FormData for multipart request
             const formData = new FormData();
@@ -2099,7 +1933,7 @@ class AlimaWebapp {
             if (sessionData.results && sessionData.results.original_abstract) {
                 // Fill the main text field with extracted text - Claude Generated
                 document.getElementById('text-input').value = sessionData.results.original_abstract;
-                this.appendStreamText(`✅ Text erfolgreich extrahiert (${sessionData.results.extraction_method})`);
+                this.appendLocalNotice(`✅ Text erfolgreich extrahiert (${sessionData.results.extraction_method})`);
                 // Track source origin for working title / JSON filename - Claude Generated
                 this.pendingSourceType = inputType;
                 this.pendingInputSource = content || (file ? file.name : '');
@@ -2113,7 +1947,7 @@ class AlimaWebapp {
 
         } catch (error) {
             console.error('Extraction error:', error);
-            this.appendStreamText(`❌ Fehler bei der Textextraktion: ${error.message}`);
+            this.appendLocalNotice(`❌ Fehler bei der Textextraktion: ${error.message}`, 'error');
             this.isAnalyzing = false;
             this.updateButtonState();
         }
@@ -2267,7 +2101,7 @@ class AlimaWebapp {
                 }
 
                 // Show friendly notification
-                this.appendStreamText('\n✅ Analyse erfolgreich wiederhergestellt!\n');
+                this.appendLocalNotice('✅ Analyse erfolgreich wiederhergestellt!');
             }
         } catch (error) {
             console.error('Recovery error:', error);
@@ -2278,7 +2112,7 @@ class AlimaWebapp {
             if (recoveryBtn) recoveryBtn.disabled = false;
 
             // Show detailed error in stream
-            this.appendStreamText(`\n⚠️ ${error.message}\n`);
+            this.appendLocalNotice(`⚠️ ${error.message}`, 'error');
         }
     }
 }

@@ -268,6 +268,74 @@ class TestAgenticAnalysisBusRendering(unittest.TestCase):
             appmod.sessions.pop(sid, None)
             reset()
 
+    def test_classic_analysis_streams_llm_tokens_as_stream_blocks(self):
+        # Chat-UX 5/9: classic-pipeline LLM tokens render as shared #log
+        # stream blocks (stream_open/token/close) instead of raw
+        # streaming_tokens frames.
+        client, appmod = self._client()
+        sid = "test-classic-stream"
+        appmod.sessions[sid] = appmod.Session(sid)
+
+        from src.core.state_bus import reset
+
+        reset()
+        try:
+            from types import SimpleNamespace
+
+            fake_pm = self._fake_pipeline_manager()
+
+            def start_pipeline(text, input_type=None, input_source=None):
+                cb = fake_pm._cb
+                for token in ("Hallo ", "**Welt**"):
+                    cb["stream_callback"](token, "keywords")
+                cb["step_completed"](SimpleNamespace(step_id="keywords", output_data=None))
+                if cb.get("pipeline_completed"):
+                    cb["pipeline_completed"](None)
+                return "fake-pipeline-id"
+
+            fake_pm.start_pipeline = start_pipeline
+
+            from src.webapp.routers import analysis as analysismod
+            original_pm = analysismod.PipelineManager
+            analysismod.PipelineManager = lambda *a, **k: fake_pm
+            try:
+                with mock.patch("src.webapp.routers.analysis.resolve_input_to_text", return_value="text"), \
+                     mock.patch("src.webapp.routers.analysis.AppContext") as mock_ctx:
+                    mock_ctx.return_value.get_services.return_value = {
+                        "config_manager": mock.MagicMock(),
+                        "alima_manager": mock.MagicMock(),
+                        "cache_manager": mock.MagicMock(),
+                        "llm_service": mock.MagicMock(),
+                        "prompt_service": mock.MagicMock(),
+                        "pipeline_manager": fake_pm,
+                    }
+                    resp = client.post(
+                        f"/api/analyze/{sid}",
+                        data={"input_type": "text", "content": "abc", "workflow": "__classic__"},
+                    )
+            finally:
+                analysismod.PipelineManager = original_pm
+            self.assertEqual(resp.status_code, 200)
+
+            import time
+            for _ in range(100):
+                if appmod.sessions[sid].status != "running":
+                    break
+                time.sleep(0.05)
+
+            buffer = appmod.sessions[sid].render_buffer
+            types = [e.get("type") for e in buffer]
+            self.assertIn("stream_open", types)
+            self.assertIn("stream_token", types)
+            self.assertIn("stream_close", types)
+            tokens = "".join(
+                e.get("text", "") for e in buffer if e.get("type") == "stream_token"
+            )
+            self.assertEqual(tokens, "Hallo **Welt**")
+        finally:
+            appmod.sessions.pop(sid, None)
+            reset()
+
     def _fake_pipeline_manager(self):
         from types import SimpleNamespace
 

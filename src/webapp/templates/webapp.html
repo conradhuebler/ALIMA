@@ -218,6 +218,7 @@
             <footer class="pipeline-bar">
                 <!-- Live step overview (rendered by app.js) -->
                 <div id="pipeline-stepper" class="pipeline-stepper" aria-label="Pipeline-Übersicht"></div>
+                <span id="dk-progress" class="dk-progress" aria-live="polite"></span>
 
                 <div class="pipeline-controls">
                     <div class="bar-group bar-group--config">
@@ -286,9 +287,9 @@
 
                 <div id="stream-body" class="stream-body">
                     <!-- WP12: shared render region — DK/GND cards, tool calls, chat
-                         bubbles and system messages are rendered here. -->
+                         bubbles, LLM stream blocks and system messages all render
+                         here (the legacy #stream-text region is gone, Chat-UX 5/9). -->
                     <div id="log" class="alima-render-region"></div>
-                    <div id="stream-text" class="stream-text"></div>
                 </div>
 
                 <!-- Unified chat input -->

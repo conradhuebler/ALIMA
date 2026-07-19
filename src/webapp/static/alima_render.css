@@ -39,6 +39,7 @@
   border-left: 2px solid #ff5555;
   padding-left: 8px;
 }
+#log .system-message--error { color: #ff5555; }
 #log .tc-body {
   margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
   color: #a8a8a8; white-space: pre-wrap; word-wrap: break-word;

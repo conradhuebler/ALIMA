@@ -55,12 +55,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             if session.status not in ["running", "idle"]:
                 logger.info(f"Session {session_id} status changed to {session.status}")
                 # Flush the remaining streaming tokens FIRST as a small, standalone frame
-                # (tokens buffered since the last 500ms poll). Delivering the final chat text
-                # ahead of the large `complete` frame means it survives even if a reverse
-                # proxy delays or truncates that bigger frame. The client renders this via
-                # updatePipelineStatus (same path as live tokens), so the `complete` frame
-                # below carries an empty streaming_tokens to avoid a double-render.
-                # - Claude Generated
+                # (tokens buffered since the last 500ms poll). Delivering it ahead of the
+                # large `complete` frame means it survives even if a reverse proxy delays
+                # or truncates that bigger frame. Since Chat-UX 5/9 the browser renders
+                # tokens from the seq-deduped render events, NOT from these frames — the
+                # frames stay for the polling API and external consumers; the `complete`
+                # frame still carries empty streaming_tokens for symmetry. - Claude Generated
                 final_tokens = session.get_and_clear_streaming_buffer()
                 if final_tokens:
                     await websocket.send_json({
