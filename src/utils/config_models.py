@@ -738,94 +738,6 @@ class UnifiedProviderConfig:
 # OTHER CONFIGURATION CLASSES
 # ============================================================================
 
-class CatalogType(Enum):
-    """Catalog API type for classification search - Claude Generated"""
-    LIBERO_SOAP = "libero_soap"  # Libero SOAP API (original)
-    MARCXML_SRU = "marcxml_sru"  # MARC XML via SRU protocol (DNB, GBV, etc.)
-    AUTO = "auto"  # Auto-detect based on configuration
-
-
-@dataclass
-class CatalogConfig:
-    """Catalog API configuration - Claude Generated
-    
-    Supports two catalog types:
-    1. LIBERO_SOAP: Original Libero SOAP API (requires token)
-    2. MARCXML_SRU: Standard MARC XML via SRU protocol (DNB, Library of Congress, etc.)
-    
-    For MARCXML_SRU, you can use presets: "dnb", "loc", "gbv", "swb", "k10plus"
-    Or configure a custom SRU endpoint with sru_base_url.
-    """
-    # Catalog type selection
-    catalog_type: str = 'libero_soap'  # 'libero_soap', 'marcxml_sru', or 'auto'
-    
-    # Libero SOAP configuration (original)
-    catalog_token: str = ''
-    catalog_search_url: str = ''
-    catalog_details_url: str = ''
-    catalog_web_search_url: str = ''   # Web frontend search URL (BiblioClient web fallback)
-    catalog_web_record_url: str = ''   # Web frontend record base URL (BiblioClient web fallback)
-    
-    # MARC XML / SRU configuration - Claude Generated
-    sru_base_url: str = ''  # SRU endpoint URL (e.g., "https://services.dnb.de/sru/dnb")
-    sru_database: str = ''  # SRU database name (optional, depends on endpoint)
-    sru_schema: str = 'marcxml'  # Record schema: 'marcxml' or 'MARC21-xml'
-    sru_preset: str = ''  # Use preset: "dnb", "loc", "gbv", "swb", "k10plus"
-    sru_max_records: int = 50  # Maximum records per search
-
-    # finc / VuFind-JSON catalog configuration - Claude Generated
-    # Used by FincClient (src/core/search/providers/finc/finc_client.py) to talk to a local
-    # finc/VuFind instance (e.g. TU Freiberg finc solrproxy). Sits alongside
-    # Libero/SRU; finc's DK priority is set in pipeline_utils.execute_dk_search
-    # (finc is preferred when finc_dk_enabled + a base URL are configured).
-    finc_base_url: str = ''  # e.g. "https://finc.example.org/fincsolrproxy/proxy.php"
-    finc_web_record_url: str = ''  # e.g. "https://katalog.example.org/Record/" (used to build web_url)
-    finc_default_limit: int = 20  # Max records per search (1..100)
-    finc_timeout: int = 30  # HTTP timeout in seconds
-    finc_institution_filter: str = ''  # Optional default filter[]=facet:"value" (VuFind facet syntax)
-    # Opt-in: use finc (per-title udk_raw) for the DK classification search
-    # instead of Libero/SRU. Requires finc_base_url. Default off so finc stays
-    # reachable via the search_finc tool without changing the DK backend. - Claude Generated
-    finc_dk_enabled: bool = False
-    # Opt-in: in the keyword search step, harvest finc catalog titles and
-    # reconcile their subjects against the local GND cache to enrich the
-    # selection pool (agentic finc_subject_harvest step). Requires finc_base_url. - Claude Generated
-    finc_harvest_enabled: bool = False
-
-    # EXPERT OPTION: Set to False to allow non-GND-validated keywords in DK search
-    # Default True: Only GND-validated keywords are used (recommended for quality control)
-    # Set to False: Include plain text keywords if GND validation fails
-    strict_gnd_validation_for_dk_search: bool = True
-    
-    def get_catalog_type(self) -> str:
-        """Get the effective catalog type - Claude Generated"""
-        if self.catalog_type == 'auto':
-            # Auto-detect: prefer SRU if configured, otherwise SOAP
-            if self.sru_preset or self.sru_base_url:
-                return 'marcxml_sru'
-            return 'libero_soap'
-        return self.catalog_type
-
-
-@dataclass
-class SearchProviderConfig:
-    """Per-search-provider enable/disable gate (F-3 P3) - Claude Generated.
-
-    Maps a SearchProvider id (lobid/swb/catalog/finc/gnd_local) to whether it is
-    exposed as a search tool. Endpoints/tokens still live in ``CatalogConfig``;
-    this only gates exposure/selectability. Absent ids default to *enabled*, so
-    registering a new provider needs no config change. Edited via the GUI
-    provider-selector (Settings).
-    """
-    providers: Dict[str, bool] = field(default_factory=dict)
-
-    def is_enabled(self, provider_id: str) -> bool:
-        return self.providers.get(provider_id, True)
-
-    def set_enabled(self, provider_id: str, enabled: bool) -> None:
-        self.providers[provider_id] = bool(enabled)
-
-
 @dataclass
 class PluginInstanceConfig:
     """One configured plugin instance (generic across plugin categories) - Claude Generated.
@@ -1008,8 +920,6 @@ class AlimaConfig:
     """Main ALIMA configuration with unified provider system - Claude Generated"""
     # Core configuration sections
     database_config: DatabaseConfig = field(default_factory=DatabaseConfig)
-    catalog_config: CatalogConfig = field(default_factory=CatalogConfig)
-    search_provider_config: SearchProviderConfig = field(default_factory=SearchProviderConfig)
     prompt_config: PromptConfig = field(default_factory=PromptConfig)
     system_config: SystemConfig = field(default_factory=SystemConfig)
     ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature
@@ -1020,9 +930,10 @@ class AlimaConfig:
     unified_config: UnifiedProviderConfig = field(default_factory=UnifiedProviderConfig)
 
     # Generic plugin instances across all categories (search providers, input
-    # sources, …). Authoritative per-instance config; ``catalog_config`` and the
-    # DOI/`system_config` fields hold *derived* compatibility mirrors for the many
-    # legacy readers. Empty on a fresh/legacy config → synthesised on load. - Claude Generated
+    # sources, …). The authoritative per-instance config — the CatalogConfig /
+    # SearchProviderConfig mirrors are gone (WP P7); only the DOI ``system_config``
+    # fields are still derived. Empty on a fresh/legacy config → synthesised on
+    # load. - Claude Generated
     plugins: List["PluginInstanceConfig"] = field(default_factory=list)
     # Security ledger for Tier-2 code plugins: plugin id -> approved SHA-256 hash. - Claude Generated
     approved_plugins: Dict[str, str] = field(default_factory=dict)
@@ -1035,10 +946,6 @@ class AlimaConfig:
     @property
     def database(self) -> DatabaseConfig:
         return self.database_config
-
-    @property
-    def catalog(self) -> CatalogConfig:
-        return self.catalog_config
 
     @property
     def system(self) -> SystemConfig:

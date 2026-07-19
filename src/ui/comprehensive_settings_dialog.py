@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from copy import deepcopy
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, CatalogConfig, SystemConfig, ProviderDetectionService
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, SystemConfig, ProviderDetectionService
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
@@ -888,8 +888,8 @@ class ComprehensiveSettingsDialog(QDialog):
 
         # Plugin instances are authoritative and edited only in the Plugins tab
         # (the Catalog tab + DOI System entries were removed). Apply them; the
-        # derive-on-save in ConfigManager re-mirrors instances → CatalogConfig /
-        # SystemConfig for the legacy readers. - Claude Generated
+        # derive-on-save in ConfigManager re-mirrors instances → the DOI
+        # SystemConfig fields, the last remaining mirror. - Claude Generated
         try:
             self.plugin_settings_tab.apply_to(config)
         except Exception as e:

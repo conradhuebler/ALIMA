@@ -18,8 +18,8 @@ What it does (``deploy``):
 2. **approve** — enable ``system_config.enable_code_plugins`` and pre-approve each
    copy headlessly (SHA-256 via the loader's trust-on-first-use ledger), so no GUI
    dialog is needed. The ``poc_*`` instances are auto-seeded *enabled*.
-3. **disable built-ins** — set every built-in search instance ``enabled = False``
-   (mirrored into ``search_provider_config``), leaving only the ``poc_*`` plugins live.
+3. **disable built-ins** — set every built-in search instance ``enabled = False``,
+   leaving only the ``poc_*`` plugins live.
 
 ``--revert`` undoes all three: re-enables built-ins, drops the ``poc_*`` instances
 and approvals, deletes the copied dirs.

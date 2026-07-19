@@ -109,18 +109,21 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **WP Plugin-Konvergenz — P1 ✅ CODE-COMPLETE (July 15), P2–P5 geplant+entschieden:**
-  P1 löst alle vier Built-in-Namen-Kopplungen über vorhandene Deklarationskanäle
-  (`raw_cache_param_keys`-Klassenattribut, `transform_agent_view` per getattr,
-  Aggregate-Default aus `enabled_gnd_provider_ids`, `hand_wired` weg) → kopierte
-  Plugins bekommen agent_view/Cache-Keys/Provenienz. Suite 1259. Entscheidungen
-  fixiert: P5 = Search-Parität (Disable gated beide Pfade, Pipeline-Verhaltensänderung),
-  P3(a) MarcIndex offen, P4 = sru bekommt eigenen `dk_enabled` (löst D-5).
-  Vier Doc-Aussagen widerlegt (u.a.: der Aggregate-Default ist byte-identisch, P1s
-  POC-Aggregations-Nutzen greift erst mit P6). WP + Korrekturen:
-  [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md), Details
-  `AIChangelog.md` (July 15). **Offen:** Operator-Commit + Click-Tests (find_keywords
-  inkl. „keine Quelle aktiv", Lobid-Import, Siegel-Cache-Load).
+- **WP Plugin-Konvergenz — P1–P5 + P6a + P7 ✅ CODE-COMPLETE (July 17):**
+  **Eine** Konfigurationswahrheit: `CatalogConfig`/`SearchProviderConfig` gelöscht,
+  `AlimaConfig.plugins` ist es allein — Lesen `factory.primary_settings(cfg, id,
+  enabled_only=…)`, Schreiben `set_primary_settings`; Legacy-JSON-Sektionen sind
+  einmalige Migrations-Eingabe (absente Keys **weggelassen**, sonst `None` an die
+  Provider-Konstruktoren). DOI-`SystemConfig`-Mirror bleibt (nicht P7). Drei
+  Planannahmen fielen: der größte Leser-Cluster war *tot* (`execute_dk_search`s
+  5 Params, AST-geprüft), der Dict-Umbau war eine `None`-Falle, und der Mirror
+  hatte einen Live-Bug (`catalog_web_record_url`-Kollision → keine OPAC-Links).
+  Suite 1305. Details: [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md)
+  + `AIChangelog.md` (July 17). **Offen: Operator-Klick-Tests** — DK-Suche (Pipeline
+  + UB-Katalog-Tab), OPAC-Links mit gesetzter Katalog- und *leerer* finc-URL
+  (heute kaputt, sollte jetzt gehen), agentischer Lauf mit deaktiviertem finc
+  (Harvest darf **nicht** mehr laufen), First-Start-Wizard + `alima wizard`
+  (Werte im Plugins-Tab?), Bundle export→install, find_keywords.
 - **WP Data-Flow-Vereinheitlichung (`BibRecord`) + Counter-Bug** 🔴 ANALYSIERT,
   ENTSCHEIDUNG OFFEN (July 10): zwei verifizierte Analysen zeigen — das Plugin-System hat
   die *Verrohrung* vereinheitlicht, nicht die *Daten*. (1) **Feldnamen-Audit**: ALIMA

@@ -189,19 +189,6 @@ class ProviderConfigGatingTest(unittest.TestCase):
         self.assertIn("search_catalog", names)
         self.assertIn("search_catalog_titles", names)
 
-    def test_default_all_enabled_and_roundtrip(self):
-        from dataclasses import asdict
-        from src.utils.config_models import SearchProviderConfig
-
-        cfg = SearchProviderConfig()
-        self.assertTrue(cfg.is_enabled("anything"))  # absent → enabled
-        cfg.set_enabled("finc", False)
-        self.assertFalse(cfg.is_enabled("finc"))
-        # survives serialize → reload (asdict is how AlimaConfig persists)
-        restored = SearchProviderConfig(**asdict(cfg))
-        self.assertFalse(restored.is_enabled("finc"))
-        self.assertTrue(restored.is_enabled("lobid"))
-
 
 if __name__ == "__main__":
     unittest.main()

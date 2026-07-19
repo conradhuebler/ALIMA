@@ -1,20 +1,22 @@
-"""Migration between the flat legacy config and the per-instance plugin model - Claude Generated.
+"""Migration from the flat legacy config to the per-instance plugin model - Claude Generated.
 
 The authoritative store is ``AlimaConfig.plugins`` (a list of
-:class:`PluginInstanceConfig`). For the ~53 legacy readers, ``CatalogConfig`` (and,
-later, DOI ``SystemConfig`` fields) are kept as *derived mirrors*:
+:class:`PluginInstanceConfig`). ``synthesize_search_instances`` upgrades a config
+written before the plugin model: it reads the raw ``catalog_config`` /
+``search_provider_config`` JSON sections and turns them into instances, once, on
+load. The ``CatalogConfig``/``SearchProviderConfig`` *mirrors* those sections used
+to be parsed into are gone (WP P7) — nothing reads them back, so the keys are
+simply dropped on the next save.
 
-* :func:`synthesize_search_instances` — build the initial instance list from a
-  legacy ``CatalogConfig`` + ``SearchProviderConfig`` bool-gate (run once, when no
-  ``plugins`` section exists yet).
-* :func:`derive_search_mirrors` — push the primary instances' settings back into a
-  ``CatalogConfig`` + ``SearchProviderConfig`` on save, so the mirror stays exact.
+``SEARCH_FIELD_MAP`` is therefore a one-way legacy-JSON-key → instance-setting-key
+map, not a mirror definition. A key absent from the legacy section is **omitted**
+from the instance settings rather than written as ``None``, so the plugin's own
+``ConfigField`` default applies — the dataclass defaults that used to fill those
+gaps no longer exist.
 
-The field maps below are the single definition of which provider setting mirrors
-which ``CatalogConfig`` attribute. Only mapped fields are mirrored — the map now
-covers the web URLs, ``catalog_type`` and the strict-validation flag too, so a
-load→save→load round-trip is diff-free. (An earlier version of this docstring
-claimed those were *unmapped*; they are mapped, see ``SEARCH_FIELD_MAP``.)
+The DOI ``SystemConfig`` fields *are* still a live mirror
+(``synthesize_input_instances`` / ``derive_input_mirrors``); they are out of P7's
+scope.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from __future__ import annotations
 from dataclasses import fields as dataclass_fields
 from typing import Any, Dict, List
 
-# provider_id -> {instance-setting key: CatalogConfig attribute}
+# provider_id -> {instance-setting key: legacy catalog_config JSON key}
 SEARCH_FIELD_MAP: Dict[str, Dict[str, str]] = {
     "catalog": {
         "token": "catalog_token",
@@ -79,26 +81,39 @@ def instance_from_dict(data: Dict[str, Any]):
     return PluginInstanceConfig(**filtered)
 
 
-def synthesize_search_instances(catalog_config, search_provider_config) -> List:
-    """Create one primary instance per built-in search provider type from legacy config."""
+def synthesize_search_instances(catalog_section, gate_section=None) -> List:
+    """One primary instance per built-in search type, from the legacy JSON sections.
+
+    ``catalog_section`` is the raw ``catalog_config`` dict of a pre-plugin config
+    (``{}`` for a fresh one); ``gate_section`` the raw ``search_provider_config``
+    dict, whose ``providers`` map disables a type (absent ⇒ enabled).
+
+    Keys absent from ``catalog_section`` are **left out** of the instance settings
+    instead of being written as ``None``: the plugin's ``ConfigField``/constructor
+    default must apply. This used to come for free from the ``CatalogConfig``
+    dataclass defaults (``getattr`` on an unset field returned e.g.
+    ``catalog_type='libero_soap'``); with the dataclass gone, a ``dict.get`` would
+    hand ``None`` to the provider constructor instead. - Claude Generated
+    """
     from src.utils.config_models import PluginInstanceConfig
+
+    catalog_section = catalog_section or {}
+    providers = (gate_section or {}).get("providers", {}) or {}
 
     instances: List = []
     for pid in _SEARCH_ORDER:
         settings = {
-            key: getattr(catalog_config, attr, None)
+            key: catalog_section[attr]
             for key, attr in SEARCH_FIELD_MAP.get(pid, {}).items()
+            if attr in catalog_section
         }
-        enabled = True
-        if search_provider_config is not None:
-            enabled = search_provider_config.is_enabled(pid)
         instances.append(
             PluginInstanceConfig(
                 instance_id=pid,
                 category=SEARCH_CATEGORY,
                 provider_id=pid,
                 label=_SEARCH_LABELS.get(pid, pid),
-                enabled=enabled,
+                enabled=bool(providers.get(pid, True)),
                 is_primary=True,
                 settings=settings,
             )
@@ -118,44 +133,7 @@ def ensure_search_instances(plugins: List) -> None:
     """
     if any(p.category == SEARCH_CATEGORY for p in plugins):
         return
-    from src.utils.config_models import CatalogConfig
-
-    plugins += synthesize_search_instances(CatalogConfig(), None)
-
-
-def derive_search_mirrors(plugins: List, catalog_config, search_provider_config) -> None:
-    """Update ``catalog_config`` + ``search_provider_config`` in place from instances.
-
-    Mirrors the *primary* instance of each mapped type into its CatalogConfig
-    fields, and reflects per-type enabled state into the bool gate. Unmapped
-    CatalogConfig fields are left as-is.
-    """
-    search = [p for p in plugins if p.category == SEARCH_CATEGORY]
-
-    # Bool gate: a type is "enabled" if any of its instances is enabled.
-    for pid in _SEARCH_ORDER:
-        insts = [p for p in search if p.provider_id == pid]
-        if insts:
-            search_provider_config.set_enabled(pid, any(p.enabled for p in insts))
-
-    # Endpoint mirror: from the primary instance of each type.
-    for pid, mapping in SEARCH_FIELD_MAP.items():
-        if not mapping:
-            continue
-        primary = _primary_of(search, pid)
-        if primary is None:
-            continue
-        for key, attr in mapping.items():
-            if key in primary.settings:
-                setattr(catalog_config, attr, primary.settings.get(key))
-
-
-def _primary_of(instances: List, provider_id: str):
-    pool = [p for p in instances if p.provider_id == provider_id]
-    for p in pool:
-        if p.is_primary:
-            return p
-    return pool[0] if pool else None
+    plugins += synthesize_search_instances({})
 
 
 # ---------------------------------------------------------------------------

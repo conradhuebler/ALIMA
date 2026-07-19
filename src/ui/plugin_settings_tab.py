@@ -8,9 +8,9 @@ plugin, not scattered in the config). Instances can be added, duplicated and
 removed, and several instances of one type may coexist (e.g. two finc endpoints).
 
 The tab reads/writes ``AlimaConfig.plugins`` directly and is authoritative on
-save; the legacy ``CatalogConfig``/``SystemConfig`` sections are derived mirrors
-kept exact by ``plugin_migration.derive_*_mirrors`` on save. See
-``docs/plugin_system.md``.
+save. The DOI ``SystemConfig`` fields are still a derived mirror, kept exact by
+``plugin_migration.derive_input_mirrors`` on save; the ``CatalogConfig`` /
+``SearchProviderConfig`` mirrors are gone (WP P7). See ``docs/plugin_system.md``.
 """
 
 from __future__ import annotations

@@ -6,6 +6,72 @@
 
 ## 2026
 
+### WP Plugin-Konvergenz P7: Config-Mirror abgebaut — `CatalogConfig` + `SearchProviderConfig` gelöscht (July 17, 2026)
+
+`AlimaConfig.plugins` war schon autoritativ, aber zwei Dataclasses spiegelten es bei jedem
+Save zurück (`derive_search_mirrors`), damit Legacy-Leser weiterlaufen. Der Mirror ist weg;
+gelesen wird über `factory.primary_settings(config, provider_id, *, enabled_only)`,
+geschrieben über `set_primary_settings`. Fünf Commits:
+
+- **`9ac148a` (Vorarbeit)** — die Suite las die echte `~/.config/alima/config.json`, war also
+  grün oder rot je nach letztem GUI-Klick: 7 Fehler bei deaktiviertem `rvk_api` + aktivem
+  `catalog`, 13 ohne Config. Kein Produktionsfehler — P6a (Quellen aus den *aktivierten*
+  Providern) und P5 (deaktiviertes Lookup gated jeden Pfad) sind korrekt, die Tests waren
+  unisoliert. Zehn Tests hermetisch gemacht (`_pin_sources`, `_lookup_registry`), verifiziert
+  über drei Config-Zustände.
+- **`8596d97` (A)** — `execute_dk_search`s fünf `catalog_*`-Parameter waren im 510-Zeilen-Rumpf
+  **nirgends** referenziert (AST-geprüft; der eigene Kommentar sagte „vestigial … dropped with
+  the mirror in WP P7"). Mit ihnen die Ketten, die sie füllten: 16 der 29 Lesungen, die drei
+  toten `pipeline --catalog-*`-Flags, `_load_catalog_config`. Suite ohne Testanpassung grün.
+- **`fb2bf75` (B)** — die 13 echten Leser auf Instanzen. `enabled_only` macht explizit, was der
+  Mirror implizit ließ: Quellen-Gates lesen gegated (P5-Parität), Policy-Felder ignorieren den
+  Enable-Status (sonst fiele die DK-Policy still auf Default zurück, wenn der Katalog aus ist
+  und finc das DK-Backend liefert). `SearchProviderConfig`-Fallback in `_search_instances`
+  gelöscht — in Produktion unerreichbar, existierte nur für Test-Stubs.
+- **`354a39d` (C)** — die Wizards schreiben Instanzen statt Mirror. `ensure_search_instances`
+  als Zwilling zu `ensure_lookup_instances`: der Synthese-Guard greift *pro Kategorie*, eine
+  einzelne handgemachte Katalog-Instanz hätte die anderen fünf Built-ins gestrandet.
+- **(D)** — Löschung + Load-Migration auf die rohen JSON-Sektionen.
+
+**Drei Planannahmen fielen bei der Ausführung:**
+
+1. Der größte Leser-Cluster war *tot*, nicht migrationsbedürftig (s. A). Dazu: `PipelineStepConfig`
+   hat keinen `__getattr__`-Proxy → `getattr(step_config,'catalog_token','')` lieferte **immer**
+   `''`; die „Step-Config schlägt globale Config"-Vorrangkette hat nie funktioniert.
+2. **„`synthesize_search_instances` nimmt ein plain dict" war eine Falle.** `getattr(cc, attr, None)`
+   lieferte für ungesetzte Felder die *Dataclass-Defaults* (`catalog_type='libero_soap'`,
+   `strict_gnd…=True`, `finc_default_limit=20`). Ein naives `dict.get` hätte `None` an
+   `cls(**settings)` gereicht → stille Fehlkonfiguration beim Upgrade. Absente Keys werden
+   **weggelassen**, der `ConfigField`-Default greift. Guard:
+   `MigrationTest.test_absent_legacy_keys_are_omitted_not_none`.
+3. **Der Mirror hatte einen Live-Bug.** `catalog_web_record_url` ist Ziel *zweier* Mappings
+   (catalog + finc); `derive_search_mirrors` iterierte in Dict-Ordnung → finc gewann. Katalog-URL
+   gesetzt + finc-Feld leer ⇒ Mirror `''` ⇒ **keine OPAC-Links**. Am alten Code demonstriert;
+   jetzt explizite Präzedenz katalog-vor-finc (`catalog_web_bases`).
+
+**Zwei gewollte Verhaltensänderungen** (Operator-Entscheid): OPAC-Link-Präzedenz (s.o.) und
+`finc harvest_enabled` liest enabled-gated — eine deaktivierte finc-Quelle stoppt jetzt auch
+`finc_subject_harvest`.
+
+**Upgrade:** ein `catalog_config`-Key wird beim Load noch als Migrations-Eingabe gelesen und
+beim nächsten Save nicht mehr geschrieben. Für Configs *mit* `plugins` ein No-op (die Instanzen
+führen die Werte seit der Synthese). Downgrade nach dem ersten Save verliert die
+Katalog-Einstellungen.
+
+**Verifikation:** Suite 1305. Differenzvergleich gegen die echte Operator-Config — alle sechs
+migrierten Leser liefern identische Werte wie der Mirror. Wizard-A/B (alt vs. neu) im selben
+Prozess: identisches Instanz-Set, null Settings-Diffs. Beide Upgrade-Pfade durchgefahren
+(Pre-Plugin-Config → Werte migriert + Defaults statt `None` + Mirror-Keys weg; reale Config mit
+stalem Key → lädt unverändert). **Offen: Operator-Klick-Tests** — DK-Suche (Pipeline +
+UB-Katalog-Tab), OPAC-Links mit gesetzter Katalog- und leerer finc-URL, agentischer Lauf mit
+deaktiviertem finc, First-Start-Wizard + `alima wizard`, Bundle export→install.
+
+**Findings (nicht gefixt, notiert):** `execute_gnd_search` trägt dieselben drei
+`catalog_*`-Parameter, kein Produktionsaufrufer übergibt sie; `get_effective_config`
+(`pipeline_manager.py:448`) hat null Aufrufer; `ub_catalog_tab` übergibt `strict_gnd_validation=False`
+hart, während die Pipeline die Einstellung liest; `AlimaConfig.repetition_config` wird von
+`asdict` geschrieben, aber nie geparst.
+
 ### Chat-Agent: Prompt folgt der Plugin-Config; leere Quellenmenge ist kein Nulltreffer (July 15, 2026)
 
 Operator-Report: mit **allen** Such-Plugins deaktiviert rief der Agent `search_finc` und

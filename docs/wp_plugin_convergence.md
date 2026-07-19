@@ -1,7 +1,8 @@
 # WP: Plugin-Konvergenz — Orchestrierung, Built-in-Entkopplung, Lookup-Vertrag
 
-> **Status:** P1 ✅ COMMITTED (`5360e95`), P2–P5 + P6a + P7 📋 GEPLANT + entschieden,
-> **P6f geschlossen** (Fehlbefund, s.u.). Findings aus dem Drei-Agenten-Audit der
+> **Status:** P1–P5 + P6a + **P7 ✅ CODE-COMPLETE** (July 17, s. P7-Block unten),
+> **P6f geschlossen** (Fehlbefund, s.u.). Offen: Operator-Klick-Tests.
+> Findings aus dem Drei-Agenten-Audit der
 > Plugin-Umstellung (July 14). Die Quick-Wins des Audits (toter k10plus-Wrapper,
 > Doc-Drift, Lookup-URL-Warnung + -Memoization, GUI-Bypässe) sind separat umgesetzt,
 > siehe `AIChangelog.md` July 14.
@@ -220,7 +221,37 @@ Z. 1101/1253 (`search_catalog_titles`). Der `source_tool_map`-Ausweg existiert u
 **`BibRecord`-WP** erfasst → [`wp_records_as_first_class.md`](wp_records_as_first_class.md)
 + Counter-Bug [`wp_gnd_counter_divergence.md`](wp_gnd_counter_divergence.md).
 
-### P7 — Config-Mirror-Abbau (machbar, 2–3 Sessions; nicht Backlog)
+### P7 — Config-Mirror-Abbau ✅ ABGESCHLOSSEN (July 17)
+
+> **Ergebnis:** `CatalogConfig` + `SearchProviderConfig` + `CatalogType` sind gelöscht.
+> `AlimaConfig.plugins` ist die einzige Wahrheit; gelesen über `factory.primary_settings`,
+> geschrieben über `set_primary_settings`. Die Legacy-JSON-Sektionen sind einmalige
+> Migrations-Eingabe und verschwinden beim nächsten Save. Der DOI-`SystemConfig`-Mirror
+> bleibt (nicht P7). Commits `8596d97` (A) · `fb2bf75` (B) · `354a39d` (C) · D.
+>
+> **Drei Planannahmen haben der Ausführung nicht standgehalten:**
+> 1. **Der größte Cluster war tot, nicht migrationsbedürftig.** `execute_dk_search`s fünf
+>    `catalog_*`-Parameter waren im 510-Zeilen-Rumpf **nirgends** referenziert (AST-geprüft)
+>    → 16 der 29 Lesungen sind freie Löschungen. Dazu: `PipelineStepConfig` hat keinen
+>    `__getattr__`-Proxy, `getattr(step_config,'catalog_token','')` lieferte **immer** `''` —
+>    die „Step-Config schlägt globale Config"-Vorrangkette hat nie funktioniert.
+> 2. **„`synthesize_search_instances` nimmt ein plain dict" war eine Falle, kein Fakt.**
+>    `getattr(cc, attr, None)` lieferte für ungesetzte Felder die *Dataclass-Defaults*
+>    (`catalog_type='libero_soap'`, `strict_gnd…=True`, `finc_default_limit=20`). Ein naives
+>    `dict.get` hätte daraus `None` gemacht und via `cls(**settings)` an die
+>    Provider-Konstruktoren gereicht → stille Fehlkonfiguration beim Upgrade. Absente Keys
+>    werden **weggelassen**; Guard: `MigrationTest.test_absent_legacy_keys_are_omitted_not_none`.
+> 3. **Der Mirror hatte einen Live-Bug.** `catalog_web_record_url` ist Ziel *zweier*
+>    Mappings (catalog + finc); `derive_search_mirrors` iterierte in Dict-Ordnung → finc
+>    gewann. Katalog-URL gesetzt + finc-Feld leer ⇒ Mirror `''` ⇒ **keine OPAC-Links**.
+>    Am alten Code demonstriert, jetzt explizite Präzedenz katalog-vor-finc.
+>
+> **Vorarbeit `9ac148a`:** die Suite las die echte `~/.config/alima/config.json` — grün oder
+> rot je nach letztem GUI-Klick (7 Fehler bei rvk_api aus + catalog an, 13 ohne Config).
+> Zehn Tests hermetisch gemacht; verifiziert über drei Config-Zustände.
+
+<details>
+<summary>Ursprüngliche Analyse (July 16, vor der Ausführung)</summary>
 
 **Korrektur (July 16, nachgezählt):** die Zahl **„~298 Reader" ist eine 6×-Überschätzung**
 und war der Grund, P7 für unmachbar zu halten. Echt sind es **53 Attributlesungen in 10
@@ -251,6 +282,8 @@ tot) + `SearchProviderConfig`. Blocker: die Load-Migration muss überleben →
 `synthesize_search_instances` nimmt ein plain `dict`; `test_plugin_config_roundtrip.py:65-77`
 (assertet `asdict(cfg2.catalog_config) == cat_before`) **ist** D-8s Vertrag und muss auf
 Instanzen umgeschrieben werden. Gated auf P2 (finc) + P4.
+
+</details>
 
 ## Empfohlene Reihenfolge + Risiken
 

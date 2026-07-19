@@ -1,10 +1,12 @@
 """Tests for institutional bundle deploy (build/install/list/remove) - Claude Generated.
 
 Uses an injected fake ConfigManager so the tests are deterministic and never touch
-the real ~/.config/alima (and dodge the "no LLM providers" load guard). The fake's
-``save_config`` re-runs ``derive_search_mirrors`` exactly like the real one, so the
-tests catch the derived-mirror interaction (a profile must toggle instances, not the
-gate). Bundles are built on the fly under a temp dir.
+the real ~/.config/alima (and dodge the "no LLM providers" load guard). Bundles are
+built on the fly under a temp dir.
+
+The profile key ``search_provider_config`` is a *wire* key (already-exported bundles
+carry it); it addresses the per-instance ``enabled`` flags, which are the only state
+there is since WP P7 removed the mirror.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from pathlib import Path
 
 from src.utils import bundle as B
 from src.utils.config_models import AlimaConfig
-from src.utils.plugin_migration import derive_search_mirrors, synthesize_search_instances
+from src.utils.plugin_migration import synthesize_search_instances
 
 _DECL_SRU = (
     '[plugin]\nid = "demo_sru"\nlabel = "Demo SRU"\n'
@@ -28,7 +30,7 @@ _DECL_SRU = (
 
 
 class _FakeCM:
-    """In-memory ConfigManager stub with a real save-side mirror derivation."""
+    """In-memory ConfigManager stub."""
 
     def __init__(self, config, plugins_dir):
         self._config = config
@@ -42,12 +44,6 @@ class _FakeCM:
         return self._config
 
     def save_config(self, config, **kw) -> bool:
-        try:
-            derive_search_mirrors(
-                config.plugins, config.catalog_config, config.search_provider_config
-            )
-        except Exception:
-            pass
         self._config = config
         return True
 
@@ -65,7 +61,7 @@ class BundleTest(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.plugins_dir = self.tmp / "installed_plugins"
         cfg = AlimaConfig()
-        cfg.plugins = synthesize_search_instances(cfg.catalog_config, cfg.search_provider_config)
+        cfg.plugins = synthesize_search_instances({})
         self.cm = _FakeCM(cfg, self.plugins_dir)
 
     def tearDown(self):
@@ -114,14 +110,13 @@ class BundleTest(unittest.TestCase):
         self.assertTrue((self.plugins_dir / "demo_sru" / "plugin.toml").is_file())
 
     def test_install_disables_builtin_via_profile(self):
-        # A profile that "disables swb" must toggle the swb *instance* — the gate
-        # alone would be clobbered by derive_search_mirrors on save.
+        # The profile's search_provider_config key addresses the swb *instances* —
+        # the only enable state there is since WP P7.
         bd = self._make_bundle(profile={"search_provider_config": {"providers": {"swb": False}}})
         B.install_bundle(bd, config_manager=self.cm)
         cfg = self.cm.load_config()
         swb = [p for p in cfg.plugins if p.provider_id == "swb"]
         self.assertTrue(swb and all(not p.enabled for p in swb))
-        self.assertFalse(cfg.search_provider_config.is_enabled("swb"))  # derived mirror agrees
 
     def test_install_reports_required_secret(self):
         secrets = ('\n[secrets]\nrequired = [{ plugin = "demo_sru", key = "token", '
@@ -172,7 +167,7 @@ class BundleTest(unittest.TestCase):
         self.assertNotIn("demo_sru", cfg.approved_plugins)
         self.assertFalse((self.plugins_dir / "demo_sru").exists())
         # profile keys restored to their pre-install values
-        self.assertTrue(cfg.search_provider_config.is_enabled("swb"))
+        self.assertTrue(all(p.enabled for p in cfg.plugins if p.provider_id == "swb"))
         self.assertEqual(cfg.system_config.url_fetch_allowlist, [])
 
     def test_remove_unknown_raises(self):
@@ -229,7 +224,7 @@ class BundleTest(unittest.TestCase):
         from src.utils.config_models import AlimaConfig
 
         fresh = AlimaConfig()
-        fresh.plugins = synthesize_search_instances(fresh.catalog_config, fresh.search_provider_config)
+        fresh.plugins = synthesize_search_instances({})
         cm_dst = _FakeCM(fresh, self.tmp / "dst_plugins")
         report = B.install_bundle(out, config_manager=cm_dst)
 
@@ -238,7 +233,8 @@ class BundleTest(unittest.TestCase):
         self.assertIsNotNone(cat)
         self.assertEqual(cat.settings.get("catalog_search_url"), "https://x.example/s")
         self.assertFalse(cat.settings.get("token"))  # secret not shipped
-        self.assertFalse(cfg.search_provider_config.is_enabled("swb"))  # profile applied
+        # profile applied → the swb instances are off
+        self.assertFalse(any(p.enabled for p in cfg.plugins if p.provider_id == "swb"))
         self.assertTrue(any(not s["satisfied"] for s in report.required_secrets))
 
     def test_export_selects_only_named_instances(self):

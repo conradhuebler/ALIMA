@@ -12,7 +12,7 @@ from src.core.search import (
     list_providers,
 )
 from src.core.search.provider import SearchCapability
-from src.utils.config_models import CatalogConfig, PluginInstanceConfig, SearchProviderConfig
+from src.utils.config_models import PluginInstanceConfig
 from src.utils import plugin_migration as pm
 
 
@@ -166,18 +166,18 @@ class SetPrimarySettingsTest(unittest.TestCase):
         self.assertEqual(cat["token"], "TOK")            # first write survives
         self.assertEqual(cat["catalog_search_url"], "https://s")
 
-    def test_equivalent_to_the_old_mirror_synthesis(self):
-        # A/B against what the wizards produced before P7: build the legacy
-        # CatalogConfig and synthesise from it, vs. writing the instances directly.
+    def test_equivalent_to_the_legacy_upgrade_path(self):
+        # A/B: an operator who set these values in a pre-plugin config (upgraded on
+        # load) must end up with the same instances as one who runs the wizard now.
         from src.core.search.factory import set_primary_settings
 
-        legacy = CatalogConfig(
-            catalog_token="TOK", catalog_search_url="https://s",
-            catalog_details_url="https://d", finc_base_url="https://finc",
-            finc_default_limit=25, finc_dk_enabled=True,
-        )
+        legacy_section = {
+            "catalog_token": "TOK", "catalog_search_url": "https://s",
+            "catalog_details_url": "https://d", "finc_base_url": "https://finc",
+            "finc_default_limit": 25, "finc_dk_enabled": True,
+        }
         old = {p.instance_id: dict(p.settings or {})
-               for p in pm.synthesize_search_instances(legacy, None)}
+               for p in pm.synthesize_search_instances(legacy_section)}
 
         cfg = self._fresh()
         set_primary_settings(cfg, "catalog", {
@@ -245,20 +245,23 @@ class CatalogWebBasesTest(unittest.TestCase):
 
 
 class MigrationTest(unittest.TestCase):
+    """One-way upgrade of a pre-plugin config's raw JSON sections. - Claude Generated"""
+
     def _catalog(self):
-        return CatalogConfig(
-            catalog_token="TOK",
-            catalog_search_url="https://s",
-            catalog_details_url="https://d",
-            finc_base_url="https://finc",
-            finc_default_limit=25,
-            finc_dk_enabled=True,
-            sru_preset="dnb",
-            sru_max_records=40,
-        )
+        """The legacy ``catalog_config`` JSON section of a pre-plugin config."""
+        return {
+            "catalog_token": "TOK",
+            "catalog_search_url": "https://s",
+            "catalog_details_url": "https://d",
+            "finc_base_url": "https://finc",
+            "finc_default_limit": 25,
+            "finc_dk_enabled": True,
+            "sru_preset": "dnb",
+            "sru_max_records": 40,
+        }
 
     def test_synthesize_maps_fields(self):
-        insts = {i.instance_id: i for i in pm.synthesize_search_instances(self._catalog(), SearchProviderConfig())}
+        insts = {i.instance_id: i for i in pm.synthesize_search_instances(self._catalog())}
         self.assertEqual(insts["catalog"].settings["token"], "TOK")
         self.assertEqual(insts["catalog"].settings["catalog_details"], "https://d")
         self.assertEqual(insts["finc"].settings["base_url"], "https://finc")
@@ -268,20 +271,49 @@ class MigrationTest(unittest.TestCase):
         self.assertTrue(all(i.is_primary for i in insts.values()))
 
     def test_enabled_gate_respected(self):
-        spc = SearchProviderConfig(providers={"finc": False})
-        insts = {i.instance_id: i for i in pm.synthesize_search_instances(self._catalog(), spc)}
+        gate = {"providers": {"finc": False}}
+        insts = {i.instance_id: i for i in pm.synthesize_search_instances(self._catalog(), gate)}
         self.assertFalse(insts["finc"].enabled)
         self.assertTrue(insts["lobid"].enabled)
 
-    def test_derive_round_trip(self):
-        cat = self._catalog()
-        spc = SearchProviderConfig()
-        insts = pm.synthesize_search_instances(cat, spc)
-        fresh = CatalogConfig()
-        fresh_spc = SearchProviderConfig()
-        pm.derive_search_mirrors(insts, fresh, fresh_spc)
-        for attr in ("catalog_token", "catalog_details_url", "finc_base_url", "finc_default_limit", "sru_preset"):
-            self.assertEqual(getattr(fresh, attr), getattr(cat, attr), attr)
+    def test_absent_legacy_keys_are_omitted_not_none(self):
+        """The upgrade must not hand ``None`` to a provider constructor.
+
+        Until WP P7 the unset fields came back as the CatalogConfig dataclass
+        defaults (``getattr`` on an unset attribute → ``catalog_type='libero_soap'``).
+        Reading the raw JSON section with ``dict.get`` instead would silently produce
+        ``None`` for every key the operator never set, and build_provider passes
+        settings straight into ``cls(**settings)``. So absent ⇒ *omitted*, and the
+        plugin's own ConfigField/constructor default applies. - Claude Generated
+        """
+        insts = {i.instance_id: i for i in pm.synthesize_search_instances({"catalog_token": "TOK"})}
+
+        cat = insts["catalog"].settings
+        self.assertEqual(cat["token"], "TOK")
+        for absent in ("catalog_type", "strict_gnd_validation_for_dk_search",
+                       "catalog_search_url", "catalog_web_record_url"):
+            self.assertNotIn(absent, cat, f"{absent} must be omitted, not None")
+        self.assertEqual(insts["finc"].settings, {})
+        self.assertEqual(insts["sru"].settings, {})
+
+        # …and the declared defaults are what the readers then see.
+        from src.core.search.factory import primary_settings
+        from src.utils.config_models import AlimaConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = list(insts.values())
+        eff = primary_settings(cfg, "catalog", enabled_only=False)
+        self.assertEqual(eff["catalog_type"], "libero_soap")
+        self.assertIs(eff["strict_gnd_validation_for_dk_search"], True)
+
+    def test_fresh_config_seeds_all_builtins(self):
+        insts = pm.synthesize_search_instances({})
+        self.assertEqual(
+            {i.instance_id for i in insts},
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+        )
+        self.assertTrue(all(i.enabled for i in insts))
+
 
 class ListPluginsToolTest(unittest.TestCase):
     def test_list_plugins_returns_active_with_docs(self):

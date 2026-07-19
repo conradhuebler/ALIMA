@@ -19,7 +19,7 @@ import logging
 from enum import Enum
 # Import centralized data models
 from .config_models import (
-    AlimaConfig, ChatConfig, DatabaseConfig, CatalogConfig, SearchProviderConfig,
+    AlimaConfig, ChatConfig, DatabaseConfig,
     PromptConfig, UIConfig,
     UnifiedProviderConfig, UnifiedProvider, TaskPreference, PipelineStepConfig,
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
@@ -395,10 +395,15 @@ class ConfigManager:
 
             # Create main config sections - Claude Generated
             database_config = DatabaseConfig(**database_config_data)
-            catalog_config = CatalogConfig(**config_data.get("catalog_config", config_data.get("catalog", {})))
-            search_provider_config = SearchProviderConfig(**config_data.get("search_provider_config", {}))
             prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
             system_config = SystemConfig(**system_config_data)
+
+            # Legacy search sections: raw input to the one-way instance migration
+            # below, no longer parsed into CatalogConfig/SearchProviderConfig (WP P7).
+            # A config that still carries these keys is upgraded on load; they are
+            # dropped on the next save. - Claude Generated
+            legacy_catalog = config_data.get("catalog_config", config_data.get("catalog", {})) or {}
+            legacy_gate = config_data.get("search_provider_config", {}) or {}
 
             # Resolve file paths - Claude Generated (UNIFIED PATH RESOLUTION)
             try:
@@ -453,8 +458,8 @@ class ConfigManager:
 
             # Plugin instances (generic, all categories). If a config predates the
             # plugin model for a category, synthesise that category's instances from
-            # the legacy mirrors so they stay authoritative. Migrated per-category so
-            # a config saved before a later category was added still upgrades. - Claude Generated
+            # the legacy section so nothing is lost. Migrated per-category so a config
+            # saved before a later category was added still upgrades. - Claude Generated
             from .plugin_migration import (
                 INPUT_CATEGORY,
                 LOOKUP_CATEGORY,
@@ -468,7 +473,7 @@ class ConfigManager:
             raw_plugins = config_data.get("plugins", []) or []
             plugins = [instance_from_dict(p) for p in raw_plugins if isinstance(p, dict)]
             if not any(p.category == SEARCH_CATEGORY for p in plugins):
-                plugins += synthesize_search_instances(catalog_config, search_provider_config)
+                plugins += synthesize_search_instances(legacy_catalog, legacy_gate)
             if not any(p.category == INPUT_CATEGORY for p in plugins):
                 plugins += synthesize_input_instances(system_config)
             ensure_lookup_instances(plugins)
@@ -478,8 +483,6 @@ class ConfigManager:
             # Create main config
             config = AlimaConfig(
                 database_config=database_config,
-                catalog_config=catalog_config,
-                search_provider_config=search_provider_config,
                 prompt_config=prompt_config,
                 system_config=system_config,
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
@@ -670,31 +673,22 @@ class ConfigManager:
             except Exception as e:
                 self.logger.warning(f"Could not normalize provider config: {e}")
 
-            # Plugin instances are authoritative; refresh the CatalogConfig /
-            # provider-gate mirrors from them so the legacy readers stay exact. If
-            # this is a pre-plugin config, seed the instances first. - Claude Generated
+            # Plugin instances are authoritative. Seed any category a hand-built
+            # config left empty, then refresh the DOI SystemConfig mirror (the last
+            # remaining one — the search mirrors went with WP P7). - Claude Generated
             try:
                 from .plugin_migration import (
                     INPUT_CATEGORY,
-                    LOOKUP_CATEGORY,
-                    SEARCH_CATEGORY,
                     derive_input_mirrors,
-                    derive_search_mirrors,
                     ensure_lookup_instances,
+                    ensure_search_instances,
                     synthesize_input_instances,
-                    synthesize_search_instances,
                 )
 
-                if not any(p.category == SEARCH_CATEGORY for p in config.plugins):
-                    config.plugins += synthesize_search_instances(
-                        config.catalog_config, config.search_provider_config
-                    )
+                ensure_search_instances(config.plugins)
                 if not any(p.category == INPUT_CATEGORY for p in config.plugins):
                     config.plugins += synthesize_input_instances(config.system_config)
                 ensure_lookup_instances(config.plugins)
-                derive_search_mirrors(
-                    config.plugins, config.catalog_config, config.search_provider_config
-                )
                 derive_input_mirrors(config.plugins, config.system_config)
             except Exception as e:
                 self.logger.warning(f"Could not derive plugin mirrors: {e}")
@@ -840,20 +834,6 @@ class ConfigManager:
         """Get database configuration - Claude Generated"""
         return self.load_config().database_config
 
-    def get_catalog_config(self) -> CatalogConfig:
-        """Get catalog configuration - Claude Generated"""
-        return self.load_config().catalog_config
-
-    def get_search_provider_config(self) -> SearchProviderConfig:
-        """Get the per-search-provider enable/disable config (F-3 P3) - Claude Generated"""
-        return self.load_config().search_provider_config
-
-    def update_search_provider_config(self, search_provider_config: SearchProviderConfig) -> bool:
-        """Persist the per-search-provider enable/disable config - Claude Generated"""
-        config = self.load_config()
-        config.search_provider_config = search_provider_config
-        return self.save_config(config)
-
     def get_prompt_config(self) -> PromptConfig:
         """Get prompt configuration - Claude Generated"""
         return self.load_config().prompt_config
@@ -866,12 +846,6 @@ class ConfigManager:
         """Update database configuration - Claude Generated"""
         config = self.load_config()
         config.database_config = database_config
-        return self.save_config(config)
-
-    def update_catalog_config(self, catalog_config: CatalogConfig) -> bool:
-        """Update catalog configuration - Claude Generated"""
-        config = self.load_config()
-        config.catalog_config = catalog_config
         return self.save_config(config)
 
     def update_ui_config(self, ui_config: UIConfig) -> bool:
