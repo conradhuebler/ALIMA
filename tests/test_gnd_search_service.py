@@ -12,6 +12,8 @@ import os
 import tempfile
 import unittest
 
+from src.utils.classification_systems import codes_for_system
+
 try:
     from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
     from src.utils.config_models import DatabaseConfig, PluginInstanceConfig
@@ -168,7 +170,7 @@ class SearchServiceTest(unittest.TestCase):
         wasser = results["wasser"]["Wasser"]
         self.assertEqual(wasser["count"], 47)                      # max, never summed
         self.assertEqual(wasser["gnd_ids"], {"g1", "g2"})          # union
-        self.assertEqual(wasser["classifications"], {"DDC": {"5"}})
+        self.assertEqual(codes_for_system(wasser["classifications"], "DDC"), ["5"])
         self.assertEqual(wasser["display_count"], 47)              # max across sources
         self.assertEqual(results["wasser"]["Klima"]["count"], 3)   # from B only
 

@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, runtime_checkable
 
+from src.utils.classification_systems import normalize_classifications
+
 
 # WP2 raw cache: which request params are part of a source's cache key. Every
 # source keys on ``search_type``; a provider declaring more (swb pages on
@@ -78,8 +80,12 @@ class ResultItem:
       ``extra["facet"]`` (facet field name).
     * ``CLASSIFICATION``→ ``code`` (DK/RVK), ``label``, ``count``.
 
-    ``classifications`` is the canonical ``{system: codes}`` dict (WP-D1):
-    dk/ddc/rvk are equal-rank system keys, only non-empty systems are carried.
+    ``classifications`` is the canonical ``{system: [{code, count?, origin}]}``
+    dict (WP-D1 shape, WP-D2 entries): DK/DDC/RVK are equal-rank system keys,
+    only non-empty systems are carried. ``origin`` separates an authority
+    statement from statistical co-occurrence; ``count`` is the co-occurrence
+    strength and is absent for authority entries. Entries are dicts, so unlike
+    ``gnd_ids`` there is no set/list duality — always an ordered list.
 
     ``display_count`` is the *display-only* hit count (F-4): it never feeds ranking
     (see ``src/core/gnd_search_core.py`` count-landmine). ``None`` means "use
@@ -90,7 +96,7 @@ class ResultItem:
     gnd_ids: Set[str] = field(default_factory=set)
     count: int = 0
     display_count: Optional[int] = None
-    classifications: Dict[str, Set[str]] = field(default_factory=dict)
+    classifications: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     record: Optional[Dict[str, Any]] = None
     code: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -126,11 +132,9 @@ class ProviderResult:
             for kw, data in (keywords or {}).items():
                 data = data or {}
                 dc = data.get("display_count")
-                classifications = {
-                    system: set(codes or [])
-                    for system, codes in (data.get("classifications") or {}).items()
-                    if codes
-                }
+                classifications = normalize_classifications(
+                    data.get("classifications")
+                )
                 items.append(
                     ResultItem(
                         label=kw,
@@ -154,11 +158,10 @@ class ProviderResult:
                 entry: Dict[str, Any] = {
                     "count": it.count,
                     "gnd_ids": set(it.gnd_ids),
-                    "classifications": {
-                        system: set(codes)
-                        for system, codes in it.classifications.items()
-                        if codes
-                    },
+                    # normalize_classifications also produces the copies, and
+                    # tolerates a ResultItem built by hand (or by a plugin) that
+                    # still carries bare codes — ``dict("333")`` would raise.
+                    "classifications": normalize_classifications(it.classifications),
                 }
                 if it.display_count is not None:
                     entry["display_count"] = it.display_count

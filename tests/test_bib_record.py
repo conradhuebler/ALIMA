@@ -16,7 +16,11 @@ import unittest
 from dataclasses import asdict
 
 from src.core.bib_record import BibRecord, to_bibrecord
-from src.utils.classification_systems import SYSTEM_KEYS
+from src.utils.classification_systems import (
+    ORIGIN_AUTHORITY,
+    SYSTEM_KEYS,
+    codes_for_system,
+)
 from src.utils.k10plus_resolver import K10PlusRecord
 
 FINC_RECORD = {
@@ -90,9 +94,13 @@ class TestPinnedContainerConventions(unittest.TestCase):
     def test_classification_keys_are_canonical_systems(self):
         for rec in self._all_records():
             with self.subTest(source=rec.source):
-                for system in rec.classifications:
+                for system, entries in rec.classifications.items():
                     self.assertIn(system, SYSTEM_KEYS)
-                    self.assertIsInstance(rec.classifications[system], list)
+                    self.assertIsInstance(entries, list)
+                    for e in entries:
+                        self.assertIsInstance(e, dict)
+                        self.assertTrue(e.get("code"))
+                        self.assertEqual(e.get("origin"), ORIGIN_AUTHORITY)
 
     def test_url_is_derived_by_role_priority_never_set_alone(self):
         """A record page (catalog) wins over the full text — the F-7 decision."""
@@ -135,9 +143,15 @@ class TestCatalogNormalizer(unittest.TestCase):
     def test_parallel_code_lists_become_one_dict(self):
         rec = to_bibrecord(CATALOG_RECORD, "catalog")
         self.assertEqual(
-            rec.classifications,
+            {s: codes_for_system(rec.classifications, s) for s in rec.classifications},
             {"DK": ["504.53"], "RVK": ["AR 12000"], "DDC": ["631.4"]},
         )
+        # A record STATES its classification — it is authority, not evidence,
+        # so no count is invented for it.
+        for entries in rec.classifications.values():
+            for e in entries:
+                self.assertEqual(e["origin"], ORIGIN_AUTHORITY)
+                self.assertNotIn("count", e)
 
     def test_rsn_lands_in_the_identifier_envelope(self):
         rec = to_bibrecord(CATALOG_RECORD, "catalog")
@@ -155,7 +169,7 @@ class TestSruNormalizer(unittest.TestCase):
         """decimal_classifications cannot: its regex strips DDC/DK alike."""
         rec = to_bibrecord(SRU_RECORD, "sru")
         self.assertEqual(
-            rec.classifications,
+            {s: codes_for_system(rec.classifications, s) for s in rec.classifications},
             {"DK": ["556.55"], "DDC": ["551.48"], "RVK": ["WI 5000"]},
         )
 
@@ -174,7 +188,8 @@ class TestSruNormalizer(unittest.TestCase):
 class TestK10PlusNormalizer(unittest.TestCase):
     def test_bare_ddc_string_becomes_a_system_dict(self):
         rec = to_bibrecord(asdict(K10PlusRecord(ddc="540")), "k10plus")
-        self.assertEqual(rec.classifications, {"DDC": ["540"]})
+        self.assertEqual(codes_for_system(rec.classifications, "DDC"), ["540"])
+        self.assertEqual(rec.classifications["DDC"][0]["origin"], ORIGIN_AUTHORITY)
 
     def test_record_url_is_fulltext_not_catalog(self):
         rec = to_bibrecord(asdict(K10PlusRecord(url="https://doi.org/10.1/x")), "k10plus")

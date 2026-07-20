@@ -3,6 +3,8 @@
 
 from typing import List, Dict, Any, Set, Optional, Union
 from pathlib import Path
+
+from src.utils.classification_systems import primary_code
 import os
 import sys
 import json
@@ -171,9 +173,11 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
                 gnd_id = next(iter(data.get("gnd_ids", set())), "")
 
                 cls = data.get("classifications") or {}
-                # First DDC / DK classification if available (or empty string)
-                ddc = next(iter(cls.get("DDC", set())), "")
-                dk = next(iter(cls.get("DK", set())), "")
+                # Strongest DDC / DK classification if available (or empty
+                # string). Entries are kept sorted authority-first, so "first"
+                # is now "best" rather than "whichever the set yielded".
+                ddc = primary_code(cls, "DDC")
+                dk = primary_code(cls, "DK")
 
                 # Get the count (default to 1 if not available)
                 count = data.get("count", 1)

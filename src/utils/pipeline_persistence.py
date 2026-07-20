@@ -111,21 +111,16 @@ class PipelineJsonManager:
     def convert_lists_to_sets(obj):
         """Convert known list fields back to sets after JSON loading - Claude Generated
 
-        Handles the canonical set fields: every classification system key (inside
-        ``classifications``) plus missing_concepts
+        Handles the one remaining canonical set field, ``missing_concepts``.
         """
         if isinstance(obj, dict):
-            # Known set fields in search results and data models.
-            # Canonical nested keys (WP-D1): the system keys live inside the
-            # ``classifications`` dict and are matched here by key name during
-            # recursion. Derived from the shared registry so dk/ddc/rvk stay
-            # equal-rank — a hardcoded {"ddc","dk"} silently left ``rvk`` a list
-            # after a JSON round-trip while its siblings became sets.
-            # ``gnd_ids`` stays a LIST (display order, gnd_id = first element)
-            # — never add it here.
-            from .classification_systems import SYSTEM_KEYS
-
-            SET_FIELDS = set(SYSTEM_KEYS) | {"missing_concepts"}
+            # Since the WP-D2 entry shape, classification system keys hold LISTS
+            # OF ENTRY DICTS ({code, count?, origin}), which are unhashable and
+            # ordered by strength — converting them to sets would both raise and
+            # destroy the ranking, so the system keys are deliberately NOT here
+            # any more. ``gnd_ids`` likewise stays a LIST (display order,
+            # gnd_id = first element) — never add it either.
+            SET_FIELDS = {"missing_concepts"}
 
             result = {}
             for key, value in obj.items():

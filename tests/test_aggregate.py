@@ -14,6 +14,8 @@ import os
 import tempfile
 import unittest
 
+from src.utils.classification_systems import codes_for_system
+
 try:
     from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
     from src.utils.config_models import DatabaseConfig
@@ -377,14 +379,23 @@ class NestedFromAggregateTest(unittest.TestCase):
         self.assertEqual(set(nested.keys()), {"wasser", "h2o"})
         w = nested["wasser"]["Wasser"]
         self.assertEqual(w["gnd_ids"], {"g1"})
-        self.assertEqual(w["classifications"], {"DDC": {"540"}})
+        self.assertEqual(codes_for_system(w["classifications"], "DDC"), ["540"])
         self.assertEqual(w["count"], 1)
         self.assertEqual(w["display_count"], 9)
-        # Sets are per-term copies (no shared mutation across terms).
+        # Per-term COPIES, no shared mutation across terms — each term's nested
+        # view is merged independently downstream. gnd_ids is a set; since the
+        # WP-D2 entry shape, classifications are lists of dicts, so isolation has
+        # to hold at both the list AND the entry level.
         w["gnd_ids"].add("x")
         self.assertNotIn("x", nested["h2o"]["Wasser"]["gnd_ids"])
-        w["classifications"]["DDC"].add("y")
-        self.assertNotIn("y", nested["h2o"]["Wasser"]["classifications"]["DDC"])
+        w["classifications"]["DDC"].append({"code": "y", "origin": "cooccurrence"})
+        self.assertEqual(
+            codes_for_system(nested["h2o"]["Wasser"]["classifications"], "DDC"), ["540"]
+        )
+        w["classifications"]["DDC"][0]["code"] = "mutated"
+        self.assertEqual(
+            codes_for_system(nested["h2o"]["Wasser"]["classifications"], "DDC"), ["540"]
+        )
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")

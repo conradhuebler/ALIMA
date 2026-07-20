@@ -29,6 +29,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ..gnd_search_core import merge_into_pool, parse_batch_response, rank_pool
+from src.utils.classification_systems import normalize_classifications
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +174,8 @@ def nested_from_aggregate(agg: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, 
     """Reshape an aggregate result to the classic nested ``{term:{title:{...}}}`` view.
 
     Inverts ``terms_map`` (title→terms) so each search term maps to its confirmed
-    titles with the reduced fields in the canonical shape (``gnd_ids`` /
-    ``classifications`` as fresh sets per term, ``count``, optional
+    titles with the reduced fields in the canonical shape (``gnd_ids`` as a fresh
+    set per term, ``classifications`` as fresh entry copies, ``count``, optional
     ``display_count``). This is the classic GUI/CLI/Webapp contract, now derived
     from the raw-first pool. - Claude Generated
     """
@@ -189,9 +190,13 @@ def nested_from_aggregate(agg: Dict[str, Any]) -> Dict[str, Dict[str, Dict[str, 
             reduced = {
                 "count": entry.get("count", 1),
                 "gnd_ids": set(entry.get("gnd_ids", [])),
-                "classifications": {
-                    system: set(codes) for system, codes in cls.items() if codes
-                },
+                # Fresh per-term COPIES of the entry dicts: the nested views are
+                # merged independently downstream, and sharing entry objects
+                # would let one term's merge mutate another's. Entries are
+                # dicts, so there is no set/list duality here (unlike gnd_ids).
+                # normalize_classifications also builds the copies, and accepts
+                # a pool entry that still carries bare codes.
+                "classifications": normalize_classifications(cls),
             }
             if entry.get("display_count") is not None:
                 reduced["display_count"] = entry["display_count"]

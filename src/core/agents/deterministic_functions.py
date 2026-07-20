@@ -19,6 +19,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from src.core.agents.registry import register_tool_fn
+from src.utils.classification_systems import codes_for_system
 from src.core.agents.tool_providers import DKDataProvider
 from src.core.gnd_search_core import (
     merge_into_pool,
@@ -1556,7 +1557,7 @@ def gnd_batch_metadata(
                                 "title": title,
                                 "description": "",
                                 "synonyms": [],
-                                "ddcs": list((kw.get("classifications") or {}).get("DDC", [])),
+                                "ddcs": codes_for_system(kw.get("classifications"), "DDC"),
                             }
                             missing.remove(gid)
                             break

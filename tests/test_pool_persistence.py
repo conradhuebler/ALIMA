@@ -47,9 +47,15 @@ def _state_with_sets() -> KeywordAnalysisState:
                         "display_count": 17,
                         "gnd_ids": {"4035769-7"},
                         "classifications": {
-                            "DK": {"556.55"},
-                            "DDC": {"551.48"},
-                            "RVK": {"WI 5000"},
+                            "DK": [{"code": "556.55", "origin": "cooccurrence",
+                                    "count": 7}],
+                            "DDC": [{"code": "551.48", "origin": "authority"}],
+                            "RVK": [
+                                {"code": "WI 4700", "origin": "cooccurrence",
+                                 "count": 13},
+                                {"code": "WI 4800", "origin": "cooccurrence",
+                                 "count": 6},
+                            ],
                         },
                     }
                 },
@@ -67,9 +73,16 @@ class TestPoolStateIsJsonDumpable(unittest.TestCase):
 
         self.assertEqual(sorted(payload["gnd_ids"]), ["4035769-7"])
         self.assertEqual(
-            {sys: sorted(codes) for sys, codes in payload["classifications"].items()},
-            {"DK": ["556.55"], "DDC": ["551.48"], "RVK": ["WI 5000"]},
+            {
+                system: [e["code"] for e in entries]
+                for system, entries in payload["classifications"].items()
+            },
+            {"DK": ["556.55"], "DDC": ["551.48"], "RVK": ["WI 4700", "WI 4800"]},
         )
+        # origin/count survive too — they are what distinguishes an authority
+        # statement from statistical evidence.
+        self.assertEqual(payload["classifications"]["DDC"][0]["origin"], "authority")
+        self.assertEqual(payload["classifications"]["RVK"][0]["count"], 13)
         # The count pair must survive: ``count`` is the ranking placeholder,
         # ``display_count`` the real Häufigkeit (the 038738e convention).
         self.assertEqual(payload["count"], 1)
@@ -83,34 +96,49 @@ class TestPoolStateIsJsonDumpable(unittest.TestCase):
         json.dumps(out)  # must not raise
 
 
-class TestClassificationSystemsRoundTripEqually(unittest.TestCase):
-    def test_every_system_key_becomes_a_set_again(self):
-        """DK/DDC/RVK must be equal-rank on reload — RVK used to stay a list."""
+class TestClassificationEntriesSurviveRoundTrip(unittest.TestCase):
+    """Since the WP-D2 entry shape the system keys hold LISTS OF DICTS.
+
+    They are deliberately no longer in ``SET_FIELDS``: entry dicts are
+    unhashable (converting would raise) and their order carries the ranking
+    (authority first, then descending co-occurrence), which a set destroys.
+    """
+
+    def test_entries_round_trip_unchanged_including_order(self):
         original = _state_with_sets()
-        reloaded = PipelineJsonManager.convert_lists_to_sets(
-            json.loads(json.dumps(PipelineJsonManager.task_state_to_dict(original)))
-        )
+        dumped = json.dumps(PipelineJsonManager.task_state_to_dict(original))
+        reloaded = PipelineJsonManager.convert_lists_to_sets(json.loads(dumped))
         payload = reloaded["search_results"][0]["results"]["Limnologie"]
 
         for system in ("DK", "DDC", "RVK"):
             with self.subTest(system=system):
-                self.assertIsInstance(
-                    payload["classifications"][system],
-                    set,
-                    f"{system} did not round-trip back to a set",
-                )
+                entries = payload["classifications"][system]
+                self.assertIsInstance(entries, list)
+                self.assertTrue(all(isinstance(e, dict) for e in entries))
 
-    def test_set_fields_are_derived_from_the_shared_registry(self):
-        """Adding a system to the registry must not need an edit here.
+        self.assertEqual(
+            [e["code"] for e in payload["classifications"]["RVK"]],
+            [e["code"] for e in original.search_results[0].results["Limnologie"]
+             ["classifications"]["RVK"]],
+            "entry order (= the ranking) changed across the round trip",
+        )
 
-        Guards the fix itself: a hardcoded pair is what let RVK drift.
-        """
+    def test_system_keys_are_not_set_converted(self):
+        """A set-conversion here would raise on unhashable entry dicts."""
+        converted = PipelineJsonManager.convert_lists_to_sets(
+            {"classifications": {system: [{"code": "x", "origin": "authority"}]
+                                 for system in SYSTEM_KEYS}}
+        )
         for system in SYSTEM_KEYS:
             with self.subTest(system=system):
-                converted = PipelineJsonManager.convert_lists_to_sets(
-                    {"classifications": {system: ["x"]}}
-                )
-                self.assertIsInstance(converted["classifications"][system], set)
+                self.assertIsInstance(converted["classifications"][system], list)
+
+    def test_missing_concepts_still_becomes_a_set(self):
+        """The one remaining set field must not have been lost in the change."""
+        converted = PipelineJsonManager.convert_lists_to_sets(
+            {"missing_concepts": ["a", "b"]}
+        )
+        self.assertEqual(converted["missing_concepts"], {"a", "b"})
 
     def test_gnd_ids_stays_a_list(self):
         """The display-order contract: gnd_ids must NOT become a set on reload."""

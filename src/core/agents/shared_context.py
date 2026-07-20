@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.agents.base_shared_context import BaseSharedContext
 from src.core.url_utils import gnd_url, swb_ppn_url
+from src.utils.classification_systems import codes_for_system
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +236,7 @@ class SharedContext(BaseSharedContext):
         initial_gnd_classes = []
         seen_ddc = set()
         for entry in self.gnd_entries:
-            for ddc in (entry.get("classifications") or {}).get("DDC", []):
+            for ddc in codes_for_system(entry.get("classifications"), "DDC"):
                 if ddc and ddc not in seen_ddc:
                     seen_ddc.add(ddc)
                     initial_gnd_classes.append(ddc)

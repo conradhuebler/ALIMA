@@ -24,7 +24,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-from src.utils.classification_systems import normalize_system, split_classification_code
+from src.utils.classification_systems import (
+    ORIGIN_AUTHORITY,
+    merge_classifications,
+    normalize_classifications,
+    split_classification_code,
+)
 
 # Role order for deriving the canonical single ``url`` from ``urls``. A bare
 # ``url`` in this codebase overwhelmingly means "where a human should click",
@@ -41,10 +46,11 @@ class BibRecord:
     Container conventions are pinned (docs/wp_records_as_first_class.md):
 
     * ``authors`` is ALWAYS ``List[str]`` — every producer normalizer converts.
-    * ``classifications`` is ``{system: [codes]}`` with the canonical uppercase
-      system keys (``"DK"``/``"DDC"``/``"RVK"``), i.e. the same vocabulary as
-      the GND pool's ``classifications`` — so a record's own classifications can
-      feed the classification step without a translation layer.
+    * ``classifications`` is ``{system: [{code, origin}]}`` with the canonical
+      uppercase system keys — the same vocabulary AND entry shape as the GND
+      pool, so a record's own classifications feed the classification step
+      without a translation layer. A record states its own classification, so
+      every entry is ``origin="authority"`` and carries no ``count``.
     * ``urls`` is a typed role map; ``url`` is DERIVED from it
       (:data:`URL_ROLE_PRIORITY`), never set independently.
     * ``identifiers`` carries only non-empty ids (``doi``/``ppn``/``isbn``/
@@ -59,7 +65,7 @@ class BibRecord:
     language: str = ""
     abstract: str = ""
     subjects: List[str] = field(default_factory=list)
-    classifications: Dict[str, List[str]] = field(default_factory=dict)
+    classifications: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     urls: Dict[str, str] = field(default_factory=dict)
     publisher: str = ""
     raw: Optional[Dict[str, Any]] = None
@@ -107,22 +113,24 @@ def _clean_strings(values: Any) -> List[str]:
     return out
 
 
-def _classifications(pairs: Iterable[tuple]) -> Dict[str, List[str]]:
-    """Build the canonical dict from ``(system, codes)`` pairs.
+def _classifications(pairs: Iterable[tuple]) -> Dict[str, List[Dict[str, Any]]]:
+    """Build the canonical entry dict from ``(system, codes)`` pairs.
 
+    Everything here is ``origin="authority"``: a bibliographic record STATES its
+    classification, it is not statistical evidence like a co-occurrence harvest.
     Systems are normalised through the shared registry, so a producer's spelling
-    (``"ddc"``, ``"DDC"``) cannot introduce a second key for one system.
-    Unknown systems are dropped rather than guessed at.
+    (``"ddc"``, ``"DDC"``) cannot introduce a second key for one system, and the
+    same system arriving twice (e.g. a prefixed string plus a parallel list)
+    merges rather than overwriting. Unknown systems are dropped, not guessed at.
     """
-    out: Dict[str, List[str]] = {}
+    out: Dict[str, List[Dict[str, Any]]] = {}
     for system, codes in pairs:
-        key = normalize_system(system)
-        if not key:
-            continue
-        for code in _clean_strings(codes):
-            out.setdefault(key, [])
-            if code not in out[key]:
-                out[key].append(code)
+        out = merge_classifications(
+            out,
+            normalize_classifications(
+                {system: _clean_strings(codes)}, origin=ORIGIN_AUTHORITY
+            ),
+        )
     return out
 
 

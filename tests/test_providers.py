@@ -97,12 +97,12 @@ class GndKeywordRoundTripTest(unittest.TestCase):
             "Wassermanagement": {
                 "count": 47,
                 "gnd_ids": {"gnd1", "gnd2"},
-                "classifications": {"DDC": {"333.7"}},
+                "classifications": {"DDC": [{"code": "333.7", "origin": "cooccurrence"}]},
             },
             "Wasserwirtschaft": {
                 "count": 3,
                 "gnd_ids": {"gnd3"},
-                "classifications": {"DK": {"AR 1000"}},
+                "classifications": {"DK": [{"code": "AR 1000", "origin": "cooccurrence"}]},
             },
         }
     }
@@ -230,7 +230,10 @@ class GndLocalProviderTest(unittest.TestCase):
         item = res.per_term["halbleiter"][0]
         self.assertEqual(item.label, "Halbleiter")
         self.assertEqual(item.gnd_ids, {"g1"})
-        self.assertEqual(item.classifications, {"DDC": {"537"}})
+        # gnd_local reads the GND authority record — not statistical evidence.
+        self.assertEqual(
+            item.classifications, {"DDC": [{"code": "537", "origin": "authority"}]}
+        )
         self.assertEqual(item.count, 0)
 
 

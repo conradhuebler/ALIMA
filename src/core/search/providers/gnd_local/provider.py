@@ -14,6 +14,10 @@ from typing import Any, Callable, List, Optional
 
 from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
+from src.utils.classification_systems import (
+    ORIGIN_AUTHORITY,
+    normalize_classifications,
+)
 
 
 @register_provider
@@ -84,7 +88,11 @@ class GndLocalProvider:
                         label=e.title,
                         gnd_ids={e.gnd_id} if e.gnd_id else set(),
                         count=0,  # local DB has no occurrence count
-                        classifications={"DDC": ddc} if ddc else {},
+                        # The GND authority record states this DDC — it is not
+                        # statistical evidence and carries no count.
+                        classifications=normalize_classifications(
+                            {"DDC": ddc}, origin=ORIGIN_AUTHORITY
+                        ),
                     )
                 )
             per_term[term] = items

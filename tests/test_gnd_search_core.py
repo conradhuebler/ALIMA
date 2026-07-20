@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import unittest
+
+from src.utils.classification_systems import codes_for_system
 from unittest.mock import MagicMock
 
 from src.core.gnd_search_core import (
@@ -41,7 +43,7 @@ class TestMergeCodeEntry(unittest.TestCase):
         )
         self.assertEqual(target["count"], 5)
         self.assertEqual(target["gnd_ids"], ["1", "2", "3"])
-        self.assertEqual(target["classifications"]["DDC"], ["d"])
+        self.assertEqual(codes_for_system(target["classifications"], "DDC"), ["d"])
         self.assertIsInstance(target["gnd_ids"], list)
 
     def test_classifications_merge_per_system(self):
@@ -52,9 +54,15 @@ class TestMergeCodeEntry(unittest.TestCase):
         merge_code_entry(
             target, source, code_fields=(), classifications_field="classifications"
         )
-        self.assertEqual(target["classifications"]["DK"], ["530.145", "539"])
-        self.assertEqual(target["classifications"]["RVK"], ["UK 1000"])
-        self.assertEqual(source["classifications"], {"DK": ["530.145", "539"], "RVK": ["UK 1000"]})
+        self.assertEqual(
+            codes_for_system(target["classifications"], "DK"), ["530.145", "539"]
+        )
+        self.assertEqual(codes_for_system(target["classifications"], "RVK"), ["UK 1000"])
+        # The source must be untouched: pool inserts are shallow copies, so an
+        # in-place merge would leak across entries.
+        self.assertEqual(
+            source["classifications"], {"DK": ["530.145", "539"], "RVK": ["UK 1000"]}
+        )
 
     def test_missing_fields_are_noops(self):
         target = {"count": 2, "gnd_ids": {"1"}}
@@ -79,7 +87,7 @@ class TestMergeIntoPool(unittest.TestCase):
                                            "classifications": {"DDC": ["d"]}, "count": 9}})
         self.assertEqual(pool["cadmium"]["count"], 9)
         self.assertEqual(pool["cadmium"]["gnd_ids"], ["1", "2"])
-        self.assertEqual(pool["cadmium"]["classifications"]["DDC"], ["d"])
+        self.assertEqual(codes_for_system(pool["cadmium"]["classifications"], "DDC"), ["d"])
 
     def test_gnd_id_backfilled_when_empty(self):
         pool = {"x": {"title": "X", "gnd_ids": [], "classifications": {},
@@ -104,7 +112,9 @@ class TestParseBatchResponse(unittest.TestCase):
         from_str = parse_batch_response(json.dumps(self.PAYLOAD))
         self.assertEqual(from_dict, from_str)
         self.assertEqual(from_dict["Cadmium"]["gnd_id"], "1")
-        self.assertEqual(from_dict["Cadmium"]["classifications"], {"DDC": ["546"]})
+        self.assertEqual(
+            codes_for_system(from_dict["Cadmium"]["classifications"], "DDC"), ["546"]
+        )
         self.assertNotIn("DK", from_dict["Cadmium"]["classifications"])
         self.assertEqual(from_dict["Schwermetall"]["count"], 9)
 
@@ -163,7 +173,8 @@ class TestSearchCliMergeEquivalence(unittest.TestCase):
         entry = combined["term"]["Cadmium"]
         self.assertEqual(entry["count"], 7)
         self.assertEqual(entry["gnd_ids"], {"1", "2"})
-        self.assertEqual(entry["classifications"], {"DDC": {"546"}, "DK": {"a"}})
+        self.assertEqual(codes_for_system(entry["classifications"], "DDC"), ["546"])
+        self.assertEqual(codes_for_system(entry["classifications"], "DK"), ["a"])
 
     def test_new_term_and_keyword_copied(self):
         cli = self._cli()

@@ -25,6 +25,8 @@ import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from src.utils.classification_systems import normalize_classifications
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,10 +53,13 @@ def merge_code_entry(
     sources — the single-merge home for what ``MetaSuggester._merge_suggester_results``
     did inline. Only carried when a source provides it (display-only, never ranked).
 
-    ``classifications_field`` (opt-in, WP-D1) merges the canonical
-    ``{system: codes}`` dict per system with the same container-preserving
-    union semantics as ``code_fields`` — dk/ddc/rvk are equal-rank keys.
-    - Claude Generated
+    ``classifications_field`` (opt-in, WP-D1; entry shape since WP-D2) merges the
+    canonical ``{system: [{code, count?, origin}]}`` dict per equal-rank system
+    via ``classification_systems.merge_classifications``: dedup by ``code``,
+    ``count`` **max-merged like the entry count above** (never summed), and
+    ``origin`` keeping the stronger claim (authority over co-occurrence).
+    Unlike ``code_fields`` there is no set/list duality here — entries are dicts,
+    so every container is an ordered list. - Claude Generated
     """
     if count_field:
         target[count_field] = max(
@@ -72,12 +77,14 @@ def merge_code_entry(
     if classifications_field:
         src_cls = source.get(classifications_field) or {}
         if src_cls:
-            # Copy-on-write: pool inserts are shallow ``dict(entry)`` copies, so
-            # mutating the stored dict in place would leak into the source entry.
-            tgt_cls = dict(target.get(classifications_field) or {})
-            for system, new_codes in src_cls.items():
-                tgt_cls[system] = _merge_codes(tgt_cls.get(system), new_codes or [])
-            target[classifications_field] = tgt_cls
+            # merge_classifications builds a new dict throughout (copy-on-write):
+            # pool inserts are shallow ``dict(entry)`` copies, so mutating the
+            # stored dict in place would leak into the source entry.
+            from src.utils.classification_systems import merge_classifications
+
+            target[classifications_field] = merge_classifications(
+                target.get(classifications_field), src_cls
+            )
 
 
 def _merge_codes(existing: Any, new_vals: Iterable[Any]) -> Any:
@@ -149,14 +156,13 @@ def pool_entry_from_reduced(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str,
     pool lists, ``gnd_id`` convenience), not names — there is no rename layer
     anymore."""
     gnd_ids = [str(g) for g in kw_data.get("gnd_ids", []) if g]
-    # Canonical classifications dict (WP-D1): {system: [codes]}, systems are
-    # equal-rank keys; only non-empty systems are carried. Accepts sets (direct
-    # suggester output) and lists (JSON-serialized tool responses) alike.
-    classifications = {
-        system: list(codes)
-        for system, codes in (kw_data.get("classifications") or {}).items()
-        if codes
-    }
+    # Canonical classifications (WP-D1 shape, WP-D2 entries):
+    # {system: [{code, count?, origin}]}, systems equal-rank, only non-empty
+    # carried. ``normalize_classifications`` accepts every producer form —
+    # entries, or bare code sets/lists from producers with no evidence to report
+    # — and normalises the system spelling, so this stays THE single ingestion
+    # point rather than growing per-source branches.
+    classifications = normalize_classifications(kw_data.get("classifications"))
     entry = {
         "title": kw_title,
         "gnd_ids": gnd_ids,

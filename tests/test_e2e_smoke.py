@@ -57,13 +57,24 @@ CONVERGENCE_HITS = {
         "count": 1,
         "display_count": 17,
         "gnd_ids": {"4035769-7", "4127654-7"},
-        "classifications": {"DK": {"556.55"}, "DDC": {"551.48"}},
+        # Entry shape (WP-D2): both origins and a real ranking, so a path that
+        # drops the weight or the provenance is caught, not just one that drops
+        # the code.
+        "classifications": {
+            "DK": [
+                {"code": "556.55", "count": 13, "origin": "cooccurrence"},
+                {"code": "556.5", "count": 2, "origin": "cooccurrence"},
+            ],
+            "DDC": [{"code": "551.48", "origin": "authority"}],
+        },
     },
     "Seenkunde": {
         "count": 1,
         "display_count": 4,
         "gnd_ids": {"4180168-1"},
-        "classifications": {"DDC": {"551.48"}},
+        "classifications": {
+            "DDC": [{"code": "551.48", "count": 4, "origin": "cooccurrence"}]
+        },
     },
 }
 
@@ -334,10 +345,14 @@ def _normalise_pool_payload(payload):
         "count": payload.get("count"),
         "display_count": payload.get("display_count"),
         "gnd_ids": set(payload.get("gnd_ids") or []),
+        # Classification ENTRIES ({code, count?, origin}) are compared whole and
+        # IN ORDER: the order is the ranking (authority first, then descending
+        # co-occurrence), so a path that keeps the right codes but loses their
+        # strength or provenance must still fail here.
         "classifications": {
-            system: set(codes)
-            for system, codes in (payload.get("classifications") or {}).items()
-            if codes
+            system: [dict(e) for e in entries]
+            for system, entries in (payload.get("classifications") or {}).items()
+            if entries
         },
     }
 
