@@ -1,0 +1,201 @@
+"""Tests for the shared BibRecord shape and its producer normalizers - Claude Generated.
+
+The fixtures are the REAL producer shapes, lifted from the existing client
+tests / dataclass definitions rather than invented, so a producer changing its
+output makes these fail instead of quietly drifting:
+
+* finc   → tests/test_finc_client.py (VuFind ``authors`` is a NESTED dict)
+* catalog→ BiblioClient.search_titles (src/utils/clients/biblio_client.py)
+* sru    → MarcXmlClient._parse_record (src/utils/clients/marcxml_client.py)
+* k10plus→ K10PlusRecord (src/utils/k10plus_resolver.py), via asdict
+"""
+
+from __future__ import annotations
+
+import unittest
+from dataclasses import asdict
+
+from src.core.bib_record import BibRecord, to_bibrecord
+from src.utils.classification_systems import SYSTEM_KEYS
+from src.utils.k10plus_resolver import K10PlusRecord
+
+FINC_RECORD = {
+    "id": "0-1025700295",
+    "title": "Python: der Grundkurs",
+    # The names are the INNER keys; *_orig repeats them unromanised.
+    "authors": {
+        "primary": {"Kofler, Michael": ["aut"]},
+        "primary_orig": {"Kofler, Michael": []},
+        "corporate": [], "corporate_orig": [],
+        "corporate_secondary": [], "corporate_secondary_orig": [],
+        "secondary": [], "secondary_orig": [],
+    },
+    "subjects": [["Python"], ["Programmierung"]],  # list of LISTS
+    "year": "2021",
+    "publisher": "Rheinwerk",
+    "isbn": "9783836278454",
+    "web_url": "https://katalog.example/Record/0-1025700295",
+    "resource_url": "https://doi.org/10.0000/example",
+    "raw": {"id": "0-1025700295"},
+}
+
+CATALOG_RECORD = {
+    "rsn": 12345,
+    "web_url": "https://katalog.example/rsn/12345",
+    "title": "Cadmium in Böden",
+    "authors": ["Jha, Ashok", "Kumar, Vinod"],
+    "isbn": "9783031473906",
+    "publication": "Springer",
+    "year": "2023",
+    "dk_codes": ["504.53"],
+    "rvk_codes": ["AR 12000"],
+    "ddc_codes": ["631.4"],
+    "subjects": ["Schwermetall"],
+    "mab_subjects": ["Bodenkunde"],
+}
+
+SRU_RECORD = {
+    "rsn": "998877",
+    "title": "Limnologie der Alpenseen",
+    "author": ["Müller, Anna"],  # SINGULAR key
+    "publication": "Verlag X",
+    "isbn": "9780000000001",
+    "classifications": ["DK 556.55", "DDC 551.48"],  # PREFIXED strings
+    "decimal_classifications": ["556.55", "551.48"],  # lossy: system stripped
+    "rvk_classifications": ["WI 5000"],
+    "subjects": ["Seenkunde"],
+    "gnd_subjects": ["Limnologie"],
+    "abstract": "Studien zur Seenkunde im Alpenraum.",
+}
+
+
+class TestPinnedContainerConventions(unittest.TestCase):
+    """The three formerly under-specified concepts (F-3, F-7, frequency)."""
+
+    def _all_records(self):
+        return [
+            to_bibrecord(FINC_RECORD, "finc"),
+            to_bibrecord(CATALOG_RECORD, "catalog"),
+            to_bibrecord(SRU_RECORD, "sru"),
+            to_bibrecord(asdict(K10PlusRecord(ppn="123", title="T", ddc="540")), "k10plus"),
+        ]
+
+    def test_authors_is_always_a_list_of_strings(self):
+        for rec in self._all_records():
+            with self.subTest(source=rec.source):
+                self.assertIsInstance(rec.authors, list)
+                for author in rec.authors:
+                    self.assertIsInstance(author, str)
+
+    def test_classification_keys_are_canonical_systems(self):
+        for rec in self._all_records():
+            with self.subTest(source=rec.source):
+                for system in rec.classifications:
+                    self.assertIn(system, SYSTEM_KEYS)
+                    self.assertIsInstance(rec.classifications[system], list)
+
+    def test_url_is_derived_by_role_priority_never_set_alone(self):
+        """A record page (catalog) wins over the full text — the F-7 decision."""
+        rec = BibRecord(urls={"fulltext": "F", "catalog": "C", "landing": "L"})
+        self.assertEqual(rec.url, "L")
+        self.assertEqual(BibRecord(urls={"fulltext": "F", "catalog": "C"}).url, "C")
+        self.assertEqual(BibRecord(urls={"fulltext": "F"}).url, "F")
+        self.assertEqual(BibRecord().url, "")
+
+    def test_to_dict_omits_empty_fields(self):
+        rec = to_bibrecord({"ppn": "123", "title": "T"}, "k10plus")
+        out = rec.to_dict()
+        self.assertEqual(out["identifiers"], {"ppn": "123"})
+        for absent in ("abstract", "subjects", "classifications", "urls", "url", "raw"):
+            self.assertNotIn(absent, out, f"{absent} should be omitted when empty")
+
+
+class TestFincNormalizer(unittest.TestCase):
+    def test_nested_vufind_authors_flatten_to_names(self):
+        """list(authors.values()) would yield ROLE LISTS, not people."""
+        rec = to_bibrecord(FINC_RECORD, "finc")
+        self.assertEqual(rec.authors, ["Kofler, Michael"])
+
+    def test_nested_subject_lists_are_flattened(self):
+        self.assertEqual(
+            to_bibrecord(FINC_RECORD, "finc").subjects, ["Python", "Programmierung"]
+        )
+
+    def test_url_roles_are_distinguished(self):
+        rec = to_bibrecord(FINC_RECORD, "finc")
+        self.assertEqual(rec.urls["catalog"], FINC_RECORD["web_url"])
+        self.assertEqual(rec.urls["fulltext"], FINC_RECORD["resource_url"])
+        self.assertEqual(rec.url, FINC_RECORD["web_url"])  # catalog wins
+
+    def test_no_classifications_are_invented(self):
+        self.assertEqual(to_bibrecord(FINC_RECORD, "finc").classifications, {})
+
+
+class TestCatalogNormalizer(unittest.TestCase):
+    def test_parallel_code_lists_become_one_dict(self):
+        rec = to_bibrecord(CATALOG_RECORD, "catalog")
+        self.assertEqual(
+            rec.classifications,
+            {"DK": ["504.53"], "RVK": ["AR 12000"], "DDC": ["631.4"]},
+        )
+
+    def test_rsn_lands_in_the_identifier_envelope(self):
+        rec = to_bibrecord(CATALOG_RECORD, "catalog")
+        self.assertEqual(rec.identifiers["rsn"], "12345")
+
+    def test_both_subject_fields_are_merged(self):
+        self.assertEqual(
+            to_bibrecord(CATALOG_RECORD, "catalog").subjects,
+            ["Schwermetall", "Bodenkunde"],
+        )
+
+
+class TestSruNormalizer(unittest.TestCase):
+    def test_prefixed_strings_keep_their_system(self):
+        """decimal_classifications cannot: its regex strips DDC/DK alike."""
+        rec = to_bibrecord(SRU_RECORD, "sru")
+        self.assertEqual(
+            rec.classifications,
+            {"DK": ["556.55"], "DDC": ["551.48"], "RVK": ["WI 5000"]},
+        )
+
+    def test_singular_author_key_is_read(self):
+        self.assertEqual(to_bibrecord(SRU_RECORD, "sru").authors, ["Müller, Anna"])
+
+    def test_abstract_is_carried(self):
+        """The only producer with a native abstract — this is what unlocks P1."""
+        self.assertTrue(to_bibrecord(SRU_RECORD, "sru").abstract)
+
+    def test_unprefixed_classification_is_dropped_not_guessed(self):
+        rec = to_bibrecord({"classifications": ["530.145"]}, "sru")
+        self.assertEqual(rec.classifications, {})
+
+
+class TestK10PlusNormalizer(unittest.TestCase):
+    def test_bare_ddc_string_becomes_a_system_dict(self):
+        rec = to_bibrecord(asdict(K10PlusRecord(ddc="540")), "k10plus")
+        self.assertEqual(rec.classifications, {"DDC": ["540"]})
+
+    def test_record_url_is_fulltext_not_catalog(self):
+        rec = to_bibrecord(asdict(K10PlusRecord(url="https://doi.org/10.1/x")), "k10plus")
+        self.assertEqual(rec.urls, {"fulltext": "https://doi.org/10.1/x"})
+
+    def test_identifiers_carry_ppn_and_doi(self):
+        rec = to_bibrecord(
+            asdict(K10PlusRecord(ppn="1750", doi="10.1007/x", isbn="978")), "k10plus"
+        )
+        self.assertEqual(rec.identifiers, {"ppn": "1750", "doi": "10.1007/x", "isbn": "978"})
+
+    def test_no_abstract_degrades_cleanly(self):
+        """K10plus has no abstract field — P1 must degrade to title+subjects."""
+        self.assertEqual(to_bibrecord(asdict(K10PlusRecord()), "k10plus").abstract, "")
+
+
+class TestUnknownSource(unittest.TestCase):
+    def test_unknown_source_raises_rather_than_returning_empty(self):
+        with self.assertRaises(ValueError):
+            to_bibrecord({"title": "X"}, "nope")
+
+
+if __name__ == "__main__":
+    unittest.main()
