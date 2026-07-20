@@ -62,6 +62,20 @@ klassisch↔agentisch.
   geht immer an einem guten Crossref-Ergebnis vorbei, ohne Absturz. Jetzt in
   beiden Richtungen getestet.
 
+**Live-Verifikation (Operator-Läufe, July 20 abends).** Der Operator hat beide
+Pipelines auf demselben Input (SupraFit-Paper) laufen lassen — der Vergleich, der
+seit P0 offenstand:
+- **1037 gemeinsame Pool-Titel, 0 Abweichungen** bei `gnd_ids`/`classifications`;
+  Payload-Felder identisch. Mengendifferenz (2364 klassisch / 1134 agentisch)
+  kommt aus der Suchbreite (50 vs. 20 initiale Keywords), nicht aus der Form.
+  **P0 ist damit auch live bestätigt.**
+- Dabei fiel auf, dass der Modus im Export nicht steht und aus Nebenwirkungen
+  geraten werden musste → `pipeline_mode`/`workflow_name` (`d5855fc`).
+- Und: **`classifications` ist in allen Läufen zu 100 % leer** — 0 von 5128 /
+  2364 / 1134. Strukturell, nicht zufällig (lobid+swb schreiben hart `{}`).
+  Als WP-D2-Eintrag mit Zahlen hinterlegt.
+- Derselbe Anlass deckte den toten Raw-Cache-Purge auf (`2b073f7`).
+
 **Offen in D1**: die Konsumenten P1–P4. P1 (Record→Analyse-Input) hat eine eigene
 Parity-Landmine — das `input_type`-Vokabular driftet über GUI/CLI/Webapp/Batch,
 und DOI läuft heute an `execute_input_extraction` vorbei.

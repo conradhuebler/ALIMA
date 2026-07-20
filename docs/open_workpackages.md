@@ -40,6 +40,18 @@ risikoärmste Teil von P1. `to_bibrecord()` ist bewusst noch nicht verdrahtet
 (die drei `ResultItem`-Nähte sind unberührt), P1 ist der erste echte Konsument.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
+> ⚠️ **Gemessen July 20: der GND-Pool trägt in der Praxis GAR KEINE
+> Klassifikationen.** In drei echten Läufen (Cadmium klassisch, SupraFit
+> klassisch + agentisch) war `classifications` bei **0 von 5128 / 0 von 2364 /
+> 0 von 1134** Pool-Einträgen gefüllt. Grund ist strukturell:
+> `lobid/suggester.py:253` und `swb/suggester.py:544` schreiben beide hart
+> `"classifications": {}` — mit den Default-Quellen `["swb","lobid"]` kann das
+> Feld nie befüllt werden; nur `gnd_local/provider.py:87` liefert `{"DDC": …}`.
+> Folge im Lauf: `initial_gnd_classes` bleibt leer, das DDC-aus-GND-Signal läuft
+> ins Nichts. Das ist Workstream 1 (DDC-Harvest) mit Zahlen unterlegt — und die
+> Frage davor: liefert die lobid-API DDC überhaupt mit und wir verwerfen es nur?
+> (Raw-Cache-Zeilen zum Nachsehen liegen vor: 248 lobid-Antworten.)
+
 **Status:** **Datenform ✅ in D1-P0 erledigt** (July 19): Pool/Nested/
 `ResultItem` tragen `classifications: {system: codes}` mit dk/ddc/rvk als
 gleichrangigen Keys. **Rest = Logik-Generalisierung:** DDC-Harvest,
