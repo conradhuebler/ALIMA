@@ -463,7 +463,7 @@ class ToolRegistry:
             sources[short] = res
             md = res.get("metadata") or {}
             if not best_abstract:
-                best_abstract = md.get("abstract") or md.get("Abstract") or ""
+                best_abstract = md.get("abstract") or ""
         any_ok = any(v.get("success") for v in sources.values())
         return json.dumps(
             {"doi": doi, "success": any_ok, "abstract": best_abstract, "sources": sources},

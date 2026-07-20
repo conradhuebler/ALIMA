@@ -505,8 +505,8 @@ class BatchProcessor:
         """
         # Try to use metadata for filename (DOI/ISBN/PPN sources) - Claude Generated
         if metadata:
-            title = metadata.get("Title", "")
-            authors = metadata.get("Authors", "")
+            title = metadata.get("title", "")
+            authors = metadata.get("authors", "")
 
             # Skip placeholder values
             _skip = {"Not available", "Nicht verfügbar", "No abstract available", ""}
@@ -750,9 +750,9 @@ class BatchProcessor:
                 self.logger.info(f"ISBN lookup successful: {len(text)} characters")
                 # Extract metadata for filename - Claude Generated
                 metadata = {
-                    "Title": record.get("title", ""),
-                    "Authors": "; ".join(record.get("author", [])) if record.get("author") else "",
-                    "Source": "ISBN"
+                    "title": record.get("title", ""),
+                    "authors": "; ".join(record.get("author", [])) if record.get("author") else "",
+                    "source": "ISBN"
                 }
                 return text, metadata
 
@@ -794,9 +794,9 @@ class BatchProcessor:
                 self.logger.info(f"PPN lookup successful: {len(text)} characters")
                 # Extract metadata for filename - Claude Generated
                 metadata = {
-                    "Title": record.get("title", ""),
-                    "Authors": "; ".join(record.get("author", [])) if record.get("author") else "",
-                    "Source": "PPN"
+                    "title": record.get("title", ""),
+                    "authors": "; ".join(record.get("author", [])) if record.get("author") else "",
+                    "source": "PPN"
                 }
                 return text, metadata
 

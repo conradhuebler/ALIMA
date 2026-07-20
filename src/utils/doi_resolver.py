@@ -255,10 +255,10 @@ class UnifiedResolver:
                 return False, None, error_msg
 
             result = {
-                "Title": title or "Not available",
-                "DOI": doi,
-                "Abstract": abstract,
-                "Source": "OpenAlex",
+                "title": title or "Not available",
+                "doi": doi,
+                "abstract": abstract,
+                "source": "OpenAlex",
             }
 
             self.logger.info(f"Successfully resolved OpenAlex DOI, abstract length: {len(abstract)}")
@@ -304,10 +304,10 @@ class UnifiedResolver:
                 return False, None, error_msg
 
             result = {
-                "Title": title,
-                "DOI": doi,
-                "Abstract": abstract,
-                "Source": "DataCite",
+                "title": title,
+                "doi": doi,
+                "abstract": abstract,
+                "source": "DataCite",
             }
 
             self.logger.info(f"Successfully resolved DataCite DOI, abstract length: {len(abstract)}")
@@ -333,7 +333,7 @@ class UnifiedResolver:
             success, metadata, result = self._resolve_crossref_doi(doi)
             last_result = (success, metadata, result)
             if success and result and result not in ("No abstract available", ""):
-                abstract = metadata.get("Abstract", "") if metadata else ""
+                abstract = metadata.get("abstract", "") if metadata else ""
                 if abstract and abstract not in ("No abstract available", ""):
                     self.logger.info("DOI resolved via Crossref")
                     return success, metadata, result
@@ -385,23 +385,26 @@ class UnifiedResolver:
             message = data.get("message", {})
 
             # Extract relevant information
+            # NOTE: only the LEFT-hand keys are ours. ``message.get("DOI")`` and
+            # ``message.get("URL")`` read Crossref's OWN uppercase API fields and
+            # must stay as they are. - Claude Generated
             result = {
-                "Title": " | ".join(message.get("title", [])),
-                "DOI": message.get("DOI", "Not available"),
-                "Abstract": self._clean_jats(
+                "title": " | ".join(message.get("title", [])),
+                "doi": message.get("DOI", "Not available"),
+                "abstract": self._clean_jats(
                     message.get("abstract", "No abstract available")
                 ),
-                "Authors": self._format_authors(message.get("author", [])),
-                "Publisher": message.get("publisher", "Not available"),
-                "Published": self._format_date(
+                "authors": self._format_authors(message.get("author", [])),
+                "publisher": message.get("publisher", "Not available"),
+                "published": self._format_date(
                     message.get("published-print", message.get("published-online", {}))
                 ),
-                "Type": message.get("type", "Not available"),
-                "URL": message.get("URL", "Not available"),
+                "type": message.get("type", "Not available"),
+                "url": message.get("URL", "Not available"),
             }
 
             # Extract abstract text for pipeline use
-            abstract_text = result["Abstract"]
+            abstract_text = result["abstract"]
             self.logger.info(
                 f"Successfully resolved CrossRef DOI, abstract length: {len(abstract_text) if abstract_text else 0}"
             )
@@ -518,18 +521,18 @@ class UnifiedResolver:
             doi = f"10.1007/{doi}"
 
         return {
-            "Title": title,
-            "DOI": doi,
-            "Abstract": about,  # Use "About" section as abstract
-            "Authors": authors,
-            "Publisher": publisher,
-            "Published": published_date,
-            "Container-Title": "Springer Book",
-            "URL": url,
-            "About": about,
-            "Table of Contents": toc,
-            "Keywords": keywords,
-            "Source": "Springer Enhanced",
+            "title": title,
+            "doi": doi,
+            "abstract": about,  # Use "About" section as abstract
+            "authors": authors,
+            "publisher": publisher,
+            "published": published_date,
+            "container_title": "Springer Book",
+            "url": url,
+            "about": about,
+            "table_of_contents": toc,
+            "keywords": keywords,
+            "source": "Springer Enhanced",
         }
 
     def _parse_generic_content(self, markdown_text: str, url: str) -> Dict:
@@ -551,11 +554,11 @@ class UnifiedResolver:
                 break
 
         return {
-            "Title": title,
-            "URL": url,
-            "Content": markdown_text,
-            "Description": description,
-            "Source": "Generic Web Crawl",
+            "title": title,
+            "url": url,
+            "content": markdown_text,
+            "description": description,
+            "source": "Generic Web Crawl",
         }
 
     def _extract_abstract_from_springer_data(self, springer_data: Dict) -> str:
@@ -563,27 +566,27 @@ class UnifiedResolver:
         abstract_parts = []
 
         # Add title
-        title = springer_data.get("Title", "")
+        title = springer_data.get("title", "")
         if title and title not in ["Not available", "Nicht verfügbar"]:
             abstract_parts.append(f"Titel: {title}")
 
         # Add "About" section as main abstract
-        about = springer_data.get("About", "")
+        about = springer_data.get("about", "")
         if about and about not in ["Not available", "Nicht verfügbar"]:
             abstract_parts.append(f"Zusammenfassung:\n{about}")
 
         # Add table of contents - this was missing!
-        toc = springer_data.get("Table of Contents", "")
+        toc = springer_data.get("table_of_contents", "")
         if toc and toc not in ["Not available", "Nicht verfügbar"]:
             abstract_parts.append(f"Inhaltsverzeichnis:\n{toc}")
 
         # Add keywords - this was missing!
-        keywords = springer_data.get("Keywords", "")
+        keywords = springer_data.get("keywords", "")
         if keywords and keywords not in ["Not available", "Nicht verfügbar"]:
             abstract_parts.append(f"Schlüsselwörter: {keywords}")
 
         # Add authors if available
-        authors = springer_data.get("Authors", "")
+        authors = springer_data.get("authors", "")
         if authors and authors not in ["Not available", "Nicht verfügbar"]:
             abstract_parts.append(f"Autoren/Herausgeber: {authors}")
 
@@ -597,17 +600,17 @@ class UnifiedResolver:
         content_parts = []
 
         # Add title
-        title = generic_data.get("Title", "")
+        title = generic_data.get("title", "")
         if title and title != "Not available":
             content_parts.append(f"Titel: {title}")
 
         # Add description if available
-        description = generic_data.get("Description", "")
+        description = generic_data.get("description", "")
         if description and description != "Not available":
             content_parts.append(f"Beschreibung:\n{description}")
 
         # Add full content (markdown)
-        full_content = generic_data.get("Content", "")
+        full_content = generic_data.get("content", "")
         if full_content:
             # Clean markdown for better readability
             cleaned_content = self._clean_markdown_content(full_content)
@@ -772,10 +775,10 @@ def format_doi_metadata(metadata: Optional[Dict], fallback_text: str = '') -> st
     _skip = {"Not available", "Nicht verfügbar", "No abstract available", ""}
     parts = []
 
-    title   = (metadata.get("Title") or "").strip()
-    authors = (metadata.get("Authors") or "").strip()
-    abstract = (metadata.get("Abstract") or metadata.get("About") or "").strip()
-    toc     = (metadata.get("Table of Contents") or "").strip()
+    title   = (metadata.get("title") or "").strip()
+    authors = (metadata.get("authors") or "").strip()
+    abstract = (metadata.get("abstract") or metadata.get("about") or "").strip()
+    toc     = (metadata.get("table_of_contents") or "").strip()
 
     if title and title not in _skip:
         parts.append(f"Titel: {title}")
