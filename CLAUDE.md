@@ -116,12 +116,18 @@ When documenting implemented features, the AI must apply these rules:
   **K4** Tool-Passthrough swb/catalog, **K5** SearchTab-Refresh; T-Reihe
   anlassbezogen (Gemini+LlmService-Split, Session-Persistenz, Keyring,
   i18n-Ausbau); V1 Agentic Hauptagent.
-- **WP-D1 P0 F-1-Collapse ✅ DONE (July 19, 5 Commits ab `6991d57`):** EIN
-  GND-Pool-Vokabular `{count, gnd_ids, classifications{system}, display_count?}`
-  end-to-end (Suggester-Vertrag v2 → persistierte KAS-Form); dk/ddc/rvk
-  gleichrangig (D2-Datenform vorgezogen); harter Schnitt, Rename-Shims weg.
-  Suite 1324. Offen: Vergleichslauf klassisch↔agentisch. Details:
-  `AIChangelog.md` + [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
+- **WP-D1 P0 ✅ DONE+VERIFIZIERT, `to_bibrecord()`+F-2 ✅ DONE (July 19+20, 11
+  Commits ab `6991d57`):** EIN GND-Pool-Vokabular `{count, gnd_ids,
+  classifications{system}, display_count?}` end-to-end; System-Keys **GROSS**
+  (`classification_systems` = alleiniger Owner); `BibRecord` für
+  finc/catalog/sru/k10plus; DOI-Keys klein. Verifikation = deterministischer
+  Headless-Test beider Pfade. Suite 1357. **Offen: Konsumenten P1–P4** — P1 hat
+  eine `input_type`-Parity-Landmine (Register). Details: `AIChangelog.md` +
+  [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
+- **Nebenbefund July 20 (behoben):** Batch-Speichern crashte an nicht
+  konvertierten Sets (`TypeError`, pro Item verschluckt → Läufe meldeten
+  Fehlschläge statt Ergebnisse); `rvk` fehlte in `SET_FIELDS`. Beides
+  vorbestehend, keine P0-Regression.
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
   statischer Verifikation als DONE.

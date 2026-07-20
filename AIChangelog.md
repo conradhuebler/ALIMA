@@ -6,6 +6,68 @@
 
 ## 2026
 
+### WP-D1: P0-Verifikation, System-Keys, BibRecord, F-2 (July 20, 2026)
+
+Sechs Commits (`2e2b647`…`87b6eb4`). Suite 1324 → 1357, jeder Zwischenstand
+einzeln grün verifiziert. Ausgangspunkt: P0 war code-seitig fertig, aber
+**unverifiziert** — die einzige offene Zusage war ein Vergleichslauf
+klassisch↔agentisch.
+
+- **P0-Gate (`bd2e87b`)**: deterministischer Konvergenztest in
+  `test_e2e_smoke.py`. Beide Pfade ingestieren dieselbe Fixture durch echten
+  Produktionscode (klassisch `execute_complete_pipeline`, agentisch
+  `pool_entry_from_reduced` + `to_keyword_analysis_state`) — nichts nachgebaut,
+  also nicht zirkulär. Verglichen werden die Werte der vier kanonischen Felder;
+  Container-Unterschiede (Dict vs `List[SearchResult]`, Set vs Liste) sind
+  vor-P0 bzw. gepinnt und werden normalisiert. Fixture bewusst nicht-trivial
+  (zwei Systeme, `display_count != count`, zwei `gnd_ids`); ein eigener Test
+  hält diese Eigenschaft fest. Zwei Mutationsproben bestanden.
+  **Ergebnis: P0s Collapse ist auf Payload-Ebene verifiziert.**
+  *Der vorhandene `compare_runs.sh` vergleicht 4× agentisch und beantwortete
+  die Frage nie.*
+- **Zwei Bugs, gefunden weil die Fixture realistisch wurde (`a509967`)** — die
+  alte trug leere `classifications` und verdeckte beide:
+  - **Batch-Speichern crashte.** `task_state_to_dict` lieferte rohes `asdict`,
+    also erreichten die Sets der nested Sicht `json.dump` unkonvertiert →
+    `TypeError: Object of type set is not JSON serializable` bei jedem State mit
+    GND-Treffer samt Klassifikation. `BatchProcessor._save_result` fängt das pro
+    Item ab → Batch-Läufe meldeten Fehlschläge statt Ergebnisse. **Vorbestehend**,
+    keine P0-Regression (auch vor P0 waren `gndid`/`ddc`/`dk` Sets).
+  - **RVK war beim Reload nicht gleichrangig** (s. Korrektur unten).
+- **Ein System-Vokabular (`2e2b647`)**: der Daten-Layer schrieb seit P0 klein,
+  `classification_systems.py` kannte nur GROSS und bediente 6 Display-Konsumenten
+  — zwei Vokabulare für eine Sache. Aufgelöst zugunsten GROSS;
+  `classification_systems` ist alleiniger Owner (`SYSTEM_KEYS`,
+  `normalize_system`). 5 Produktions-, ~40 Teststellen. **Nicht angefasst**:
+  `"dk"` als *Feldname für den Notationscode* in DK-Trefferzeilen und die
+  Ausgabe-Form `dk_classifications` — andere Konzepte, WP-D2.
+- **swb pre-v2-Fallback entfernt (`e04f7f2`)**: P0s harter Schnitt war
+  unvollständig. Ersatzlos entfernen ging nicht — 63 von 194 Raw-Cache-Zeilen in
+  der produktiven DB trugen die pre-v2-Form, und der Cache altert nach Zeilenzahl,
+  nicht nach Zeit. Mit v2-Keys gelesen hätten sie ein leeres `gnd_ids` ergeben
+  (still schlagwortlos statt Cache-Miss). Daher Fallback weg **und** Zeilen
+  einmalig verworfen (`_purge_pre_v2_swb_raw_rows`, idempotent). Blueprint-READMEs
+  auf Vertrag v2.
+- **BibRecord (`1d92714`)**: `src/core/bib_record.py` + `to_bibrecord()` für
+  finc/catalog/sru/k10plus, Fixtures aus den echten Client-Tests. Drei Fallen:
+  finc `authors` ist verschachtelt (Namen sind die *inneren* Keys); SRU
+  `decimal_classifications` ist verlustbehaftet (`(?:DDC|DK)`-Regex) → stattdessen
+  die präfigierten Strings parsen; k10plus `url` ist `fulltext`, nicht `catalog`
+  (F-7). **Bewusst nicht verdrahtet** — die `ResultItem`-Nähte bleiben unberührt,
+  bis P1 einen Konsumenten hat.
+- **F-2 (`87b6eb4`)**: DOI-Record-Keys klein, 5 Emissions- + 8 Lesestellen;
+  Crossrefs eigene `message.get("DOI"/"URL")` bleiben groß (kommentiert). Der
+  Fallback-Gate in `_resolve_doi_with_fallback` hatte **keine** Abdeckung und ist
+  die gefährlichste Stelle: falscher Key → Abstract immer leer gelesen → die Kette
+  geht immer an einem guten Crossref-Ergebnis vorbei, ohne Absturz. Jetzt in
+  beiden Richtungen getestet.
+
+**Offen in D1**: die Konsumenten P1–P4. P1 (Record→Analyse-Input) hat eine eigene
+Parity-Landmine — das `input_type`-Vokabular driftet über GUI/CLI/Webapp/Batch,
+und DOI läuft heute an `execute_input_extraction` vorbei.
+**Notiert**: `examples/classic_result.json` trägt 1981× `gndid` (pre-P0), ist als
+Referenz irreführend; Neuerzeugung braucht einen Live-Lauf.
+
 ### WP-D1 P0: F-1-Collapse — ein GND-Pool-Vokabular + Notation-Datenform (July 19, 2026)
 
 Fünf Commits (`6991d57`…), Plan aus Explore+Plan-Runde + vier Operator-Entscheidungen
@@ -34,10 +96,16 @@ als gleichrangigen Systemen — WP-D2 behält nur die Logik-Generalisierung).
   Rekursion in `classifications`); `gnd_ids` bleibt Liste → der latente
   Set-Roundtrip-Nichtdeterminismus (`gnd_id` wechselte nach Save/Load) ist weg.
   Alte Saves laden ohne Codes (harter Schnitt, akzeptiert).
+  ⚠️ **Korrigiert July 20**: `rvk` fehlte in `SET_FIELDS` — RVK blieb nach dem
+  Roundtrip Liste, während DK/DDC Sets wurden. Jetzt aus `SYSTEM_KEYS` abgeleitet.
 - **SWB-Sonderfall**: der Raw-Cache-Blob ist die *reduzierte* Form → der
   `transform` behält einen dokumentierten Storage-Format-Fallback für
   pre-v2-Zeilen (altern binnen `max_age` aus); Datei-Session-Cache per
   v2-Dateinamen hart geschnitten. Einzige verbleibenden `gndid`-Zeilen in `src/`.
+  ⚠️ **Korrigiert July 20**: die Zeilen altern *nicht* aus — `_prune_raw_responses`
+  kappt nach Zeilenzahl pro Quelle, nicht nach Alter; in der produktiven DB lagen
+  63 von 194 swb-Zeilen noch in pre-v2-Form. Fallback jetzt entfernt, Zeilen
+  einmalig verworfen.
 - **MCP-sichtbar**: serialisierte Tool-Antworten tragen `gnd_ids` +
   `classifications` (geteilte `_serialize_result_row`, serialisiert auch nested
   Sets); Tool-*Namen*/-Parameter unverändert.

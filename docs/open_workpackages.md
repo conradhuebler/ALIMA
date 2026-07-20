@@ -16,17 +16,28 @@ T-Reihe anlassbezogen; V1 ist neues Terrain.
 ## D — Daten-Achse (der eigentliche Rest der Umstrukturierung)
 
 ### WP-D1 · BibRecord — Datenformen vereinheitlichen
-**Status: P0 ✅ DONE (July 19, 5 Commits ab `6991d57`).** F-1-Collapse
-ausgeführt — EIN kanonisches GND-Pool-Vokabular `{count, gnd_ids,
+**Status: P0 ✅ DONE + VERIFIZIERT, `to_bibrecord()` + F-2 ✅ DONE**
+(July 19: 5 Commits ab `6991d57`; July 20: 6 Commits `2e2b647`…`87b6eb4`,
+Suite 1357). EIN kanonisches GND-Pool-Vokabular `{count, gnd_ids,
 classifications: {system: codes}, display_count?}` von Suggester-Vertrag v2 bis
-persistierter KAS-Form; Rename-Shims weg, Spec-Pins (authors `List[str]`,
-`urls{}`-Map, count-Kontrakt) festgeschrieben; **D2-Datenform vorgezogen**
-(dk/ddc/rvk gleichrangig im `classifications`-Dict). Harter Schnitt, Suite 1324.
-Details: `AIChangelog.md` (July 19) + [`wp_records_as_first_class.md`](wp_records_as_first_class.md).
-**Offen in D1:** Vergleichslauf klassisch↔agentisch (Harness) als
-Verifikations-Nachlauf; danach die Konsumenten-Pfade P1–P4 (Record→Input,
-→Priors, →GND-Signale, Crosswalk) + `to_bibrecord()`-Normalizer + F-2
-DOI-Casing — Specs im WP-Doc.
+persistierter KAS-Form; System-Keys **GROSS** (`classification_systems` als
+alleiniger Owner); `BibRecord` + `to_bibrecord()` für finc/catalog/sru/k10plus;
+DOI-Record-Keys klein. Verifikation ist ein deterministischer Headless-Test
+(beide Pfade, eine Fixture, echter Produktionscode) statt eines Live-Laufs.
+Details: `AIChangelog.md` (July 20) + [`wp_records_as_first_class.md`](wp_records_as_first_class.md).
+
+**Offen in D1: die Konsumenten P1–P4** (Record→Input, →Priors, →GND-Signale,
+Crosswalk). ⚠️ **P1 hat eine eigene Parity-Landmine**, vor dem Start klären: das
+`input_type`-Vokabular driftet über die Oberflächen (Registry-IDs
+`doi_crossref`/`image`/`url_fetch` vs. GUI `doi`/`img`/`url` vs. Batch-eigenes
+`SourceType`-Enum), und **DOI läuft heute komplett an
+`execute_input_extraction` vorbei** — CLI/GUI rufen `resolve_input_to_text`
+direkt, die registrierten `doi_*`-Sources sind nur über MCP erreichbar. Eine
+neue Record-Source im Registry würde nur 1 von 6 Aufrufstellen erreichen.
+Der Record→Text-Formatter existiert bereits zweimal dupliziert
+(`batch_processor.py:727-742` + `:771-786`) — das Zusammenlegen ist der
+risikoärmste Teil von P1. `to_bibrecord()` ist bewusst noch nicht verdrahtet
+(die drei `ResultItem`-Nähte sind unberührt), P1 ist der erste echte Konsument.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
 **Status:** **Datenform ✅ in D1-P0 erledigt** (July 19): Pool/Nested/

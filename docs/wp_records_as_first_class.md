@@ -19,9 +19,20 @@
 > {system: codes}, display_count?}` end-to-end (suggester contract v2 →
 > persisted KAS), the **generalized notation data shape pulled forward from
 > WP-D2** (dk/ddc/rvk equal-rank system keys), **hard cut** — no legacy
-> readers, the old key set was never used in the wild. Remaining verification:
-> classic↔agentic comparison run on the same input. Next: consumer paths P1–P4
-> + `to_bibrecord()` normalizers + F-2 DOI casing.
+> readers, the old key set was never used in the wild.
+>
+> **Update (July 20, 2026): P0 ✅ VERIFIED + `to_bibrecord()` and F-2 landed**
+> (6 commits `2e2b647`…`87b6eb4`; suite 1324 → 1357). The classic↔agentic
+> comparison is a **deterministic headless test**, not a live run: both paths
+> ingest one fixture through real production code and must persist identical
+> `{count, display_count, gnd_ids, classifications}`. Also in this round: the
+> system-name vocabulary unified on **UPPERCASE** (`classification_systems.py`
+> is the single owner — the data layer had drifted to lowercase), two
+> pre-existing persistence bugs fixed (batch save crashed on sets; `rvk` was
+> not an equal-rank system on reload), and the swb pre-v2 fallback finally
+> removed. **Next: consumer paths P1–P4** — note P1's parity landmine, the
+> `input_type` vocabulary drifts across GUI/CLI/webapp/batch and DOI bypasses
+> `execute_input_extraction` entirely today.
 
 ## Problem
 
@@ -198,8 +209,19 @@ All P0 conventions are decided; this section is the contract.
 | display count | `display_count` | int, optional — the real Häufigkeit; display-only, NEVER read by ranking (`rank_pool`) |
 
 Container types are intentionally not unified (see "Not-a-bug" above).
-`BibRecord.classifications[(system, notation)]` pairs are the serialized view of
-the same dict (trivial conversion).
+
+**System keys are UPPERCASE** (`"DK"`, `"DDC"`, `"RVK"`) — pinned July 20 after
+a consistency check found two vocabularies: the data layer wrote lowercase while
+`src/utils/classification_systems.py` (which owns the display prefix and the
+prefixed-string splitter) knew only uppercase. Display prefix and data key are
+now the same string, so there is no upper/lower translation layer — exactly the
+kind of round-trip rename P0 removed. `classification_systems` is the single
+owner (`KNOWN_SYSTEMS`/`SYSTEM_KEYS`, `normalize_system`).
+
+`BibRecord.classifications` is **the same dict** `{system: [codes]}`, not
+`(system, notation)` pairs as the draft above sketched — identical to
+`ResultItem.classifications`, so a record's own classifications feed the
+classification step (P2) with no adapter.
 
 ### The three formerly under-specified conventions
 
@@ -221,7 +243,17 @@ the same dict (trivial conversion).
   provider dirs and the docs.
 - **Hard cut, no backward compatibility**: no tolerant legacy readers, no
   `gndid` fallbacks, no old-save migration — the legacy key set was never used
-  in production. Final gate: `grep -rn "gndid" src/` → zero hits.
+  in production. Final gate: `grep -rn "gndid" src/` → only the documented
+  purge helper.
+
+  *Correction (July 20): P0 claimed this gate was met; it was not. Five hits
+  remained — a live read fallback in `swb/suggester.py` plus three blueprint
+  README lines. Removing the fallback needed more than a delete: 63 of 194 swb
+  raw-cache rows in the production DB still carried the pre-v2 shape, and that
+  cache expires by row count, not by age. Read with v2 keys they would have
+  yielded an empty `gnd_ids` — a silently keyword-less hit rather than a cache
+  miss. Fallback removed AND the rows dropped once
+  (`UnifiedKnowledgeManager._purge_pre_v2_swb_raw_rows`).*
 
 Execution plan (5 phases, per-phase green suite): see the WP-D1 entry in
 [`open_workpackages.md`](open_workpackages.md). The counter bug
