@@ -15,7 +15,29 @@ from typing import Tuple
 
 # Recognised classification systems. Order is only used for stable display /
 # iteration; matching is by explicit prefix, never positional. - Claude Generated
+#
+# These are ALSO the canonical data keys of the ``classifications`` dict in the
+# GND-pool vocabulary (``{system: codes}``, WP-D1). Display prefix and data key
+# are deliberately the same string, so there is one system vocabulary rather
+# than an upper/lower pair needing a translation layer — the kind of round-trip
+# rename WP-D1 P0 removed. Producers normalise through :func:`normalize_system`.
 KNOWN_SYSTEMS: Tuple[str, ...] = ("DK", "DDC", "RVK")
+
+# Alias for readers that mean "the keys of a classifications dict" rather than
+# "the systems we can render". Same tuple on purpose. - Claude Generated
+SYSTEM_KEYS: Tuple[str, ...] = KNOWN_SYSTEMS
+
+
+def normalize_system(system: str) -> str:
+    """Normalise a system name to its canonical key (``"ddc"`` → ``"DDC"``).
+
+    Returns ``""`` for an unknown or blank system, so callers can decide whether
+    to drop the codes or file them under a default. Use this at every boundary
+    where a system name arrives from outside (catalog field names, prefixed
+    strings, plugin output) before writing into a ``classifications`` dict.
+    """
+    norm = str(system or "").strip().upper()
+    return norm if norm in KNOWN_SYSTEMS else ""
 
 
 def split_classification_code(value: str) -> Tuple[str, str]:

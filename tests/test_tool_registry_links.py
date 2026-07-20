@@ -39,18 +39,18 @@ class TestSerializeSuggesterResults(unittest.TestCase):
         results = {
             "quantenchemie": {
                 "Quantenchemie": {"gnd_ids": {"4047979-1"}, "count": 3,
-                                  "classifications": {"ddc": {"540"}}}
+                                  "classifications": {"DDC": {"540"}}}
             }
         }
         out = ToolRegistry._serialize_suggester_results(results)
         row = out["quantenchemie"]["Quantenchemie"]
         self.assertEqual(row["gnd_urls"], ["https://d-nb.info/gnd/4047979-1"])
         # nested classification sets are serialized to lists too
-        self.assertEqual(row["classifications"], {"ddc": ["540"]})
+        self.assertEqual(row["classifications"], {"DDC": ["540"]})
 
     def test_no_gnd_ids_no_gnd_urls(self):
         out = ToolRegistry._serialize_suggester_results(
-            {"t": {"K": {"count": 1, "classifications": {"ddc": {"540"}}}}}
+            {"t": {"K": {"count": 1, "classifications": {"DDC": {"540"}}}}}
         )
         self.assertNotIn("gnd_urls", out["t"]["K"])
 

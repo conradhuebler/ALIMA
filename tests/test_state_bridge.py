@@ -47,11 +47,11 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "results": {
                         "Toxicology of Cadmium": {
                             "gnd_ids": ["4007249-3"],
-                            "classifications": {"ddc": ["577"]},
+                            "classifications": {"DDC": ["577"]},
                         },
                         "Cadmium in Soil": {
                             "gnd_ids": ["4007249-3"],
-                            "classifications": {"ddc": ["631.4"]},
+                            "classifications": {"DDC": ["631.4"]},
                         },
                     },
                 },
@@ -60,7 +60,7 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "results": {
                         "Cadmium in Soil": {
                             "gnd_ids": ["4007249-3"],
-                            "classifications": {"ddc": ["631.4"]},
+                            "classifications": {"DDC": ["631.4"]},
                         },
                     },
                 },
@@ -91,13 +91,13 @@ class TestFromKeywordAnalysisState(unittest.TestCase):
                     "results": {
                         "Halbleiter": {
                             "gnd_ids": ["4129772-7"],
-                            "classifications": {"ddc": ["530"]},
+                            "classifications": {"DDC": ["530"]},
                             "count": 1,
                             "display_count": 87,
                         },
                         "Silizium": {
                             "gnd_ids": ["4130826-8"],
-                            "classifications": {"ddc": ["546"]},
+                            "classifications": {"DDC": ["546"]},
                         },
                     },
                 },

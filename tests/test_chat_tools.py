@@ -50,9 +50,9 @@ def _cadmium_shared_context() -> SharedContext:
         initial_keywords=["Cadmium"],
         extracted_keywords=["Cadmium", "Schwermetall", "Toxikologie"],
         gnd_entries=[
-            {"title": "Cadmium", "gnd_id": "4007249-3", "classifications": {"ddc": ["546.48"]}},
-            {"title": "Schwermetall", "gnd_id": "4054086-9", "classifications": {"ddc": ["546.3"]}},
-            {"title": "Toxikologie", "gnd_id": "4060451-7", "classifications": {"ddc": ["615.9"]}},
+            {"title": "Cadmium", "gnd_id": "4007249-3", "classifications": {"DDC": ["546.48"]}},
+            {"title": "Schwermetall", "gnd_id": "4054086-9", "classifications": {"DDC": ["546.3"]}},
+            {"title": "Toxikologie", "gnd_id": "4060451-7", "classifications": {"DDC": ["615.9"]}},
         ],
         selected_keywords=[
             {"keyword": "Cadmium", "gnd_id": "4007249-3"},

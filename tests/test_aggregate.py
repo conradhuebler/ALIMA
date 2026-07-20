@@ -368,7 +368,7 @@ class NestedFromAggregateTest(unittest.TestCase):
         agg = {
             "pool": [
                 {"title": "Wasser", "gnd_ids": ["g1"],
-                 "classifications": {"ddc": ["540"]},
+                 "classifications": {"DDC": ["540"]},
                  "count": 1, "display_count": 9},
             ],
             "terms_map": {"Wasser": ["wasser", "h2o"]},
@@ -377,14 +377,14 @@ class NestedFromAggregateTest(unittest.TestCase):
         self.assertEqual(set(nested.keys()), {"wasser", "h2o"})
         w = nested["wasser"]["Wasser"]
         self.assertEqual(w["gnd_ids"], {"g1"})
-        self.assertEqual(w["classifications"], {"ddc": {"540"}})
+        self.assertEqual(w["classifications"], {"DDC": {"540"}})
         self.assertEqual(w["count"], 1)
         self.assertEqual(w["display_count"], 9)
         # Sets are per-term copies (no shared mutation across terms).
         w["gnd_ids"].add("x")
         self.assertNotIn("x", nested["h2o"]["Wasser"]["gnd_ids"])
-        w["classifications"]["ddc"].add("y")
-        self.assertNotIn("y", nested["h2o"]["Wasser"]["classifications"]["ddc"])
+        w["classifications"]["DDC"].add("y")
+        self.assertNotIn("y", nested["h2o"]["Wasser"]["classifications"]["DDC"])
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")

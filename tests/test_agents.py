@@ -64,8 +64,8 @@ class TestSharedContext(unittest.TestCase):
         ctx.extracted_keywords = ["Bibliothek", "Katalog"]
         ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
         ctx.gnd_entries = [
-            {"title": "Bibliothek", "gnd_id": "4006278-9", "gnd_ids": ["4006278-9"], "classifications": {"ddc": ["020"]}, "count": 5},
-            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"], "classifications": {"ddc": ["025.3"]}, "count": 3},
+            {"title": "Bibliothek", "gnd_id": "4006278-9", "gnd_ids": ["4006278-9"], "classifications": {"DDC": ["020"]}, "count": 5},
+            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"], "classifications": {"DDC": ["025.3"]}, "count": 3},
         ]
         ctx.dk_classifications = [{"code": "02", "title": "Bibliothekswesen", "confidence": 0.9}]
         ctx.keyword_chains = [
@@ -92,7 +92,7 @@ class TestSharedContext(unittest.TestCase):
         ctx.gnd_entries_per_keyword = {"Halbleiter": ["Halbleiter"]}
         ctx.gnd_entries = [
             {"title": "Halbleiter", "gnd_id": "4129772-7", "gnd_ids": ["4129772-7"],
-             "classifications": {"ddc": ["530"]}, "count": 1, "display_count": 87},
+             "classifications": {"DDC": ["530"]}, "count": 1, "display_count": 87},
         ]
         state = ctx.to_keyword_analysis_state()
         entry = state.search_results[0].results["Halbleiter"]
@@ -106,7 +106,7 @@ class TestSharedContext(unittest.TestCase):
         ctx.extracted_keywords = ["Katalog"]
         ctx.gnd_entries = [
             {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"],
-             "classifications": {"ddc": ["025.3"]}},
+             "classifications": {"DDC": ["025.3"]}},
         ]
         state = ctx.to_keyword_analysis_state()
         entry = state.search_results[0].results["Katalog"]
@@ -321,7 +321,7 @@ class TestSharedContextSerialization(unittest.TestCase):
         ctx = make_shared_context()
         ctx.working_title = "Autor_Thema_2024"
         ctx.extracted_keywords = ["Bibliothek", "Katalog", "GND"]
-        ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek", "classifications": {"ddc": ["020"]}}]
+        ctx.gnd_entries = [{"gnd_id": "4006278-9", "title": "Bibliothek", "classifications": {"DDC": ["020"]}}]
         ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
         ctx.keyword_chains = [{"chain": ["Bibliothek", "Katalog"], "reason": "Verwandt"}]
         ctx.dk_classifications = [{"code": "02", "title": "Bibliothekswesen", "confidence": 0.9}]

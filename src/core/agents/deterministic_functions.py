@@ -1556,7 +1556,7 @@ def gnd_batch_metadata(
                                 "title": title,
                                 "description": "",
                                 "synonyms": [],
-                                "ddcs": list((kw.get("classifications") or {}).get("ddc", [])),
+                                "ddcs": list((kw.get("classifications") or {}).get("DDC", [])),
                             }
                             missing.remove(gid)
                             break

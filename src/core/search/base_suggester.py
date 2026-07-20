@@ -172,8 +172,8 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
 
                 cls = data.get("classifications") or {}
                 # First DDC / DK classification if available (or empty string)
-                ddc = next(iter(cls.get("ddc", set())), "")
-                dk = next(iter(cls.get("dk", set())), "")
+                ddc = next(iter(cls.get("DDC", set())), "")
+                dk = next(iter(cls.get("DK", set())), "")
 
                 # Get the count (default to 1 if not available)
                 count = data.get("count", 1)

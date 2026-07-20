@@ -64,7 +64,7 @@ class _FakeProvider:
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")
 class GeneratedSearchToolTest(unittest.TestCase):
-    GND = {"t": {"Kw": {"count": 5, "gnd_ids": {"4074335-4"}, "classifications": {"ddc": {"333"}}}}}
+    GND = {"t": {"Kw": {"count": 5, "gnd_ids": {"4074335-4"}, "classifications": {"DDC": {"333"}}}}}
     RAW = {"t": {"KwRaw": {"count": 2, "gnd_ids": {"4055747-6"}, "classifications": {}}}}
 
     def _registry(self):
@@ -91,7 +91,7 @@ class GeneratedSearchToolTest(unittest.TestCase):
         def _gnd_result(errors=None):
             return ProviderResult(
                 SearchCapability.GND_KEYWORDS,
-                per_term={"t": [ResultItem(label="Kw", gnd_ids={"4074335-4"}, count=5, classifications={"ddc": {"333"}})]},
+                per_term={"t": [ResultItem(label="Kw", gnd_ids={"4074335-4"}, count=5, classifications={"DDC": {"333"}})]},
                 errors=errors or {},
             )
 

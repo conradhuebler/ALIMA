@@ -46,7 +46,7 @@ class SwbTransformTest(unittest.TestCase):
         # always under the size cap, carries titles) must round-trip through
         # transform back to the reduced view — no gnd_entries facts needed.
         results = {"Wasser": {"count": 1, "gnd_ids": {"g1", "g2"},
-                              "classifications": {"ddc": {"540"}}}}
+                              "classifications": {"DDC": {"540"}}}}
         blob = {
             "subjects": {
                 subj: {"count": d["count"], "gnd_ids": sorted(d["gnd_ids"]),

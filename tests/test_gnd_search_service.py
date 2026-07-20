@@ -156,7 +156,7 @@ class SearchServiceTest(unittest.TestCase):
         PROVIDER_REGISTRY["fake_b"] = _make_fake_provider("fake_b", {
             "wasser": {
                 "Wasser": {"count": 1, "gnd_ids": {"g1", "g2"},
-                           "classifications": {"ddc": {"5"}}, "display_count": 10},
+                           "classifications": {"DDC": {"5"}}, "display_count": 10},
                 "Klima": {"count": 3, "gnd_ids": {"g3"}, "classifications": {}},
             },
         })
@@ -168,7 +168,7 @@ class SearchServiceTest(unittest.TestCase):
         wasser = results["wasser"]["Wasser"]
         self.assertEqual(wasser["count"], 47)                      # max, never summed
         self.assertEqual(wasser["gnd_ids"], {"g1", "g2"})          # union
-        self.assertEqual(wasser["classifications"], {"ddc": {"5"}})
+        self.assertEqual(wasser["classifications"], {"DDC": {"5"}})
         self.assertEqual(wasser["display_count"], 47)              # max across sources
         self.assertEqual(results["wasser"]["Klima"]["count"], 3)   # from B only
 

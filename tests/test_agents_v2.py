@@ -675,11 +675,11 @@ class TestAlimaClassicMigration(unittest.TestCase):
         def _exec(tool, args):
             if tool == "search_swb":
                 return json.dumps({"results": {
-                    "kw1": {"Titel1": {"gnd_ids": ["123-4"], "count": 5, "classifications": {"ddc": ["540"]}}},
+                    "kw1": {"Titel1": {"gnd_ids": ["123-4"], "count": 5, "classifications": {"DDC": ["540"]}}},
                 }})
             if tool == "search_lobid":
                 return json.dumps({"results": {
-                    "kw1": {"Titel1": {"gnd_ids": ["999-9"], "count": 3, "classifications": {"dk": ["DK1"]}}},
+                    "kw1": {"Titel1": {"gnd_ids": ["999-9"], "count": 3, "classifications": {"DK": ["DK1"]}}},
                     "kw2": {"Titel2": {"gnd_ids": ["456-7"], "count": 2, "classifications": {}}},
                 }})
             if tool == "get_gnd_batch":
@@ -726,7 +726,7 @@ class TestAlimaClassicMigration(unittest.TestCase):
                 return json.dumps({
                     "pool": [
                         {"title": "Titel1", "gnd_ids": ["123-4", "999-9"], "gnd_id": "123-4",
-                         "classifications": {"ddc": ["540"], "dk": ["DK1"]}, "count": 1,
+                         "classifications": {"DDC": ["540"], "DK": ["DK1"]}, "count": 1,
                          "display_count": 5, "description": "", "synonyms": [],
                          "sources": ["lobid", "swb"], "source_count": 2},
                         {"title": "Titel2", "gnd_ids": ["456-7"], "gnd_id": "456-7",
@@ -926,7 +926,7 @@ class TestPoCWorkflows(unittest.TestCase):
                 return json.dumps({"entries": {}})
             if tool == "search_lobid":
                 return json.dumps({"results": {
-                    args["terms"][0]: {"Recovered": {"gnd_ids": [args["terms"][0]], "count": 1, "classifications": {"ddc": ["540"]}}},
+                    args["terms"][0]: {"Recovered": {"gnd_ids": [args["terms"][0]], "count": 1, "classifications": {"DDC": ["540"]}}},
                 }})
             return "{}"
 

@@ -230,7 +230,7 @@ class SharedContext(BaseSharedContext):
         initial_gnd_classes = []
         seen_ddc = set()
         for entry in self.gnd_entries:
-            for ddc in (entry.get("classifications") or {}).get("ddc", []):
+            for ddc in (entry.get("classifications") or {}).get("DDC", []):
                 if ddc and ddc not in seen_ddc:
                     seen_ddc.add(ddc)
                     initial_gnd_classes.append(ddc)

@@ -31,7 +31,7 @@ class _FakeSuggester:
     last_http_status = {}
 
     def search(self, terms, **kwargs):
-        return {t: {"Wasserstoff": {"count": 3, "gnd_ids": {"4064784-5"}, "classifications": {"ddc": {"546"}}}} for t in terms}
+        return {t: {"Wasserstoff": {"count": 3, "gnd_ids": {"4064784-5"}, "classifications": {"DDC": {"546"}}}} for t in terms}
 
 
 class BlueprintEndToEndTest(unittest.TestCase):
