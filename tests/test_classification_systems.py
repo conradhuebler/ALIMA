@@ -45,7 +45,10 @@ class TestClassificationSystems(unittest.TestCase):
 
     def test_ddc_is_registered(self):
         self.assertIn("DDC", KNOWN_SYSTEMS)
-        self.assertEqual(set(KNOWN_SYSTEMS), {"DK", "DDC", "RVK"})
+        # BK joined for the WP-D2 lobid harvest: lobid ships Basisklassifikation
+        # notations, and an unregistered system is DROPPED rather than kept, so
+        # the registry is what decides whether harvested data survives.
+        self.assertEqual(set(KNOWN_SYSTEMS), {"DK", "DDC", "RVK", "BK"})
 
 
 if __name__ == "__main__":

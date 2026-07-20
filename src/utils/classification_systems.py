@@ -21,7 +21,24 @@ from typing import Any, Dict, List, Optional, Tuple
 # are deliberately the same string, so there is one system vocabulary rather
 # than an upper/lower pair needing a translation layer — the kind of round-trip
 # rename WP-D1 P0 removed. Producers normalise through :func:`normalize_system`.
-KNOWN_SYSTEMS: Tuple[str, ...] = ("DK", "DDC", "RVK")
+KNOWN_SYSTEMS: Tuple[str, ...] = ("DK", "DDC", "RVK", "BK")
+
+# Full system names as third parties spell them, mapped to our canonical key.
+# Only supra-regional, standardised systems are listed: a source that reports a
+# LOCAL systematic ("Sachgruppen der DNB", "Systematik der TUB München", …) is
+# deliberately left unmapped so :func:`normalize_system` drops it rather than
+# filing a library-specific code under a system it does not belong to.
+#
+# ``DDC-Sachgruppen der ZDB`` is likewise NOT mapped to DDC: those are coarse
+# DDC-derived subject groups, and putting a 3-digit group next to a full DDC
+# number would present two different granularities as equivalent.
+# - Claude Generated (WP-D2 harvest)
+_SYSTEM_ALIASES = {
+    "REGENSBURGER VERBUNDKLASSIFIKATION": "RVK",
+    "DEWEY-DEZIMALKLASSIFIKATION": "DDC",
+    "DEWEY DECIMAL CLASSIFICATION": "DDC",
+    "BASISKLASSIFIKATION": "BK",
+}
 
 # Alias for readers that mean "the keys of a classifications dict" rather than
 # "the systems we can render". Same tuple on purpose. - Claude Generated
@@ -198,7 +215,19 @@ def normalize_system(system: str) -> str:
     strings, plugin output) before writing into a ``classifications`` dict.
     """
     norm = str(system or "").strip().upper()
-    return norm if norm in KNOWN_SYSTEMS else ""
+    if norm in KNOWN_SYSTEMS:
+        return norm
+    # Sources name their systems in full, often with the abbreviation in front
+    # and the long form in brackets ("RVK (Regensburger Verbundklassifikation)").
+    # Try the part before the bracket, then the long form itself.
+    head = norm.split("(", 1)[0].strip()
+    if head in KNOWN_SYSTEMS:
+        return head
+    for candidate in (norm, head, norm.strip("()")):
+        resolved = _SYSTEM_ALIASES.get(candidate.strip())
+        if resolved:
+            return resolved
+    return ""
 
 
 def split_classification_code(value: str) -> Tuple[str, str]:

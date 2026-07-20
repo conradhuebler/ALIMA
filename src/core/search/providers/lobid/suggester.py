@@ -14,7 +14,82 @@ from pathlib import Path
 from typing import Dict, List, Any, Set, Optional, Union
 from pprint import pprint
 
+from collections import Counter
+
 from src.core.search.base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.classification_systems import (
+    ORIGIN_COOCCURRENCE,
+    classification_entry,
+    normalize_system,
+)
+
+
+def _classifications_by_gnd_id(raw: Dict[str, Any]) -> Dict[str, Counter]:
+    """Map each GND id to the classifications of the records it was indexed in.
+
+    ⚠️ This is a CO-OCCURRENCE heuristic, not an authority statement. A record's
+    RVK notation classifies the *record*, not each of its subject headings
+    individually; a title about cadmium in soils passes its notation to every
+    subject it carries, generic ones included. The resulting entries are
+    therefore ``origin="cooccurrence"`` and weighted by how often the pairing
+    was observed, so a consumer can tell a strong association (13 records) from
+    an incidental one (1) — and never mistake either for ground truth.
+
+    Both halves live on the same ``member`` record: the GND ids in
+    ``subject[].componentList[].id`` and the notations in ``subject[]`` entries
+    that carry one. Systems are resolved through the shared registry, which
+    drops library-local systematics rather than filing them under a real
+    classification. - Claude Generated (WP-D2)
+    """
+    by_gnd: Dict[str, Counter] = {}
+    for record in raw.get("member", []) or []:
+        gnd_ids: Set[str] = set()
+        notations: List[tuple] = []
+        for subject in record.get("subject", []) or []:
+            if not isinstance(subject, dict):
+                continue
+            for component in subject.get("componentList") or []:
+                if isinstance(component, dict) and component.get("id"):
+                    gnd_ids.add(str(component["id"]).rsplit("/", 1)[-1])
+            notation = subject.get("notation")
+            if notation:
+                system = normalize_system(
+                    (subject.get("source") or {}).get("label") or ""
+                )
+                if system:
+                    notations.append((system, str(notation).strip()))
+        if not gnd_ids or not notations:
+            continue
+        # Deduplicate within one record: a notation repeated on the same title
+        # is one observation, not several.
+        unique = set(notations)
+        for gnd_id in gnd_ids:
+            by_gnd.setdefault(gnd_id, Counter()).update(unique)
+    return by_gnd
+
+
+def _entries_for_gnd_ids(
+    by_gnd: Dict[str, Counter], gnd_ids: Set[str], limit: int = 3
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Canonical ``{system: [entry]}`` for one pool subject, strongest first.
+
+    A subject may carry several GND ids (merged spellings); their observations
+    are combined with ``max`` rather than summed — the same landmine rule the
+    pool count follows, since the same record can back both ids.
+    """
+    combined: Counter = Counter()
+    for gnd_id in gnd_ids:
+        for pair, count in (by_gnd.get(gnd_id) or {}).items():
+            if count > combined.get(pair, 0):
+                combined[pair] = count
+    by_system: Dict[str, List[Dict[str, Any]]] = {}
+    for (system, code), count in combined.most_common():
+        entries = by_system.setdefault(system, [])
+        if len(entries) < limit:
+            entries.append(
+                classification_entry(code, count=count, origin=ORIGIN_COOCCURRENCE)
+            )
+    return by_system
 
 
 def ex_to_str(ex):
@@ -211,6 +286,19 @@ class LobidSuggester(BaseSuggester):
         if self.gnd_subjects is None:
             self.prepare(False)
 
+    @staticmethod
+    def _harvest_limit() -> int:
+        """How many classifications to keep per system, per keyword.
+
+        Measured on a real cache (248 responses): unlimited yields up to 69
+        notations for a broad term like "Aquatisches Ökosystem", where the
+        leader occurs 13× and a long tail once each. Entries are sorted by
+        strength, so keeping the top few preserves the signal and drops the
+        tail; a frequency THRESHOLD instead would have cut coverage from 1319
+        keywords to 346. - Claude Generated
+        """
+        return 3
+
     def transform(self, raw: Dict[str, Any], search_type: str = "kw") -> Dict[str, Dict[str, Any]]:
         """Reduce a raw lobid response to the canonical ``{subject: {count, gnd_ids, classifications}}`` view.
 
@@ -252,6 +340,18 @@ class LobidSuggester(BaseSuggester):
                     "gnd_ids": {gnd_id},
                     "classifications": {},
                 }
+
+        # Attach the classifications lobid already ships (WP-D2). Until now this
+        # was discarded wholesale: the pool was built from the aggregation facet
+        # alone and every entry got ``classifications: {}``, so the canonical
+        # field carried no data at all for the default sources.
+        harvested = _classifications_by_gnd_id(raw)
+        if harvested:
+            limit = self._harvest_limit()
+            for data in subjects.values():
+                data["classifications"] = _entries_for_gnd_ids(
+                    harvested, data["gnd_ids"], limit=limit
+                )
         return subjects
 
     @staticmethod
