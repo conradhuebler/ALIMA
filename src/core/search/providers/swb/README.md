@@ -12,7 +12,7 @@ siehe [`../lobid/README.md`](../lobid/README.md).
 |---|---|
 | Capability | `gnd_keywords` |
 | Eingabe | Suchbegriffe; `search_type` `kw`/`title`/`freetext`, `max_pages` (Paginierung) |
-| Ausgabe | `{Begriff: {Schlagwort: {count, gndid, ddc, dk}}}` als `ProviderResult` |
+| Ausgabe | `{Begriff: {Schlagwort: {count, gnd_ids, classifications}}}` als `ProviderResult` (Vertrag v2) |
 | MCP-Tool | `search_swb` |
 | Konfiguration | keine (öffentlicher Katalog) |
 

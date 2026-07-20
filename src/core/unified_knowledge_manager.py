@@ -313,6 +313,7 @@ class UnifiedKnowledgeManager:
             self._migrate_catalog_dk_cache_schema()
             self._migrate_search_mappings_schema()
             self._migrate_search_response_cache_schema()
+            self._purge_pre_v2_swb_raw_rows()
 
         except Exception as e:
             self.logger.error(f"Error initializing unified database: {e}")
@@ -373,6 +374,40 @@ class UnifiedKnowledgeManager:
                     )
         except Exception as e:
             self.logger.warning(f"search_response_cache migration check failed (non-critical): {e}")
+
+    def _purge_pre_v2_swb_raw_rows(self):
+        """Drop swb raw-cache rows written in the pre-v2 suggester shape.
+
+        WP-D1 removed the ``gndid``/``ddc``/``dk`` read fallback from
+        ``SwbSuggester.transform``. Rows in that shape must therefore be dropped
+        rather than left in place: read with v2 keys they would yield an empty
+        ``gnd_ids`` set — a search term that silently looks like it has no GND
+        IDs, instead of a cache miss that refetches. The raw cache is a cache,
+        so deletion only costs one refetch.
+
+        Content migration, not schema, but it runs with the schema migrations
+        for the same reason: once, early, before anything reads the table. Cheap
+        and idempotent — after the first run the LIKE matches nothing. The
+        marker ``"gndid"`` appears only in the pre-v2 payload. - Claude Generated
+        """
+        try:
+            rows = self.db_manager.fetch_all(
+                "SELECT COUNT(*) FROM search_response_cache "
+                "WHERE source = 'swb' AND raw_json LIKE '%\"gndid\"%'"
+            )
+            stale = int(rows[0][0]) if rows and rows[0] else 0
+            if not stale:
+                return
+            self.db_manager.execute_query(
+                "DELETE FROM search_response_cache "
+                "WHERE source = 'swb' AND raw_json LIKE '%\"gndid\"%'"
+            )
+            self.logger.info(
+                f"🔄 Dropped {stale} pre-v2 swb raw-cache rows (WP-D1 hard cut); "
+                f"they will be refetched on next search"
+            )
+        except Exception as e:
+            self.logger.warning(f"pre-v2 swb raw-cache purge skipped (non-critical): {e}")
 
     def _migrate_catalog_dk_cache_schema(self):
         """Migrate catalog_dk_cache table - handle schema upgrades - Claude Generated"""

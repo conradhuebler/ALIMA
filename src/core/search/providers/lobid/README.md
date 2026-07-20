@@ -16,7 +16,7 @@ in zwei Modi identisch:
 |---|---|
 | Capability | `gnd_keywords` — Suchbegriff → GND-Schlagwort-Kandidaten |
 | Eingabe | Ein oder mehrere Suchbegriffe (`search_type`: `kw`/`title`/`freetext`) |
-| Ausgabe | `{Begriff: {Schlagwort: {count, gndid, ddc}}}` als `ProviderResult` |
+| Ausgabe | `{Begriff: {Schlagwort: {count, gnd_ids, classifications}}}` als `ProviderResult` (Vertrag v2) |
 | MCP-Tool | `search_lobid` (aus `mcp_tool_specs()` generiert) |
 | Konfiguration | keine (öffentliche API, kein Token) |
 
@@ -43,7 +43,9 @@ lobid/
    - `plugin.toml` → `id = "mein_katalog"`
    - `provider.py` → `id = "mein_katalog"` (Klassenattribut)
 3. `suggester.py` anpassen: `fetch()` (HTTP zur eigenen Quelle) und
-   `transform(raw)` (Verbatim-Antwort → `{schlagwort: {count, gndid, ddc, dk}}`).
+   `transform(raw)` (Verbatim-Antwort → `{schlagwort: {count, gnd_ids,
+   classifications}}`; `classifications` ist `{System: Codes}` mit den
+   kanonischen System-Keys `DK`/`DDC`/`RVK`).
 4. In ALIMA: Einstellungen → **Plugins-Tab** → „Code-Plugins (Tier 2) erlauben"
    anhaken, dann „📂 Plugin-Verzeichnis scannen…" und das Plugin im
    Approval-Dialog freigeben (AST-Scan-Findings + Hash werden angezeigt; jede

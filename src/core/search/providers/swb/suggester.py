@@ -594,30 +594,29 @@ class SWBSuggester(BaseSuggester):
 
         Cached storage shapes (transform-on-read counterpart for the WP2 raw cache):
         * ``{"subjects": {...}}`` — the compact form written by
-          :meth:`extract_gnd_from_swb`; reconstruct the code ``set``s. Older rows
-          may still carry the pre-v2 ``gndid``/``ddc``/``dk`` keys — this is a
-          *storage-format* version fallback (like the ``pages`` branch below),
-          not a contract concession; rows age out of the raw cache anyway.
+          :meth:`extract_gnd_from_swb`; reconstruct the code ``set``s.
         * ``{"pages": [...]}`` — the legacy verbatim-HTML form; re-extract via
           :meth:`_extract_subjects_from_page` (kept for older cached rows).
-        - Claude Generated
+
+        Pre-v2 rows (``gndid``/``ddc``/``dk`` keys) are NOT read here: the
+        WP-D1 hard cut removed the fallback, and such rows are dropped once by
+        ``UnifiedKnowledgeManager._purge_pre_v2_swb_raw_rows``. Reading them with
+        v2 keys would have yielded an empty ``gnd_ids`` set — a silently
+        keyword-less result rather than a cache miss — so they must be gone,
+        not tolerated. - Claude Generated
         """
         if isinstance(raw, dict) and "subjects" in raw:
             out: Dict[str, Dict[str, Any]] = {}
             for subj, data in (raw.get("subjects") or {}).items():
                 data = data or {}
-                cls = {
-                    system: set(codes)
-                    for system, codes in (data.get("classifications") or {}).items()
-                    if codes
-                }
-                for legacy_key, system in (("ddc", "ddc"), ("dk", "dk")):
-                    if data.get(legacy_key):
-                        cls.setdefault(system, set()).update(data[legacy_key])
                 out[subj] = {
                     "count": data.get("count", 1),
-                    "gnd_ids": set(data.get("gnd_ids", data.get("gndid", []))),
-                    "classifications": cls,
+                    "gnd_ids": set(data.get("gnd_ids", [])),
+                    "classifications": {
+                        system: set(codes)
+                        for system, codes in (data.get("classifications") or {}).items()
+                        if codes
+                    },
                 }
             return out
 

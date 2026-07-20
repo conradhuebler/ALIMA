@@ -72,6 +72,9 @@ class _FakeUKM:
     def _migrate_search_response_cache_schema(self):
         pass
 
+    def _purge_pre_v2_swb_raw_rows(self):
+        pass
+
     # Borrow the real method under test.
     _init_database = UnifiedKnowledgeManager._init_database
 
