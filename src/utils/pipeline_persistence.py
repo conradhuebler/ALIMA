@@ -71,7 +71,17 @@ class PipelineJsonManager:
 
     @staticmethod
     def task_state_to_dict(task_state: TaskState) -> dict:
-        """Convert TaskState to dictionary for JSON serialization - Claude Generated"""
+        """Convert TaskState to a JSON-serializable dictionary - Claude Generated
+
+        Sets are converted to lists here, not at the call site: the canonical
+        GND-pool payload carries ``gnd_ids`` and the ``classifications`` code
+        containers as sets in the nested per-term view, so a caller that only did
+        ``asdict`` + ``json.dump`` crashed with "Object of type set is not JSON
+        serializable" on every state that had a GND hit with classifications
+        (batch saving hit exactly this). ``save_analysis_state`` below already
+        paired the two calls; making the contract "this returns dumpable data"
+        removes the chance to forget it.
+        """
         task_state_dict = asdict(task_state)
 
         # Convert nested dataclasses to dicts if they exist
@@ -82,7 +92,7 @@ class PipelineJsonManager:
         if task_state_dict.get("prompt_config"):
             task_state_dict["prompt_config"] = asdict(task_state.prompt_config)
 
-        return task_state_dict
+        return PipelineJsonManager.convert_sets_to_lists(task_state_dict)
 
     @staticmethod
     def convert_sets_to_lists(obj):
@@ -101,15 +111,21 @@ class PipelineJsonManager:
     def convert_lists_to_sets(obj):
         """Convert known list fields back to sets after JSON loading - Claude Generated
 
-        Handles the canonical set fields: ddc, dk (inside classifications), missing_concepts
+        Handles the canonical set fields: every classification system key (inside
+        ``classifications``) plus missing_concepts
         """
         if isinstance(obj, dict):
-            # Known set fields in search results and data models
-            # Canonical nested keys (WP-D1): "ddc"/"dk" live inside the
+            # Known set fields in search results and data models.
+            # Canonical nested keys (WP-D1): the system keys live inside the
             # ``classifications`` dict and are matched here by key name during
-            # recursion. ``gnd_ids`` stays a LIST (display order, gnd_id = first
-            # element) — never add it here.
-            SET_FIELDS = {"ddc", "dk", "missing_concepts"}
+            # recursion. Derived from the shared registry so dk/ddc/rvk stay
+            # equal-rank — a hardcoded {"ddc","dk"} silently left ``rvk`` a list
+            # after a JSON round-trip while its siblings became sets.
+            # ``gnd_ids`` stays a LIST (display order, gnd_id = first element)
+            # — never add it here.
+            from .classification_systems import SYSTEM_KEYS
+
+            SET_FIELDS = set(SYSTEM_KEYS) | {"missing_concepts"}
 
             result = {}
             for key, value in obj.items():
