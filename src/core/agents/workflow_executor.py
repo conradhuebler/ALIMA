@@ -81,6 +81,15 @@ class WorkflowExecutor:
         overall_success = True
         error: Optional[str] = None
 
+        # Name the driving workflow on the context so the exported state can say
+        # which one produced it (same tolerance as the prompt injection below —
+        # a context without attribute support must not break execution).
+        # - Claude Generated
+        try:
+            context.workflow_name = getattr(workflow, "name", "") or ""
+        except Exception:
+            pass
+
         # Inject workflow prompts into context for step-level prompt resolution
         if hasattr(context, "_workflow_prompts"):
             context._workflow_prompts = workflow.prompts

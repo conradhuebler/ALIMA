@@ -96,6 +96,13 @@ class KeywordAnalysisState:
     final_llm_analysis: Optional[LlmKeywordAnalysis] = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     pipeline_step_completed: Optional[str] = None  # For recovery tracking - Claude Generated
+    # Which pipeline produced this state: "classic" | "agentic". Recorded
+    # explicitly because the two modes were otherwise only distinguishable by
+    # guessing from side effects (agentic runs happen to carry keyword_chains
+    # and a verification block) — too fragile to compare exports on.
+    # ``workflow_name`` is set for agentic runs only. - Claude Generated
+    pipeline_mode: Optional[str] = None
+    workflow_name: Optional[str] = None
     dk_search_results: List[Dict[str, Any]] = field(default_factory=list)  # For DK catalog search results (keyword-centric) - Claude Generated
     dk_search_results_flattened: List[Dict[str, Any]] = field(default_factory=list)  # Deduplicated classifications for LLM prompt - Claude Generated Step 6
     dk_statistics: Optional[Dict[str, Any]] = None  # Deduplication metrics and frequency statistics - Claude Generated Step 6

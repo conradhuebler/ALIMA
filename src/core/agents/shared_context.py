@@ -111,6 +111,11 @@ class SharedContext(BaseSharedContext):
     input_type: str = "text"
     source_value: Optional[str] = None
 
+    # Which workflow is driving this context; set by WorkflowExecutor.run so the
+    # exported state can name it without the caller having to thread it through.
+    # - Claude Generated
+    workflow_name: str = ""
+
     # Shared resources
     tool_result_cache: ToolResultCache = field(default_factory=ToolResultCache)
     conversation_memory: List[Dict] = field(default_factory=list)
@@ -411,6 +416,8 @@ class SharedContext(BaseSharedContext):
             dk_llm_analysis=dk_analysis,
             search_results=search_results,
             dk_classifications=dk_codes,
+            pipeline_mode="agentic",
+            workflow_name=self.workflow_name or None,
         )
         state.dk_search_results_flattened = dk_search_results_flattened
         state.dk_search_results = self.dk_search_results

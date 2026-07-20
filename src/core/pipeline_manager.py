@@ -752,6 +752,9 @@ class PipelineManager:
             search_results=[],
             initial_llm_call_details=None,
             final_llm_analysis=None,
+            # Reached only when agentic mode is off — the agentic branch returns
+            # above and labels its own state in to_keyword_analysis_state().
+            pipeline_mode="classic",
         )
 
         # Store source info in official dataclass fields - Claude Generated

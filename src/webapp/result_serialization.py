@@ -330,6 +330,13 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
             else None
         ),
         "pipeline_metadata": {
+            # Which pipeline produced this export ("classic"/"agentic", plus the
+            # workflow name for agentic). Without it the two modes could only be
+            # told apart by guessing from side effects, which makes comparing
+            # two exports unreliable. ``None`` on states written before this
+            # field existed. - Claude Generated
+            "pipeline_mode": getattr(analysis_state, "pipeline_mode", None),
+            "workflow_name": getattr(analysis_state, "workflow_name", None),
             "search_suggesters_used": ensure_json_serializable(
                 getattr(analysis_state, "search_suggesters_used", [])
             ),

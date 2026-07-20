@@ -1901,6 +1901,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
             search_results=search_result_objects,
             initial_llm_call_details=initial_llm_analysis,
             final_llm_analysis=final_llm_analysis,
+            pipeline_mode="classic",
         )
 
     def execute_complete_pipeline(
@@ -1995,6 +1996,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
             search_results=search_results,
             final_llm_analysis=kw_analysis,
             working_title=llm_title,
+            pipeline_mode="classic",
         )
 
         # ── Step 4: DK classification (optional) ─────────────────────────────
