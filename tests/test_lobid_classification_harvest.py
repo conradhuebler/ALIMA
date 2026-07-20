@@ -158,5 +158,72 @@ class TestTransformIntegration(unittest.TestCase):
         self.assertEqual(out["Limnologie"]["classifications"], {})
 
 
+class TestPageSizeGovernsHarvestReach(unittest.TestCase):
+    """The page size is the ceiling on harvest coverage.
+
+    The pool comes from the aggregation over the WHOLE result set (~100 subjects
+    per response), the classifications only from the returned records — so with
+    lobid's default of 15 the harvest can reach at most a fraction of the pool.
+    Measured on a real cache: 6% of pool entries. Raising it widens that; beyond
+    ~50 a subject-rich response exceeds the raw cache's 1 MB cap and is not
+    cached at all, which loses the harvest again.
+    """
+
+    def _suggester(self, page_size=None):
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        suggester = LobidSuggester.__new__(LobidSuggester)
+        if page_size is not None:
+            suggester.page_size = page_size
+        return suggester
+
+    def test_size_is_requested_explicitly(self):
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        url = self._suggester(30)._get_search_url("wasser")
+        self.assertIn("size=30", url)
+        self.assertIn("aggregations=subject.componentList.id", url)
+        self.assertEqual(LobidSuggester.DEFAULT_PAGE_SIZE, 30)
+
+    def test_configured_size_reaches_the_url(self):
+        self.assertIn("size=50", self._suggester(50)._get_search_url("x"))
+
+    def test_url_survives_an_unset_page_size(self):
+        """A suggester built before this field existed must not break."""
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        url = self._suggester()._get_search_url("x")
+        self.assertIn(f"size={LobidSuggester.DEFAULT_PAGE_SIZE}", url)
+
+    def test_bad_config_value_falls_back_to_the_default(self):
+        """Config is operator-typed; a blank or junk value must not build a
+        broken URL. Construction is I/O-free, so the real ctor runs here."""
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        for bad in ("", None, "abc", 0, "  "):
+            with self.subTest(value=bad):
+                suggester = LobidSuggester(page_size=bad)
+                self.assertEqual(
+                    suggester.page_size, LobidSuggester.DEFAULT_PAGE_SIZE
+                )
+                self.assertIn(
+                    f"size={LobidSuggester.DEFAULT_PAGE_SIZE}",
+                    suggester._get_search_url("x"),
+                )
+
+    def test_valid_config_value_is_honoured_through_the_ctor(self):
+        from src.core.search.providers.lobid.suggester import LobidSuggester
+
+        self.assertEqual(LobidSuggester(page_size="45").page_size, 45)
+
+    def test_provider_exposes_page_size_as_a_setting(self):
+        """Operator-tunable without a code change — the cap is a judgement call."""
+        from src.core.search.providers.lobid.provider import LobidProvider
+
+        fields = {f.key: f for f in LobidProvider.config_fields()}
+        self.assertIn("page_size", fields)
+        self.assertEqual(fields["page_size"].default, 30)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,29 @@ class LobidProvider(SuggesterBackedProvider):
     capabilities = {SearchCapability.GND_KEYWORDS}
 
     @classmethod
+    def config_fields(cls):
+        from src.core.plugins.schema import INT, ConfigField
+
+        return [
+            ConfigField(
+                key="page_size",
+                label="Datensätze je Antwort",
+                kind=INT,
+                default=30,
+                help=(
+                    "Wie viele Titel lobid je Suche mitliefert. Der GND-Pool "
+                    "kommt aus der Aggregation über die GESAMTE Treffermenge, "
+                    "die Klassifikationen aber nur aus diesen Datensätzen — ein "
+                    "höherer Wert deckt mehr Schlagwörter mit DDC/RVK/BK ab. "
+                    "Kostet Antwortzeit und Größe: ab etwa 50 reißen "
+                    "schlagwortreiche Antworten die 1-MB-Grenze des "
+                    "Rohantwort-Caches, und ungecachte Antworten verlieren ihre "
+                    "Klassifikationen wieder."
+                ),
+            ),
+        ]
+
+    @classmethod
     def doc(cls):
         from src.core.plugins.schema import PluginDoc
 
@@ -58,7 +81,10 @@ class LobidProvider(SuggesterBackedProvider):
     def _build_suggester(self):
         from .suggester import LobidSuggester
 
-        return LobidSuggester(debug=self._config.get("debug", False))
+        return LobidSuggester(
+            debug=self._config.get("debug", False),
+            page_size=self._config.get("page_size"),
+        )
 
     def search(
         self,

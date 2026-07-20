@@ -156,8 +156,21 @@ class LobidSuggester(BaseSuggester):
     # URL for the GND subjects file
     GND_URL = "https://data.dnb.de/opendata/authorities-gnd-sachbegriff_lds.jsonld.gz"
 
+    #: lobid's own default page size. The GND pool comes from the aggregation
+    #: over the WHOLE result set, but classifications are harvested from the
+    #: returned records only, so this number caps the harvest coverage.
+    DEFAULT_PAGE_SIZE = 30
+
+    #: Class-level default so the attribute always resolves, even on an
+    #: instance built without ``__init__`` — a ``getattr`` fallback would hit
+    #: QObject.__getattr__ and raise instead. - Claude Generated
+    page_size = DEFAULT_PAGE_SIZE
+
     def __init__(
-        self, data_dir: Optional[Union[str, Path]] = None, debug: bool = False
+        self,
+        data_dir: Optional[Union[str, Path]] = None,
+        debug: bool = False,
+        page_size: Optional[int] = None,
     ):
         """
         Initialize the LobidSuggester.
@@ -166,8 +179,17 @@ class LobidSuggester(BaseSuggester):
             data_dir: Directory to store GND data files (default:
                 ``BaseSuggester.default_data_dir()``, under ``~/.config/alima``)
             debug: Whether to enable debug output
+            page_size: Records requested per search (default
+                :data:`DEFAULT_PAGE_SIZE`). Raising it widens the classification
+                harvest; beyond ~50 a subject-rich response can exceed the raw
+                cache's 1 MB cap, and an uncached response loses the harvest
+                again. - Claude Generated
         """
         super().__init__(data_dir, debug)
+        try:
+            self.page_size = int(page_size) if page_size else self.DEFAULT_PAGE_SIZE
+        except (TypeError, ValueError):
+            self.page_size = self.DEFAULT_PAGE_SIZE
 
         # File paths for the GND data
         self.subjects_file_gz = self.data_dir / self.GND_URL.split("/")[-1]
@@ -261,7 +283,11 @@ class LobidSuggester(BaseSuggester):
             q = f"title:{query}"
         else:
             q = query
-        return f"https://lobid.org/resources/search?q={q}&format=json&aggregations=subject.componentList.id"
+        size = self.page_size
+        return (
+            f"https://lobid.org/resources/search?q={q}&format=json"
+            f"&aggregations=subject.componentList.id&size={size}"
+        )
 
     def fetch(self, query: str, search_type: str = "kw") -> Dict[str, Any]:
         """Fetch the verbatim lobid response for one term — I/O only, no transform.
