@@ -391,11 +391,13 @@ class UnifiedKnowledgeManager:
         marker ``"gndid"`` appears only in the pre-v2 payload. - Claude Generated
         """
         try:
+            # fetch_all returns List[Dict] keyed by COLUMN NAME, so the count
+            # needs an alias — rows[0][0] raises KeyError here. - Claude Generated
             rows = self.db_manager.fetch_all(
-                "SELECT COUNT(*) FROM search_response_cache "
+                "SELECT COUNT(*) AS stale FROM search_response_cache "
                 "WHERE source = 'swb' AND raw_json LIKE '%\"gndid\"%'"
             )
-            stale = int(rows[0][0]) if rows and rows[0] else 0
+            stale = int(rows[0]["stale"]) if rows else 0
             if not stale:
                 return
             self.db_manager.execute_query(
@@ -407,7 +409,14 @@ class UnifiedKnowledgeManager:
                 f"they will be refetched on next search"
             )
         except Exception as e:
-            self.logger.warning(f"pre-v2 swb raw-cache purge skipped (non-critical): {e}")
+            # Guarded so a migration failure cannot block startup — but log at
+            # ERROR: the first version of this failed on the row access above and
+            # the warning made a completely dead migration look like routine
+            # noise. A skipped purge leaves rows that read as empty results.
+            self.logger.error(
+                f"pre-v2 swb raw-cache purge FAILED (rows remain, searches may "
+                f"return empty GND ids for them): {e}"
+            )
 
     def _migrate_catalog_dk_cache_schema(self):
         """Migrate catalog_dk_cache table - handle schema upgrades - Claude Generated"""
