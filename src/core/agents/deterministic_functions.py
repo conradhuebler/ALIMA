@@ -28,6 +28,8 @@ from src.core.gnd_search_core import (
     rank_pool,
 )
 
+from src.utils.error_visibility import log_caught
+
 logger = logging.getLogger(__name__)
 
 
@@ -205,7 +207,7 @@ def gnd_batch_search(
                         )
         except Exception as e:
             source_errors[src] = str(e)
-            logger.warning(f"gnd_batch_search: {tool_name} failed: {e}")
+            log_caught(logger, e, f"gnd_batch_search: {tool_name}")
             if stream_callback:
                 stream_callback(f"  ❌ {src}: Quelle fehlgeschlagen — {e}\n")
 
@@ -230,7 +232,7 @@ def gnd_batch_search(
                 tool_calls += 1
                 agg = json.loads(agg_raw) if isinstance(agg_raw, str) else (agg_raw or {})
             except Exception as e:
-                logger.warning(f"gnd_batch_search: aggregate_gnd_results failed: {e}")
+                log_caught(logger, e, "gnd_batch_search: aggregate_gnd_results")
         entries: List[Dict[str, Any]] = list(agg.get("pool") or [])
         # aggregate_gnd_results signals an unresolved-source failure via an
         # ``error`` key with an empty pool — explicitly "NOT a zero-hit result".
@@ -287,7 +289,7 @@ def gnd_batch_search(
                             entry["synonyms"] = r["synonyms"]
                         break
             except Exception as e:
-                logger.warning(f"gnd_batch_search: get_gnd_batch enrichment failed: {e}")
+                log_caught(logger, e, "gnd_batch_search: get_gnd_batch enrichment")
 
     # Fill the local GND store from the DNB for the best-ranked entries, so the
     # authority classifications have something to serve. Bounded on purpose, and
@@ -416,7 +418,7 @@ def finc_subject_harvest(
             })
             tool_calls += 1
         except Exception as e:
-            logger.warning(f"finc_subject_harvest: search_finc failed for '{kw}': {e}")
+            log_caught(logger, e, "finc_subject_harvest: search_finc", detail=f"kw={kw}")
             continue
         data = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(data, dict):
@@ -1069,7 +1071,7 @@ def catalog_multi_search(
             if stream_callback:
                 stream_callback(f"  🌐 {src}: {len(data)} hits\n")
         except Exception as e:
-            logger.warning(f"catalog_multi_search: {tool} failed: {e}")
+            log_caught(logger, e, f"catalog_multi_search: {tool}")
 
     if enrich_from_local_db and pool:
         all_ids: Set[str] = set()
@@ -1092,7 +1094,7 @@ def catalog_multi_search(
                             entry["synonyms"] = r["synonyms"]
                         break
             except Exception as e:
-                logger.warning(f"catalog_multi_search: enrichment failed: {e}")
+                log_caught(logger, e, "catalog_multi_search: enrichment")
 
     hits: List[Dict[str, Any]] = []
     for key, entry in pool.items():
@@ -1195,7 +1197,7 @@ def catalog_title_search(
             for rec in records:
                 hits.append({"query": query, **rec})
     except Exception as e:
-        logger.warning(f"catalog_title_search: search_catalog_titles failed: {e}")
+        log_caught(logger, e, "catalog_title_search: search_catalog_titles")
 
     if stream_callback:
         stream_callback(f"✅ {len(hits)} total records, {tool_calls} tool calls\n")

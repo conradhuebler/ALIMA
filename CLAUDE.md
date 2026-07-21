@@ -44,6 +44,13 @@ When documenting implemented features, the AI must apply these rules:
 - Mark new functions as `Claude Generated` for traceability.
 - Remove TODO hashtags after approved.
 - Implement comprehensive error handling and logging.
+- **Ein breiter `except` muss sagen, welche Art Fehler er gefangen hat.** Er ist
+  richtig für *erwartbare* Fehlschläge (Netz, Parsing, fehlende Datei) und falsch
+  für Programmierfehler (`AttributeError`, `NameError`, `ImportError`,
+  `TypeError`) — die verschwinden sonst als `warning` zwischen den erwartbaren.
+  Vier Defekte im Juli 2026 überlebten monatelang genau dadurch. Neuer Code nutzt
+  `src/utils/error_visibility.log_caught(logger, e, kontext)`: fängt weiterhin
+  alles, loggt aber Defekt-Formen auf ERROR. Ändert nie den Kontrollfluss.
 - Maintain backward compatibility where possible.
 - **Always check instructions blocks** in relevant CLAUDE.md files before implementing.
 - Reformulate task/vision entries if not yet CLAUDE-formatted.
@@ -143,11 +150,12 @@ When documenting implemented features, the AI must apply these rules:
   `batch_processor` — der Batch-Crash lag genau dort); 5 reine RVK-Helfer
   verbatim auf Modulebene, `_source_rank`/`_status_rank`-Duplikat vereinigt.
   Register: F-12/F-13/F-14 in [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
-- **Offen als Politikfrage (Aufräumen B):** 336 breite `except`-Blöcke schlucken
-  still (59 nur `pass`). Vier der sieben Defekte im Juli lebten davon, dass ein
-  `except Exception` *Programmierfehler* (`AttributeError`, `ImportError`) wie
-  erwartbare Laufzeitfehler behandelte. Zu entscheiden: darf ein breiter
-  `except` Programmierfehler mitfangen?
+- **Aufräumen B ⏳ begonnen (July 21):** Politik entschieden und in den
+  Implementation Standards festgeschrieben — `error_visibility.log_caught`
+  trennt Defekt-Formen von erwartbaren Fehlern, ohne den Kontrollfluss zu
+  ändern. **Übernommen bisher 9 von 189** stillen Blöcken um reinen Code
+  (agentischer Tool-Pfad + `alima_manager`); Rest opportunistisch bei Berührung,
+  kein Sweep. Verteilung: 61 core, 52 ui, 42 utils, 14 webapp.
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
   statischer Verifikation als DONE.

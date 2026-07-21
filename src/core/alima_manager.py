@@ -17,6 +17,7 @@ from .processing_utils import (
     match_keywords_against_text,
 )
 from .provider_status_service import ProviderStatusService
+from ..utils.error_visibility import log_caught
 from ..utils.repetition_detector import (
     RepetitionDetector,
     RepetitionDetectorConfig,
@@ -790,7 +791,7 @@ class AlimaManager:
             
             self.logger.info(f"Using task-specific model priority: {model_priority}")
         except Exception as e:
-            self.logger.warning(f"Error getting task preferences: {e}, using fallback")
+            log_caught(self.logger, e, "Task-Preferences lesen (nutze Fallback)")
         
         # Fallback to available providers if no specific priority configured
         if not model_priority:
@@ -916,7 +917,7 @@ class AlimaManager:
                     
             except Exception as e:
                 last_error = e
-                self.logger.warning(f"Task execution failed with {provider_name}:{model_name}: {e}")
+                log_caught(self.logger, e, f"Task execution with {provider_name}:{model_name}")
                 continue
         
         # All models failed
