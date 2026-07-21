@@ -859,12 +859,16 @@ class SearchTab(QWidget):
                 category = dnb_class.get("category", "")
 
                 # Aktualisiere den Eintrag in der Datenbank
-                self.cache_manager.update_gnd_entry(
+                # NOTE: this used to call update_gnd_entry, which does not
+                # exist on UnifiedKnowledgeManager — the AttributeError was
+                # swallowed by the surrounding except, so the DNB sync silently
+                # stored nothing and gnd_entries stayed empty. gnd_systems /
+                # classification have no column in gnd_entries and are shown in
+                # the UI only. - Claude Generated
+                self.cache_manager.add_gnd_entry(
                     gnd_id,
                     title=term,
                     ddcs=ddc,
-                    gnd_systems=gnd_category,
-                    classification=category,
                 )
 
                 # Status aktualisieren

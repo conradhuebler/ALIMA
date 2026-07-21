@@ -11,6 +11,8 @@ Claude Generated (general-notation generalization, June 2026).
 """
 from __future__ import annotations
 
+import re
+
 from typing import Any, Dict, List, Optional, Tuple
 
 # Recognised classification systems. Order is only used for stable display /
@@ -59,17 +61,31 @@ _ORIGIN_RANK = {ORIGIN_AUTHORITY: 0, ORIGIN_COOCCURRENCE: 1}
 
 
 def classification_entry(
-    code: str, *, count: Optional[int] = None, origin: str = ORIGIN_COOCCURRENCE
+    code: str,
+    *,
+    count: Optional[int] = None,
+    origin: str = ORIGIN_COOCCURRENCE,
+    determinacy: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Build one canonical classification entry ``{code, count?, origin}``.
+    """Build one canonical classification entry ``{code, count?, origin, determinacy?}``.
 
     ``count`` is the co-occurrence strength and is OMITTED for authority
     statements — an authority DDC has no frequency, and writing ``1`` there
     would invent evidence that does not exist.
+
+    ``determinacy`` is the authority-side counterpart: the GND records a DDC
+    with a *degree of determinacy* 1–4 (1 = definitive, 4 = loosely related).
+    Dropping it would flatten a definitive classification and a vague one into
+    the same statement — the very information loss this contract exists to
+    prevent. Absent for co-occurrence entries, which have no such notion.
+    Note the DNB RDF spells the concept "determinancy"; the canonical key here
+    is the correct spelling, normalised at the boundary. - Claude Generated
     """
     entry: Dict[str, Any] = {"code": str(code or "").strip(), "origin": origin}
     if count is not None:
         entry["count"] = int(count)
+    if determinacy is not None:
+        entry["determinacy"] = int(determinacy)
     return entry
 
 
@@ -82,6 +98,10 @@ def _entry_sort_key(entry: Dict[str, Any]):
     """
     return (
         _ORIGIN_RANK.get(entry.get("origin"), 9),
+        # Authority side: lower degree of determinacy = more definitive, so it
+        # sorts first. Entries without one rank after those that have it.
+        int(entry.get("determinacy") or 9),
+        # Co-occurrence side: more observations first.
         -int(entry.get("count") or 0),
         str(entry.get("code") or ""),
     )
@@ -112,6 +132,14 @@ def merge_classification_entries(
         merged = dict(current)
         if counts:
             merged["count"] = max(int(c) for c in counts)
+        # Determinacy merges by MIN — the more definitive statement wins, the
+        # mirror of count's max. Two sources disagreeing on how firmly a code
+        # applies should leave the firmer claim standing.
+        dets = [
+            d for d in (current.get("determinacy"), entry.get("determinacy")) if d is not None
+        ]
+        if dets:
+            merged["determinacy"] = min(int(d) for d in dets)
         if _ORIGIN_RANK.get(entry.get("origin"), 9) < _ORIGIN_RANK.get(
             current.get("origin"), 9
         ):
@@ -136,6 +164,72 @@ def merge_classifications(
     for system, entries in normalize_classifications(incoming).items():
         out[system] = merge_classification_entries(out.get(system), entries)
     return {system: entries for system, entries in out.items() if entries}
+
+
+def parse_stored_ddcs(value: Any) -> List[Dict[str, Any]]:
+    """Parse the ``gnd_entries.ddcs`` column into authority entries.
+
+    The column is TEXT and carries two formats, both of which occur:
+
+    * **Pipe-separated bare codes** — ``"623.4516|358.3|327.1745"``. This is what
+      the existing 141k rows hold (22k multi-code, 38k single); it has no degree
+      of determinacy.
+    * **Semicolon-separated with determinacy** — ``"551.9(1);577.14(2)"``, what
+      the DNB enrichment writes. New rows carry more information than old ones;
+      both are read here rather than migrating 141k rows for a field that only
+      newly-fetched entries can have.
+
+    A plain list is accepted too, for callers holding structured data.
+
+    This exists because the value is a STRING: ``gnd_local``'s provider used to
+    test ``isinstance(ddcs, (list, set, tuple))``, which a string never
+    satisfies, so the authority DDC was discarded for every entry regardless of
+    what was stored. - Claude Generated
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return normalize_classifications(
+            {"DDC": list(value)}, origin=ORIGIN_AUTHORITY
+        ).get("DDC", [])
+    entries: List[Dict[str, Any]] = []
+    for part in re.split(r"[;|]", str(value)):
+        part = part.strip()
+        if not part:
+            continue
+        determinacy = None
+        if "(" in part and part.endswith(")"):
+            code, _, det = part[:-1].partition("(")
+            part = code.strip()
+            try:
+                determinacy = int(det.strip())
+            except ValueError:
+                determinacy = None
+        if part:
+            entries.append(
+                classification_entry(
+                    part, origin=ORIGIN_AUTHORITY, determinacy=determinacy
+                )
+            )
+    return merge_classification_entries(None, entries)
+
+
+def format_stored_ddcs(entries: Any) -> str:
+    """Inverse of :func:`parse_stored_ddcs` — the column format.
+
+    Kept symmetric with the two existing GUI writers so a value written by
+    either side reads back the same.
+    """
+    parts = []
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            code, det = entry.get("code"), entry.get("determinacy")
+        else:
+            code, det = entry, None
+        code = str(code or "").strip()
+        if code:
+            parts.append(f"{code}({det})" if det is not None else code)
+    return ";".join(parts)
 
 
 def codes_for_system(classifications: Any, system: str) -> List[str]:
@@ -193,6 +287,9 @@ def normalize_classifications(
                             code["code"],
                             count=code.get("count"),
                             origin=code.get("origin", origin),
+                            # Accept the DNB's misspelling on input so producers
+                            # can pass its RDF payload through unchanged.
+                            determinacy=code.get("determinacy", code.get("determinancy")),
                         )
                     )
             elif str(code or "").strip():

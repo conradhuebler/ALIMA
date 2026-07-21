@@ -31,6 +31,27 @@ from src.core.gnd_search_core import (
 logger = logging.getLogger(__name__)
 
 
+def _knowledge_manager_of(tool_registry: Any) -> Any:
+    """The UnifiedKnowledgeManager behind a (possibly wrapped) tool registry.
+
+    ``CachingToolRegistry`` wraps the real ``ToolRegistry`` and forwards only
+    named methods — it has no ``__getattr__`` — so the manager has to be reached
+    through ``inner_registry``. The accessor is private
+    (``_get_knowledge_manager``); there is no public attribute, and reaching for
+    one returns None silently, which is how this kind of wiring ends up dead.
+    - Claude Generated
+    """
+    for candidate in (tool_registry, getattr(tool_registry, "inner_registry", None)):
+        getter = getattr(candidate, "_get_knowledge_manager", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception as exc:
+                logger.warning("knowledge manager unavailable: %s", exc)
+                return None
+    return None
+
+
 # ============================================================
 # gnd_batch_search — SWB + Lobid + local enrichment
 # ============================================================
@@ -65,6 +86,11 @@ def gnd_batch_search(
     if config:
         sources = sources or config.get("sources")
         enrich_from_local_db = config.get("enrich_from_local_db", enrich_from_local_db)
+    # Authority backfill: pull DDC for the best-ranked GND ids from the DNB
+    # into the local store. Step-configurable because it is the only part of
+    # this function that makes outbound requests beyond the search itself.
+    enrich_authority = bool((config or {}).get("enrich_authority_from_dnb", True))
+    authority_limit = int((config or {}).get("authority_enrich_limit", 25) or 25)
 
     # De-hardcode the source→tool map (WP P6a): ids + tool names come from the
     # enabled GND providers, so a copied/renamed plugin (own-plugins POC) works.
@@ -262,6 +288,26 @@ def gnd_batch_search(
                         break
             except Exception as e:
                 logger.warning(f"gnd_batch_search: get_gnd_batch enrichment failed: {e}")
+
+    # Fill the local GND store from the DNB for the best-ranked entries, so the
+    # authority classifications have something to serve. Bounded on purpose, and
+    # the cost DECAYS: an id fetched once is skipped forever after, so a store
+    # that is fully populated costs nothing. Entries are already ranked
+    # best-first by rank_pool. - Claude Generated (WP-D2)
+    if enrich_authority and entries:
+        top_ids: List[str] = []
+        for entry in entries[:authority_limit]:
+            top_ids.extend(entry.get("gnd_ids", []))
+        km = _knowledge_manager_of(tool_registry)
+        if top_ids and km is not None:
+            from src.core.gnd_authority_enrichment import enrich_gnd_entries
+
+            stats = enrich_gnd_entries(km, top_ids, max_lookups=authority_limit)
+            if stats.get("stored") and stream_callback:
+                stream_callback(
+                    f"  📚 GND-Autorität: {stats['stored']} Einträge von der DNB "
+                    f"nachgeladen\n"
+                )
 
     if context is not None and hasattr(context, "gnd_entries"):
         existing_titles = {e.get("title", "").lower() for e in context.gnd_entries}

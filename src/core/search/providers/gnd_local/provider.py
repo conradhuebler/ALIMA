@@ -14,10 +14,7 @@ from typing import Any, Callable, List, Optional
 
 from src.core.search.provider import ProviderResult, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
-from src.utils.classification_systems import (
-    ORIGIN_AUTHORITY,
-    normalize_classifications,
-)
+from src.utils.classification_systems import parse_stored_ddcs
 
 
 @register_provider
@@ -81,8 +78,11 @@ class GndLocalProvider:
             entries = self.ukm.search_local_gnd(term, min_results=min_results)
             items = []
             for e in entries:
-                ddcs = getattr(e, "ddcs", None)
-                ddc = set(ddcs) if isinstance(ddcs, (list, set, tuple)) else set()
+                # The column is TEXT ("551.9(1);577.14(2)"). This used to test
+                # isinstance(ddcs, (list, set, tuple)), which a string never
+                # satisfies — so the authority DDC was dropped for every entry
+                # no matter what was stored. - Claude Generated
+                ddc_entries = parse_stored_ddcs(getattr(e, "ddcs", None))
                 items.append(
                     ResultItem(
                         label=e.title,
@@ -90,9 +90,7 @@ class GndLocalProvider:
                         count=0,  # local DB has no occurrence count
                         # The GND authority record states this DDC — it is not
                         # statistical evidence and carries no count.
-                        classifications=normalize_classifications(
-                            {"DDC": ddc}, origin=ORIGIN_AUTHORITY
-                        ),
+                        classifications={"DDC": ddc_entries} if ddc_entries else {},
                     )
                 )
             per_term[term] = items
