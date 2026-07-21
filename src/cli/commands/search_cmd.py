@@ -43,10 +43,12 @@ def handle_search(args, logger: logging.Logger):
 
     for search_term, term_results in results.items():
         print_result(f"--- Results for: {search_term} ---")
-        if cache_manager.gnd_keyword_exists(search_term):
-            print_result("  (Results found in cache)")
-        else:
-            print_result("  (Results not found in cache)")
+        # A cache-hit annotation used to be printed here via
+        # ``cache_manager.gnd_keyword_exists()`` — a method that does not exist,
+        # so this raised AttributeError on every run of `alima search`. Removed
+        # rather than repaired: the check ran AFTER the search, which has just
+        # written the mapping itself, so it could only ever report "cached".
+        # - Claude Generated
 
         for keyword, data in term_results.items():
             print_result(f"  - {keyword}:")

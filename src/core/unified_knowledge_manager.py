@@ -748,6 +748,48 @@ class UnifiedKnowledgeManager:
             self.logger.error(f"Error retrieving search mapping {search_term}: {e}")
             return None
     
+    def get_all_gnd_ids_for_keyword(self, search_term: str) -> List[str]:
+        """Every GND id the mapping cache holds for a term, across ALL sources.
+
+        ``get_search_mapping`` answers per (term, source); a caller asking "do we
+        already know GND ids for this subject?" — as the catalog-subject
+        validation does before falling back to a live SWB lookup — wants the
+        union. Matching is on the normalised term as well as the literal one, so
+        a catalog subject spelled slightly differently still hits.
+
+        Returns ``[]`` on a miss or a read error: the callers treat an empty
+        result as "not cached, look it up", which is the safe direction.
+
+        This existed as a CALL before it existed as a method
+        (``pipeline_utils._validate_catalog_subjects``), i.e. an unguarded
+        AttributeError on every catalog subject without a GND id.
+        - Claude Generated
+        """
+        if not search_term:
+            return []
+        try:
+            normalized = self._normalize_term(search_term)
+            rows = self.db_manager.fetch_all(
+                "SELECT found_gnd_ids FROM search_mappings "
+                "WHERE search_term = ? OR normalized_term = ?",
+                [search_term, normalized],
+            )
+        except Exception as e:
+            self.logger.warning(f"get_all_gnd_ids_for_keyword('{search_term}') failed: {e}")
+            return []
+
+        out: List[str] = []
+        for row in rows or []:
+            try:
+                ids = json.loads(row.get("found_gnd_ids") or "[]")
+            except (TypeError, ValueError):
+                continue
+            for gnd_id in ids:
+                gnd_id = str(gnd_id or "").strip()
+                if gnd_id and gnd_id not in out:
+                    out.append(gnd_id)
+        return out
+
     def update_search_mapping(self, search_term: str, suggester_type: str,
                             found_gnd_ids: List[str] = None,
                             found_classifications: List[Dict[str, str]] = None,
@@ -1155,58 +1197,8 @@ class UnifiedKnowledgeManager:
         }
         self.store_gnd_fact(gnd_id, gnd_data)
     
-    def load_entrys(self) -> Dict:
-        """CacheManager compatibility - Claude Generated"""
-        try:
-            entries = {}
-            rows = self._gnd_db.fetch_all("SELECT * FROM gnd_entries")
-
-            for row in rows:
-                entries[row['gnd_id']] = {
-                    'gnd_id': row['gnd_id'],
-                    'title': row['title'],
-                    'description': row['description'],
-                    'synonyms': row['synonyms'],
-                    'ddcs': row['ddcs'],
-                    'ppn': row['ppn']
-                }
-            return entries
-
-        except Exception as e:
-            self.logger.error(f"Error loading entries: {e}")
-            return {}
     
-    def get_cached_results(self, term: str) -> Optional[List]:
-        """CacheManager compatibility - Claude Generated"""
-        # Check search mappings for this term
-        mapping = self.get_search_mapping(term, "lobid")  # Default to lobid
-        if mapping:
-            # Convert GND IDs to full entries
-            results = []
-            for gnd_id in mapping.found_gnd_ids:
-                entry = self.get_gnd_fact(gnd_id)
-                if entry:
-                    results.append({
-                        'gnd_id': entry.gnd_id,
-                        'title': entry.title,
-                        'description': entry.description
-                    })
-            return results
-        return None
     
-    def cache_results(self, term: str, results: List[Dict]):
-        """CacheManager compatibility - Claude Generated"""
-        # Store individual GND facts
-        gnd_ids = []
-        for result in results:
-            if 'gnd_id' in result:
-                gnd_id = result['gnd_id']
-                self.store_gnd_fact(gnd_id, result)
-                gnd_ids.append(gnd_id)
-        
-        # Create search mapping
-        if gnd_ids:
-            self.update_search_mapping(term, "lobid", found_gnd_ids=gnd_ids)
     
     # DKCacheManager compatibility methods
     
@@ -1531,172 +1523,6 @@ class UnifiedKnowledgeManager:
         existing.append(new_cls)
         return existing
 
-    def store_classification_results(self, results: List[Dict]):
-        """DKCacheManager compatibility with title merging - Claude Generated"""
-        for result in results:
-            # Store classification fact
-            code = result.get('dk', '')
-            classification_type = result.get('classification_type', 'DK')
-
-            if code:
-                self.store_classification_fact(code, classification_type)
-
-                # Store titles with classification in search mapping - Claude Generated
-                new_titles = result.get('titles', [])
-                # FIXED: Check both "keywords" and "matched_keywords" field names - Claude Generated
-                # Different code paths store under different names, need to support both
-                keywords = result.get('matched_keywords', result.get('keywords', []))
-                count = result.get('count', 0)  # FIX: Default to 0 (no titles), not 1 - Claude Generated
-                avg_confidence = result.get('avg_confidence', 0.8)
-
-                # Debug log for incoming titles - Claude Generated
-                valid_new_titles = [t for t in new_titles if t and t.strip()]
-                if len(new_titles) != len(valid_new_titles):
-                    self.logger.warning(f"Filtered {len(new_titles) - len(valid_new_titles)} empty titles for {code}")
-
-                # FIX: Handle empty results and clean up stale mappings - Claude Generated
-                # If count=0 or no titles, mark mapping as empty (don't skip silently)
-                if count == 0 or not valid_new_titles:
-                    self.logger.info(f"⚠️ Classification {code}: count={count}, titles={len(valid_new_titles)} - updating mappings")
-
-                    # Clean up stale mappings instead of leaving orphaned data - Claude Generated
-                    for keyword in keywords:
-                        try:
-                            existing_mapping = self.get_search_mapping(keyword, "catalog")
-                            if existing_mapping and existing_mapping.found_classifications:
-                                # Remove this classification from the mapping
-                                updated_classifications = [
-                                    cls for cls in existing_mapping.found_classifications
-                                    if cls.get("dk", cls.get("code")) != code
-                                ]
-
-                                if len(updated_classifications) < len(existing_mapping.found_classifications):
-                                    self.logger.info(f"🗑️ Removed stale {code} from mapping '{keyword}'")
-
-                                # Update mapping with remaining classifications
-                                if updated_classifications:
-                                    self.store_search_mapping(
-                                        keyword,
-                                        "catalog",
-                                        existing_mapping.found_gnd_ids or [],
-                                        updated_classifications,
-                                        len(updated_classifications)
-                                    )
-                                else:
-                                    # Delete mapping entirely if no classifications remain
-                                    self.db_manager.execute_query(
-                                        "DELETE FROM search_mappings WHERE search_term = ? AND suggester_type = 'catalog'",
-                                        (keyword,)
-                                    )
-                                    self.logger.info(f"🗑️ Deleted empty mapping for '{keyword}'")
-                        except Exception as e:
-                            self.logger.warning(f"Failed to clean stale mapping for '{keyword}': {e}")
-                    continue
-
-                for keyword in keywords:
-                    # Check if mapping already exists - Claude Generated
-                    existing_mapping = self.get_search_mapping(keyword, "catalog")
-
-                    merged_classifications = []
-
-                    if existing_mapping and existing_mapping.found_classifications:
-                        # Merge titles with existing classifications
-                        try:
-                            existing_classifications = existing_mapping.found_classifications
-
-                            # Find classification entry for this code
-                            code_found = False
-                            for existing_cls in existing_classifications:
-                                if existing_cls.get("code") == code:
-                                    # Merge titles: new titles first, then existing (avoiding duplicates)
-                                    existing_titles = existing_cls.get("titles", [])
-                                    merged_titles = []
-
-                                    # Add new titles first (filter empty) - Claude Generated
-                                    for title in new_titles:
-                                        if title and title.strip() and title not in merged_titles:
-                                            merged_titles.append(title)
-
-                                    # Add existing titles (avoiding duplicates) - Claude Generated
-                                    for title in existing_titles:
-                                        if title and title.strip() and title not in merged_titles:
-                                            merged_titles.append(title)
-
-                                    # Create merged classification entry - FIXED: Use "dk" for consistency
-                                    merged_classifications.append({
-                                        "dk": code,
-                                        "type": classification_type,
-                                        "titles": merged_titles,
-                                        "count": count + existing_cls.get("count", 0),
-                                        "avg_confidence": (avg_confidence + existing_cls.get("avg_confidence", 0.8)) / 2
-                                    })
-                                    code_found = True
-                                    self.logger.info(f"✅ Merged titles for {code}: {len(valid_new_titles)} new + {len(existing_titles)} existing = {len(merged_titles)} final (max 10)")
-                                else:
-                                    # Keep other classifications unchanged
-                                    merged_classifications.append(existing_cls)
-
-                            # If code not found in existing classifications, add it
-                            if not code_found:
-                                # Filter and limit to 10 titles - Claude Generated
-                                filtered_new_titles = [t for t in new_titles if t and t.strip()]
-                                merged_classifications.append({
-                                    "dk": code,
-                                    "type": classification_type,
-                                    "titles": filtered_new_titles,
-                                    "count": count,
-                                    "avg_confidence": avg_confidence
-                                })
-                                self.logger.info(f"✅ Added new classification {code}: {len(filtered_new_titles)} titles")
-
-                        except Exception as e:
-                            self.logger.error(f"Error merging titles for '{keyword}': {e}")
-                            # Fallback: use new classification - Claude Generated - FIXED: Use "dk"
-                            filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
-                            merged_classifications = [{
-                                "dk": code,
-                                "type": classification_type,
-                                "titles": filtered_new_titles,
-                                "count": count,
-                                "avg_confidence": avg_confidence
-                            }]
-                    else:
-                        # No existing mapping, create new one - Claude Generated - FIXED: Use "dk"
-                        filtered_new_titles = [t for t in new_titles if t and t.strip()][:10]
-                        merged_classifications = [{
-                            "dk": code,
-                            "type": classification_type,
-                            "titles": filtered_new_titles,
-                            "count": count,
-                            "avg_confidence": avg_confidence
-                        }]
-                        self.logger.info(f"✅ Created new mapping for '{keyword}': {code} with {len(filtered_new_titles)} titles")
-
-                    # Update mapping with merged classifications
-                    # CRITICAL: Ensure merged_classifications has all required fields - Claude Generated
-                    if not merged_classifications:
-                        self.logger.error(f"⚠️ CRITICAL: merged_classifications is EMPTY for keyword '{keyword}', code '{code}'")
-                        continue
-
-                    # Validate that all classifications have required fields - Claude Generated (Fixed log level)
-                    for cls in merged_classifications:
-                        required_fields = {'code', 'type', 'titles', 'count', 'avg_confidence'}
-                        missing_fields = required_fields - set(cls.keys())
-                        if missing_fields:
-                            # WARNING only: indicates old cache entry from before schema upgrade
-                            self.logger.warning(f"⚠️ Classification {cls.get('code')} missing fields: {missing_fields} (likely old cache entry)")
-                            self.logger.debug(f"   Actual data: {cls}")
-
-                    # Debug: Log the exact data being stored
-                    self.logger.info(f"📊 Storing {len(merged_classifications)} classification(s) for keyword '{keyword}':")
-                    for cls in merged_classifications:
-                        self.logger.info(f"   - {cls.get('code')}: {len(cls.get('titles', []))} titles, count={cls.get('count')}, confidence={cls.get('avg_confidence'):.2f}")
-
-                    # MODIFIED: Use dedicated catalog cache instead of search_mappings - Claude Generated
-                    self.store_catalog_dk_cache(
-                        search_term=keyword,
-                        classifications=merged_classifications
-                    )
     
     def insert_gnd_entry(
         self,
