@@ -2,7 +2,7 @@
 
 ## Architecture
 - **tool_schemas.py**: JSON Schema definitions for all tools (knowledge, library, pipeline)
-- **tool_registry.py**: Tool name → handler mapping, dispatches to existing ALIMA services
+- **tool_registry.py**: Tool name → handler mapping, dispatches to existing ALIMA services. God-file split July 21 (F-15): die 17 Tool-*Fabrik*-Methoden (`_make_*_handler`/`_generated_*_tools` + Agent-View/Raw-Cache-Klempnerei) → `_tool_generation.ToolGenerationMixin` (verbatim, via MRO). Die Tool-*Handler* (`_handle_*`) bleiben in `tool_registry.py`.
 - **mcp_types.py**: Shared types (ToolDefinition)
 
 ## Tool Sets

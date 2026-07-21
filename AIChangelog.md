@@ -57,6 +57,47 @@ aussieht, als hätte sie stattgefunden.
 **Offen (B):** 336 breite `except`-Blöcke schlucken still. Politikfrage, keine
 Refaktorierung.
 
+### Aufräumen B+D: except-Politik + Core-God-Files (July 21, 2026)
+
+Sechs Commits (`8e4a80a`, `8d75d6c`, `0dcb04c`, `54a5fd6`, `5aa7bda`;
+`8e1d403` Doku), Suite 1525 → 1537.
+
+**B — except-Politik (`8e4a80a`).** Ein breiter `except` ist richtig für
+erwartbare Fehlschläge (Netz, Parsing, fehlende Datei) und falsch für
+Programmierfehler — gefangen vom selben Handler und auf `debug`/`warning`
+geloggt, lesen sich beide identisch. Vier Juli-Defekte lebten davon.
+`error_visibility.log_caught` fängt weiterhin alles und ändert nur die
+Lautstärke: `AttributeError`/`NameError`/`ImportError`/`TypeError` auf ERROR,
+alles andere auf dem Aufrufer-Level; re-raist nie.
+`KeyError`/`IndexError`/`ValueError` bewusst NICHT dabei (Routine für externe
+Daten). Übernommen an 9 Stellen (agentischer Tool-Pfad + `alima_manager`),
+Politik in den Implementation Standards. **Kein Sweep** — 9 von 189 stillen
+Blöcken um reinen Code.
+
+**D — Core-God-Files (F-15).** F-5 hatte die 5 UI-God-Files gesplittet; D ist die
+Core-Seite, gleiche Mixin-Technik (verbatim, via MRO, null Aufrufstellen):
+- `unified_knowledge_manager` 2077 → 1460 (`8d75d6c`): Schema/Migration +
+  Catalog-DK als Mixins. Die Schnittkarte stand als Autor-Abschnittsmarken
+  schon in der Datei.
+- `tool_registry` 1980 → 1381 (`0dcb04c`): die 17 Tool-Fabrik-Methoden.
+- `biblio_client` 2106 → 1642 (`54a5fd6`, `5aa7bda`): Parser (347 Z.) +
+  Transport-Reliability (182 Z.) als zwei Achsen.
+
+**Der `LOAD_GLOBAL`-Scan fand erneut einen echten Bruch** (wie bei F-5): beim
+`tool_registry`-Split fehlte `logger` im neuen Modul, benutzt in 5
+Fehlerpfaden — ein `NameError`, den Opcode-Verbatim + grüne Suite NICHT fangen,
+weil der Name erst im `except` anfällt. Beim `biblio_client` hieß der Logger
+`"biblio_extractor"` statt `__name__` — ein stummer Fehl-Logger statt Absturz.
+Konsequenz für die Methodik: State-teilende Mixins (Circuit-Breaker über die
+Mixin-Grenze) und reparierte Fehlerpfade werden jetzt **real getrieben**, nicht
+nur per Opcode verglichen.
+
+**Methodik-Notizen (ehrlich):** zwei UKM-Vergleichsläufe meldeten Abweichungen,
+beide Artefakte der Messung (`textwrap.dedent` entfernte Einrückung in
+mehrzeiligen SQL-Strings; eine synthetische Referenzklasse hatte anderen
+Kompilierungskontext). Erst der Vergleich gegen HEADs *echte* Datei war
+eindeutig — nicht als „verbatim" verbucht, bevor das geklärt war.
+
 ### WP-D2: Klassifikationen tragen Daten — P0-Revision + lobid-Ernte (July 20–21, 2026)
 
 Vier Commits (`2f34e8c`…`8670d6c`), Suite 1383 → 1405. Anlass war eine Messung,

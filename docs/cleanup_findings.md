@@ -138,6 +138,39 @@ danach in die Datenbank geschaut wurde.
 dass ein `except Exception` *Programmierfehler* (`AttributeError`, `ImportError`)
 wie erwartbare Laufzeitfehler behandelte. Die Frage ist nicht „alle anfassen",
 sondern ob ein breiter `except` Programmierfehler mitfangen darf.
+✅ **Politik entschieden (July 21, `8e4a80a`):** `error_visibility.log_caught`
+loggt Defekt-Formen auf ERROR, ohne den Kontrollfluss zu ändern; in den
+Implementation Standards (CLAUDE.md). Übernommen 9/189 (reiner-Code-Blöcke),
+Rest bei Berührung.
+
+### F-15 · Core-God-Files (D) — July 21, 2026
+
+F-5 war die UI-Seite (5 Dateien, alle gesplittet). **F-15 ist die Core-Seite**,
+mit derselben Mixin-Technik (verbatim, via MRO, null Aufrufstellen) und
+derselben Verifikation (Opcode-Vergleich gegen HEADs echte Datei +
+`LOAD_GLOBAL`-Scan — [[module-split-verification]]).
+
+| Datei | vorher → jetzt | Mixins | Commit |
+|---|---|---|---|
+| `unified_knowledge_manager.py` | 2077 → 1460 | `_ukm_schema.SchemaMigrationMixin` (350 Z.), `_ukm_catalog_dk.CatalogDkCacheMixin` (249 Z.) | `8d75d6c` |
+| `tool_registry.py` | 1980 → 1381 | `_tool_generation.ToolGenerationMixin` (17 Fabrik-Methoden) | `0dcb04c` |
+| `biblio_client.py` | 2106 → 1642 | `_biblio_parsing` (Parser, 347 Z.) + `_biblio_transport` (Reliability, 182 Z.) | `54a5fd6`, `5aa7bda` |
+
+**Der `LOAD_GLOBAL`-Scan hat sich erneut bezahlt gemacht** (wie bei F-5): beim
+`tool_registry`-Split fehlte `logger` im neuen Modul — benutzt in 5 Fehlerpfaden,
+also ein `NameError`, den Import + grüne Suite NICHT gefangen hätten (der Name
+fällt erst im `except` an). Beim `biblio_client` hatte der Logger zusätzlich
+einen nicht-`__name__`-Namen (`"biblio_extractor"`) — ein stummer Fehl-Logger
+statt Absturz, wenn man ihn nicht exakt übernimmt. Deshalb neu in der Methodik:
+State-teilende Mixins (Circuit-Breaker) und reparierte Fehlerpfade werden
+**real getrieben**, nicht nur per Opcode verglichen.
+
+**Vorbelegt / nicht angefasst:** `llm_service.py` (3069) an WP-T1 gekoppelt
+(Gemini-Streaming — „nicht vorher, nicht getrennt"); `pipeline_utils.py` (2049)
+bewusst gestoppt (Cross-cutting-Notiz); `_pipeline_rvk_scoring.py` (1992) hat 14
+Closure-gebundene Funktionen (kein reiner Move — F-14). **Nächster sauberer
+Kandidat:** `pipeline_manager.py` (2437, 4 Klassen) + die SOAP/Web-Achse in
+`biblio_client` (~600 Z.).
 
 ## Cross-cutting / meta
 - **GUI testing gate (refined June 30)**: the gate is on *final sign-off*, not on

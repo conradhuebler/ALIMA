@@ -156,6 +156,13 @@ When documenting implemented features, the AI must apply these rules:
   ändern. **Übernommen bisher 9 von 189** stillen Blöcken um reinen Code
   (agentischer Tool-Pfad + `alima_manager`); Rest opportunistisch bei Berührung,
   kein Sweep. Verteilung: 61 core, 52 ui, 42 utils, 14 webapp.
+- **Aufräumen D — Core-God-Files ⏳ (July 21, F-15, Suite 1537):** `unified_knowledge_manager`
+  2077→1460 (`8d75d6c`), `tool_registry` 1980→1381 (`0dcb04c`), `biblio_client`
+  2106→1642 (`54a5fd6`/`5aa7bda`) — verbatim Mixins wie F-5 (UI), via MRO, null
+  Aufrufstellen; verifiziert per Opcode-Vergleich + `LOAD_GLOBAL`-Scan (fand beim
+  `tool_registry` einen echten `logger`-Bruch, den die Suite nicht gefangen
+  hätte). Offen: `pipeline_manager` (2437); `llm_service`/`pipeline_utils`
+  vorbelegt. Register: [`docs/cleanup_findings.md`](docs/cleanup_findings.md) F-15.
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
   statischer Verifikation als DONE.
