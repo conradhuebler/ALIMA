@@ -59,8 +59,8 @@ Refaktorierung.
 
 ### Aufräumen B+D: except-Politik + Core-God-Files (July 21, 2026)
 
-Sechs Commits (`8e4a80a`, `8d75d6c`, `0dcb04c`, `54a5fd6`, `5aa7bda`;
-`8e1d403` Doku), Suite 1525 → 1537.
+Sieben Commits (`8e4a80a`, `8d75d6c`, `0dcb04c`, `54a5fd6`, `5aa7bda`,
+`4895a47`; `8e1d403`/`8542c79` Doku), Suite 1525 → 1537.
 
 **B — except-Politik (`8e4a80a`).** Ein breiter `except` ist richtig für
 erwartbare Fehlschläge (Netz, Parsing, fehlende Datei) und falsch für
@@ -82,6 +82,11 @@ Core-Seite, gleiche Mixin-Technik (verbatim, via MRO, null Aufrufstellen):
 - `tool_registry` 1980 → 1381 (`0dcb04c`): die 17 Tool-Fabrik-Methoden.
 - `biblio_client` 2106 → 1642 (`54a5fd6`, `5aa7bda`): Parser (347 Z.) +
   Transport-Reliability (182 Z.) als zwei Achsen.
+- `pipeline_manager` 2437 → 1690 (`4895a47`): die 10 klassischen
+  Step-Executoren (728 Z.). Erster Split mit *vier* Klassen in der Datei — nur
+  `PipelineManager` (1955 → 1230 Z.) ist der God-Teil, die drei Helferklassen
+  bleiben. Import-Zyklus vermieden: `PipelineStep` kommt nur in Typannotationen
+  vor, mit `from __future__ import annotations` bleiben das Strings.
 
 **Der `LOAD_GLOBAL`-Scan fand erneut einen echten Bruch** (wie bei F-5): beim
 `tool_registry`-Split fehlte `logger` im neuen Modul, benutzt in 5

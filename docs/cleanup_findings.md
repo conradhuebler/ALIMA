@@ -155,22 +155,30 @@ derselben Verifikation (Opcode-Vergleich gegen HEADs echte Datei +
 | `unified_knowledge_manager.py` | 2077 → 1460 | `_ukm_schema.SchemaMigrationMixin` (350 Z.), `_ukm_catalog_dk.CatalogDkCacheMixin` (249 Z.) | `8d75d6c` |
 | `tool_registry.py` | 1980 → 1381 | `_tool_generation.ToolGenerationMixin` (17 Fabrik-Methoden) | `0dcb04c` |
 | `biblio_client.py` | 2106 → 1642 | `_biblio_parsing` (Parser, 347 Z.) + `_biblio_transport` (Reliability, 182 Z.) | `54a5fd6`, `5aa7bda` |
+| `pipeline_manager.py` | 2437 → 1690 (Klasse 1955 → 1230) | `_pipeline_classic_steps.ClassicStepExecutorMixin` (10 klassische Step-Executoren, 728 Z.) | `4895a47` |
 
 **Der `LOAD_GLOBAL`-Scan hat sich erneut bezahlt gemacht** (wie bei F-5): beim
 `tool_registry`-Split fehlte `logger` im neuen Modul — benutzt in 5 Fehlerpfaden,
 also ein `NameError`, den Import + grüne Suite NICHT gefangen hätten (der Name
 fällt erst im `except` an). Beim `biblio_client` hatte der Logger zusätzlich
 einen nicht-`__name__`-Namen (`"biblio_extractor"`) — ein stummer Fehl-Logger
-statt Absturz, wenn man ihn nicht exakt übernimmt. Deshalb neu in der Methodik:
-State-teilende Mixins (Circuit-Breaker) und reparierte Fehlerpfade werden
-**real getrieben**, nicht nur per Opcode verglichen.
+statt Absturz, wenn man ihn nicht exakt übernimmt. Beim `pipeline_manager` war
+der Scan sauber, weil der Block nur über `self.logger` loggt — **geprüft, nicht
+angenommen** (die Annahme „hier gibt's keinen Modul-Logger" ist genau die
+teure). Deshalb neu in der Methodik: State-teilende Mixins (Circuit-Breaker) und
+reparierte/verlagerte Pfade werden **real getrieben**, nicht nur per Opcode
+verglichen. Import-Zyklus-Falle (`pipeline_manager`): eine im Zielmodul nur als
+**Typannotation** benutzte Herkunftsklasse (`PipelineStep`) braucht keinen
+Laufzeit-Import, wenn das Mixin `from __future__ import annotations` trägt.
 
 **Vorbelegt / nicht angefasst:** `llm_service.py` (3069) an WP-T1 gekoppelt
 (Gemini-Streaming — „nicht vorher, nicht getrennt"); `pipeline_utils.py` (2049)
 bewusst gestoppt (Cross-cutting-Notiz); `_pipeline_rvk_scoring.py` (1992) hat 14
-Closure-gebundene Funktionen (kein reiner Move — F-14). **Nächster sauberer
-Kandidat:** `pipeline_manager.py` (2437, 4 Klassen) + die SOAP/Web-Achse in
-`biblio_client` (~600 Z.).
+Closure-gebundene Funktionen (kein reiner Move — F-14). **Die frei zerlegbare
+God-File-Spitze ist damit abgetragen** (kein zerlegbarer Core-God-File mehr über
+~1690). Reste an bereits gesplitteten Dateien (opportunistisch, nicht dringend):
+die SOAP/Web-Achse in `biblio_client` (~600 Z.), Smart-Search/Raw-Cache im UKM
+(~475 Z.), die agentische Workflow-Achse in `pipeline_manager`.
 
 ## Cross-cutting / meta
 - **GUI testing gate (refined June 30)**: the gate is on *final sign-off*, not on

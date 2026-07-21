@@ -7,7 +7,7 @@ The `src/core/` directory contains the fundamental business logic and data manag
 
 **Primary Components:**
 - `AlimaManager`: Central orchestration service coordinating LLM analysis workflows
-- `PipelineManager`: Classic 5-step pipeline orchestration (composes `AlimaManager` + `PipelineStepExecutor`)
+- `PipelineManager`: Classic 5-step pipeline orchestration (composes `AlimaManager` + `PipelineStepExecutor`). God-file split July 21 (F-15): die 10 klassischen Step-Executoren (`_execute_input/initialisation/search/keywords/dk_*_step` + Shape-Konverter) → `_pipeline_classic_steps.ClassicStepExecutorMixin` (verbatim, via MRO). ⚠️ `PipelineStep`/`PipelineConfig`/`_AgenticStreamFilter` bleiben in `pipeline_manager.py`; das Mixin nutzt `from __future__ import annotations`, damit die `PipelineStep`-Typannotation keinen Import-Zyklus erzeugt.
 - `UnifiedKnowledgeManager`: Singleton GND/classification DB + mapping-first cache (thread-safe; per-thread connections — see root `MEMORY.md`). God-file split July 21 (F-15): DDL/Migrationen → `_ukm_schema.SchemaMigrationMixin`, `catalog_dk_cache` → `_ukm_catalog_dk.CatalogDkCacheMixin` (verbatim Mixins, via MRO an der Klasse). Singleton-Lebenszyklus + Query-Layer bleiben in `unified_knowledge_manager.py`.
 - `DataModels`: Core data structures (AbstractData, AnalysisResult, TaskState, KeywordAnalysisState)
 - `ProcessingUtils`: Text processing and keyword extraction utilities
