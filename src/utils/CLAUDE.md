@@ -18,6 +18,8 @@
 Split out of the former `pipeline_utils.py` god-module; all re-exported from `pipeline_utils` via a facade, so `from …pipeline_utils import X` keeps working:
 - `pipeline_utils.py`: `PipelineStepExecutor` (shared CLI/GUI/Webapp step logic) + classic-step helpers (`_emit_classic_*`, `_run_classic_step`).
 - `_pipeline_dk_steps.py` / `_pipeline_rvk_scoring.py`: `DkStepsMixin` + `RvkScoringMixin` — the DK/RVK classification methods of `PipelineStepExecutor` (verbatim mixin extraction July 19; methods stay on the class via MRO, cross-calls über `self`). Seam for the geplante `(system, notation)`-Generalisierung.
+  - ⚠️ **`_pipeline_rvk_scoring` ist zur Hälfte untestbar konstruiert**: 14 Funktionen liegen weiterhin in Methodenkörpern verschachtelt (Closure-gebunden, u.a. `_validate_code` 160 Z.). Die 5 **reinen** Helfer sind seit July 21 auf Modulebene und getestet — `_compact_rvk`/`_branch_key`/`_is_parent_like` (Hierarchie: entscheidet, ob eine Notation ihre Eltern verdrängt) + `_source_rank`/`_status_rank` (existierten byte-identisch doppelt). Neue reine Helfer **nicht** wieder verschachteln; ein Test prüft, dass jeder genau einmal definiert ist.
+  - Getestet sind die Primitive, **nicht** die großen Entscheidungsmethoden (`_select_final_rvk_candidates` 209 Z., `_validate_catalog_rvk_candidates` 394 Z.).
 - `pipeline_input.py`: `execute_input_extraction` (PDF/image/text/OCR).
 - `gnd_keyword_utils.py`: GND-pool verification + keyword/RVK canonicalisation (leaf).
 - `pipeline_text_utils.py`: pure text/display/title helpers (leaf, shared by executor + formatter).

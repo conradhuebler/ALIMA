@@ -6,6 +6,57 @@
 
 ## 2026
 
+### Aufräumen A+C: tote Aufrufe, ungetestete Kernlogik (July 21, 2026)
+
+Drei Commits (`a3bb317`, `11f77c8`, `06c4417`), Suite 1432 → 1525. Ausgelöst
+durch die Frage „was muss code-seitig noch angefasst werden" — beantwortet durch
+Messen statt durch Abschreiben des Registers, weil die sieben Defekte der
+Vorrunde in **keinem** Registereintrag standen.
+
+**A — Aufrufe nicht existierender Methoden (`a3bb317`).** Ein AST-Scan über die
+zwei zentralen Manager fand zwei weitere Fälle der `update_gnd_entry`-Klasse:
+- `_validate_catalog_subjects` rief `get_all_gnd_ids_for_keyword()` — der Zweig
+  für Katalog-Schlagwörter **ohne** GND-ID konnte also nie laufen. Methode jetzt
+  implementiert (Union der `found_gnd_ids` über alle Quellen, Treffer auch auf
+  den normalisierten Term).
+- `search_cmd` druckte eine Cache-Notiz via `gnd_keyword_exists()`. Entfernt
+  statt repariert: die Prüfung lief *nach* der Suche, die das Mapping gerade
+  selbst geschrieben hatte.
+
+Wurzel war eine halbe „CacheManager compatibility"-Fassade: Aufrufer schrieben
+gegen eine API aus dem Kopf, und weil die Hälfte existierte, wirkte der Rest
+plausibel. Toter Rest gelöscht (−216 Z., 4 Methoden ohne Aufrufer, darunter
+`store_classification_results` mit 166 Z.). Scan danach: **0 Fälle**.
+
+**C — ungetestete Kernlogik (`11f77c8`, `06c4417`).** 84 Module ohne
+Test-Erwähnung; drei davon reine Logik: `_pipeline_rvk_scoring` (1992 Z.),
+`_pipeline_dk_steps` (1186), `batch_processor` (895). Bezeichnend: **der
+Batch-Save-Crash der Vorrunde lag genau in dem Modul, das die Suite nie
+berührt**, und der einzige Test, der RVK-Scoring nennt, mockt es weg.
+
+84 Charakterisierungstests — Ist-Verhalten festgenagelt, damit es absichtlich
+geändert werden kann. Auffälliges markiert, nicht stillschweigend korrigiert:
+- DK-Regex-Fallback findet Codes mit >3 Vorkomma-Ziffern nicht (`\d{1,3}`).
+- `final_list`-Extraktion emittiert gemischte Groß-/Kleinschreibung.
+- `_is_parent_like` verlangt **mehr als ein** Zusatzzeichen (`WI 47001` gilt
+  nicht als Kind von `WI 4700`).
+- `_branch_key` ist case-sensitiv — eine kleingeschriebene Notation umgeht die
+  Branch-Begrenzung.
+
+Dazu eine verhaltenserhaltende Extraktion: 5 reine Helfer aus Methodenkörpern
+auf Modulebene (`_is_parent_like` entscheidet, ob eine Notation ihre Eltern
+verdrängt — vorher von keinem Test erreichbar), `_source_rank`/`_status_rank`
+existierten byte-identisch **doppelt** und sind zusammengeführt. Verifiziert per
+Opcode-Vergleich gegen HEAD + `LOAD_GLOBAL`-Scan; Suite vor/nach unverändert.
+
+**Methodik-Notiz:** eine Mutationsprobe griff zunächst nicht (Einrückungsmuster
+passte nach der Extraktion nicht), der Test blieb grün. Nachgezogen statt als
+bestanden verbucht — dieselbe Klasse wie die Defekte selbst: eine Prüfung, die
+aussieht, als hätte sie stattgefunden.
+
+**Offen (B):** 336 breite `except`-Blöcke schlucken still. Politikfrage, keine
+Refaktorierung.
+
 ### WP-D2: Klassifikationen tragen Daten — P0-Revision + lobid-Ernte (July 20–21, 2026)
 
 Vier Commits (`2f34e8c`…`8670d6c`), Suite 1383 → 1405. Anlass war eine Messung,

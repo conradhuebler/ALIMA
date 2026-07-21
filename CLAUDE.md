@@ -136,6 +136,18 @@ When documenting implemented features, the AI must apply these rules:
   konvertierten Sets (`TypeError`, pro Item verschluckt → Läufe meldeten
   Fehlschläge statt Ergebnisse); `rvk` fehlte in `SET_FIELDS`. Beides
   vorbestehend, keine P0-Regression.
+- **Aufräumen A+C ✅ DONE (July 21, `a3bb317`/`11f77c8`/`06c4417`, Suite 1525):**
+  drei weitere Aufrufe **nicht existierender** Methoden behoben + halbe
+  CacheManager-Fassade gelöscht (−216 Z.); 84 Charakterisierungstests für die
+  drei ungetesteten Logik-Module (`_pipeline_rvk_scoring`/`_pipeline_dk_steps`/
+  `batch_processor` — der Batch-Crash lag genau dort); 5 reine RVK-Helfer
+  verbatim auf Modulebene, `_source_rank`/`_status_rank`-Duplikat vereinigt.
+  Register: F-12/F-13/F-14 in [`docs/cleanup_findings.md`](docs/cleanup_findings.md).
+- **Offen als Politikfrage (Aufräumen B):** 336 breite `except`-Blöcke schlucken
+  still (59 nur `pass`). Vier der sieben Defekte im Juli lebten davon, dass ein
+  `except Exception` *Programmierfehler* (`AttributeError`, `ImportError`) wie
+  erwartbare Laufzeitfehler behandelte. Zu entscheiden: darf ein breiter
+  `except` Programmierfehler mitfangen?
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
   statischer Verifikation als DONE.

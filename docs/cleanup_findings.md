@@ -121,6 +121,24 @@ click-test. Do them one unit at a time with a hand-off, not in big blind batches
 
 ---
 
+### P1 — Neue Befunde (July 20–21, 2026)
+
+Diese drei standen in **keinem** Registereintrag und sind nicht durch Codelesen
+aufgefallen, sondern dadurch, dass der Operator die Pipeline laufen ließ und
+danach in die Datenbank geschaut wurde.
+
+| # | Bereich | Befund | Status |
+|---|---|---|---|
+| F-12 | core | **Aufrufe nicht existierender Methoden.** `update_gnd_entry` (2 GUI-Stellen), `gnd_keyword_exists` (`search_cmd`), `get_all_gnd_ids_for_keyword` (`_validate_catalog_subjects`). Wurzel: eine halbe „CacheManager compatibility"-Fassade auf `UnifiedKnowledgeManager` — weil die Hälfte existierte, wirkte der Rest plausibel. Zwei der drei waren ungeschützt, einer wurde von einem breiten `except` geschluckt. | ✅ **DONE** (`a3bb317`): alle drei behoben, tote Fassade (−216 Z., 4 Methoden ohne Aufrufer) gelöscht. AST-Scan über die zwei zentralen Manager findet danach **0** Fälle. ⚠️ Der Scan deckt nur statisch auflösbare Ziele ab — Provider/Suggester/LLM-Backends nicht. |
+| F-13 | tests | **Kernlogik ohne jede Testabdeckung.** 84 Module ohne Test-Erwähnung; drei davon sind reine Logik, kein GUI: `_pipeline_rvk_scoring` (1992 Z.), `_pipeline_dk_steps` (1186), `batch_processor` (895). **Der Batch-Save-Crash lag genau in dem Modul, das die Suite nie berührt.** Der einzige Test, der RVK-Scoring nennt, mockt es weg. | ✅ **Teilweise** (`11f77c8`, `06c4417`): 84 Charakterisierungstests für LLM-Antwort-Extraktion, Batch-Parsing/Naming/OCR-Heuristik und die RVK-Scoring-Primitive. **Offen:** die großen Entscheidungsmethoden (`_select_final_rvk_candidates` 209 Z., `_validate_catalog_rvk_candidates` 394 Z.). |
+| F-14 | utils | **Untestbar konstruiert.** In `_pipeline_rvk_scoring` waren 19 von 40 Funktionen in Methodenkörper verschachtelt, u.a. die Hierarchie-Helfer; `_source_rank`/`_status_rank` existierten byte-identisch **doppelt**. | ✅ **Teilweise** (`06c4417`): 5 reine Helfer verbatim auf Modulebene (Opcode-Vergleich + `LOAD_GLOBAL`-Scan), Duplikate zusammengeführt, Test gegen Wieder-Einnistung. **Offen:** 14 verschachtelte Funktionen mit Closure-Bindung (`_validate_code` 160 Z., `_prefilter_candidates`, `_pick_diverse`) — keine reine Verschiebung mehr. |
+
+**Offen als Politikfrage (B):** 336 breite `except`-Blöcke schlucken still (59 nur
+`pass`, 277 nur Debug/Warning). Vier der sieben Defekte dieser Runde lebten davon,
+dass ein `except Exception` *Programmierfehler* (`AttributeError`, `ImportError`)
+wie erwartbare Laufzeitfehler behandelte. Die Frage ist nicht „alle anfassen",
+sondern ob ein breiter `except` Programmierfehler mitfangen darf.
+
 ## Cross-cutting / meta
 - **GUI testing gate (refined June 30)**: the gate is on *final sign-off*, not on
   doing the work. F-5's refactor was completed in-sandbox (all 5 god-files split,
