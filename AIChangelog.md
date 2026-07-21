@@ -6,6 +6,51 @@
 
 ## 2026
 
+### WP-D2: Klassifikationen tragen Daten — P0-Revision + lobid-Ernte (July 20–21, 2026)
+
+Vier Commits (`2f34e8c`…`8670d6c`), Suite 1383 → 1405. Anlass war eine Messung,
+nicht ein Plan: der kanonische `classifications`-Block war in **allen** echten
+Läufen leer (0 von 5128 / 2364 / 1134 Pool-Einträgen), weil `lobid` und `swb`
+beide hart `{}` schrieben. Das Vokabular, das WP-D1 P0 über fünf Commits
+vereinheitlicht hatte, transportierte im Normalbetrieb nichts.
+
+- **P0-Revision (`2f34e8c`)**: P0 pinnte `{system: [codes]}` und behandelte eine
+  Klassifikation damit als **Fakt**. Die Ernte liefert aber **gewichtete
+  Evidenz** — und dasselbe Feld hätte künftig beides ununterscheidbar getragen
+  (gnd_locals DDC aus der Normdatei neben Ko-Vorkommen aus dem Katalog). Ein
+  Eintrag ist jetzt `{code, count?, origin}`; `origin ∈ {authority,
+  cooccurrence}`. Einträge sind **sortiert** (Autorität, dann Stärke), damit
+  „das erste" das beste ist. `count` wird per **max** gemergt, nie summiert —
+  dieselbe Landmine wie der Pool-`count`. Beide Regeln per Mutation belegt.
+  Nebenwirkungen bewusst: die gepinnte Set/Listen-Dualität entfällt für dieses
+  Feld (Dicts sind nicht hashbar), `SET_FIELDS` verliert die System-Keys.
+- **Ernte (`3f9772d`)**: lobid liefert die Klassifikationen die ganze Zeit mit,
+  auf den `member`-Records (4627 Notationen über 248 gecachte Antworten: 2788
+  RVK, 761 DDC, 48 BK). Zuordnung als **Ko-Vorkommens-Heuristik**, im Code so
+  benannt: eine RVK-Notation klassifiziert den Titel, nicht jedes seiner
+  Schlagwörter. Top-3 je System statt Schwelle (eine Schwelle ≥2 hätte die
+  Abdeckung von 1319 auf 346 Keywords gekappt). BK ergänzt;
+  bibliotheksspezifische Systematiken werden verworfen statt mis-abgelegt, auch
+  „DDC-Sachgruppen der ZDB" (grobe Gruppen neben vollen DDC-Nummern wären zwei
+  Granularitäten als gleichwertig).
+- **`page_size` (`8670d6c`)**: Default 30 statt lobids 15, als Plugin-Feld. Die
+  Seitengröße ist die Obergrenze der Abdeckung; ab ~50 reißt der schlechteste
+  Fall die 1-MB-Grenze des Raw-Caches, und ungecachte Antworten verlieren die
+  Ernte wieder. Nicht Teil des Cache-Schlüssels — vorhandene Zeilen laufen über
+  die 24-h-Frische aus, die Umstellung wirkt graduell.
+- **Konsumenten (Phase 4)**: `initial_gnd_classes` wird nach Evidenz sortiert
+  statt in Fundreihenfolge; Dedup per max, nicht Summe.
+
+⚠️ **Korrektur einer eigenen Angabe:** ich hatte **61 % Abdeckung** angekündigt,
+real sind es **6 %**. Der Nenner war falsch — gemessen über distinkte GND-IDs in
+`componentList`, während der Pool aus dem Aggregation-Facet kommt (15
+ausgelieferte Records gegen ~100 Facet-Subjects je Antwort). Strukturelle Grenze
+der lobid-API, kein Implementierungsfehler, aber eine ungeprüfte Zahl.
+
+**Offen:** swb liefert weiterhin keine Notationen; `initial_gnd_classes` meint
+klassisch (GND-Systematik aus dem LLM-`<class>`-Tag) und agentisch (geerntete
+DDC) Verschiedenes — dieselbe Namenskollision wie F-1, unentschieden.
+
 ### WP-D1: P0-Verifikation, System-Keys, BibRecord, F-2 (July 20, 2026)
 
 Sechs Commits (`2e2b647`…`87b6eb4`). Suite 1324 → 1357, jeder Zwischenstand

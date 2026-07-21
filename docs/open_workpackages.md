@@ -40,17 +40,22 @@ risikoärmste Teil von P1. `to_bibrecord()` ist bewusst noch nicht verdrahtet
 (die drei `ResultItem`-Nähte sind unberührt), P1 ist der erste echte Konsument.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
-> ⚠️ **Gemessen July 20: der GND-Pool trägt in der Praxis GAR KEINE
-> Klassifikationen.** In drei echten Läufen (Cadmium klassisch, SupraFit
-> klassisch + agentisch) war `classifications` bei **0 von 5128 / 0 von 2364 /
-> 0 von 1134** Pool-Einträgen gefüllt. Grund ist strukturell:
-> `lobid/suggester.py:253` und `swb/suggester.py:544` schreiben beide hart
-> `"classifications": {}` — mit den Default-Quellen `["swb","lobid"]` kann das
-> Feld nie befüllt werden; nur `gnd_local/provider.py:87` liefert `{"DDC": …}`.
-> Folge im Lauf: `initial_gnd_classes` bleibt leer, das DDC-aus-GND-Signal läuft
-> ins Nichts. Das ist Workstream 1 (DDC-Harvest) mit Zahlen unterlegt — und die
-> Frage davor: liefert die lobid-API DDC überhaupt mit und wir verwerfen es nur?
-> (Raw-Cache-Zeilen zum Nachsehen liegen vor: 248 lobid-Antworten.)
+> ✅ **Ernte erledigt (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite 1405).**
+> Der Pool trug in der Praxis **gar keine** Klassifikationen (0 von 5128 / 2364 /
+> 1134 in drei echten Läufen), weil lobid und swb hart `{}` schrieben. lobid
+> liefert sie die ganze Zeit mit — auf den `member`-Records. Jetzt geerntet, als
+> **Ko-Vorkommens-Heuristik** mit `origin`/`count` (P0-Revision, s.
+> [`wp_records_as_first_class.md`](wp_records_as_first_class.md)); BK ergänzt,
+> bibliotheksspezifische Systematiken werden verworfen.
+> **Abdeckung 6 %**, nicht die zunächst geschätzten 61 % — der Pool kommt aus dem
+> Aggregation-Facet über die ganze Treffermenge (~100 Subjects), die
+> Klassifikationen nur aus den ausgelieferten Records (15, jetzt 30 per
+> `page_size`). Strukturelle Grenze der lobid-API.
+>
+> **Offen dazu:** swb liefert weiterhin nichts (dort ist keine Notation in der
+> Antwort); `initial_gnd_classes` meint klassisch und agentisch Verschiedenes
+> (klassisch = GND-Systematik-Klassen aus dem LLM-`<class>`-Tag, agentisch =
+> geerntete DDC) — dieselbe Namenskollision wie F-1, bisher unentschieden.
 
 **Status:** **Datenform ✅ in D1-P0 erledigt** (July 19): Pool/Nested/
 `ResultItem` tragen `classifications: {system: codes}` mit dk/ddc/rvk als

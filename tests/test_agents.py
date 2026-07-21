@@ -83,6 +83,63 @@ class TestSharedContext(unittest.TestCase):
         self.assertIn("AN", state.rvk_provenance)
         self.assertIn("Schlagwortketten", state.final_llm_analysis.response_full_text)
 
+    def test_initial_gnd_classes_are_ordered_by_evidence(self):
+        """Since the WP-D2 harvest these codes carry co-occurrence weights.
+
+        First-seen order would put an incidental hit (one record) above a
+        well-supported one, which is the opposite of useful for a display hint.
+        """
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["Bibliothek"]
+        ctx.gnd_entries = [
+            {"title": "A", "gnd_ids": ["1"], "count": 1, "classifications": {
+                "DDC": [{"code": "025.3", "count": 1, "origin": "cooccurrence"}]}},
+            {"title": "B", "gnd_ids": ["2"], "count": 1, "classifications": {
+                "DDC": [{"code": "020", "count": 12, "origin": "cooccurrence"}]}},
+            {"title": "C", "gnd_ids": ["3"], "count": 1, "classifications": {
+                "DDC": [{"code": "070", "count": 5, "origin": "cooccurrence"}]}},
+        ]
+        classes = ctx.to_keyword_analysis_state().initial_gnd_classes
+        self.assertEqual(classes, ["020", "070", "025.3"])
+
+    def test_initial_gnd_classes_dedupe_by_max_not_sum(self):
+        """The pool's landmine rule (max, never sum) applies to the weight too.
+
+        The fixture is built so the two rules ORDER DIFFERENTLY — 020 appears
+        twice at 4, so max=4 but sum=8. With max, 030 (6) ranks first; summing
+        would inflate 020 to 8 and flip them. A fixture where both rules agree
+        would pass either way and prove nothing.
+        """
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["x"]
+        ctx.gnd_entries = [
+            {"title": "A", "gnd_ids": ["1"], "count": 1, "classifications": {
+                "DDC": [{"code": "020", "count": 4, "origin": "cooccurrence"}]}},
+            {"title": "B", "gnd_ids": ["2"], "count": 1, "classifications": {
+                "DDC": [{"code": "020", "count": 4, "origin": "cooccurrence"}]}},
+            {"title": "C", "gnd_ids": ["3"], "count": 1, "classifications": {
+                "DDC": [{"code": "030", "count": 6, "origin": "cooccurrence"}]}},
+        ]
+        self.assertEqual(
+            ctx.to_keyword_analysis_state().initial_gnd_classes, ["030", "020"]
+        )
+
+    def test_initial_gnd_classes_tolerate_unweighted_codes(self):
+        """Authority entries have no count, and a producer may still emit bare
+        codes — neither may vanish from the display."""
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["x"]
+        ctx.gnd_entries = [
+            {"title": "A", "gnd_ids": ["1"], "count": 1, "classifications": {
+                "DDC": [{"code": "551.48", "origin": "authority"}]}},
+            {"title": "B", "gnd_ids": ["2"], "count": 1,
+             "classifications": {"DDC": ["020"]}},
+        ]
+        self.assertEqual(
+            sorted(ctx.to_keyword_analysis_state().initial_gnd_classes),
+            ["020", "551.48"],
+        )
+
     def test_to_keyword_analysis_state_carries_count_and_display_count(self):
         # Regression: agentic GND-Häufigkeit persisted as 0 because the KAS
         # projection dropped count/display_count. Main branch (per-keyword

@@ -204,7 +204,7 @@ All P0 conventions are decided; this section is the contract.
 | Concept | Canonical key | Container |
 |---|---|---|
 | GND ids | `gnd_ids` | `set` in nested per-term views (merge dedup), `list` in pool entries (display order; `gnd_id` = first element stays as pool convenience) |
-| classifications | `classifications` | dict `{system: codes}` — systems are equal-rank keys (`"dk"`, `"ddc"`, `"rvk"`, …); code containers: set (nested) / list (pool). **Replaces the separate `ddc`/`dk` fields** — this is the General-Notation direction pulled into the data shape (July 19 operator decision); WP-D2 keeps only the *logic* generalization (DDC harvest, mixin generalization, `dk_*` renames). |
+| classifications | `classifications` | dict `{system: [entry]}` — systems are equal-rank UPPERCASE keys (`"DK"`, `"DDC"`, `"RVK"`, `"BK"`); an entry is `{code, count?, origin}`. **Replaces the separate `ddc`/`dk` fields**. See the P0 revision below — the original `{system: [codes]}` did not survive contact with the harvest. |
 | ranking count | `count` | int — max-merged, never summed; stays `1` on cache hits (count landmine) |
 | display count | `display_count` | int, optional — the real Häufigkeit; display-only, NEVER read by ranking (`rank_pool`) |
 
@@ -218,10 +218,44 @@ now the same string, so there is no upper/lower translation layer — exactly th
 kind of round-trip rename P0 removed. `classification_systems` is the single
 owner (`KNOWN_SYSTEMS`/`SYSTEM_KEYS`, `normalize_system`).
 
-`BibRecord.classifications` is **the same dict** `{system: [codes]}`, not
-`(system, notation)` pairs as the draft above sketched — identical to
-`ResultItem.classifications`, so a record's own classifications feed the
-classification step (P2) with no adapter.
+`BibRecord.classifications` is **the same dict**, not `(system, notation)` pairs
+as the draft above sketched — identical to `ResultItem.classifications`, so a
+record's own classifications feed the classification step (P2) with no adapter.
+
+### P0 revision (July 20, 2026): classifications carry weight and origin
+
+P0 pinned `{system: [codes]}`, implicitly treating a classification as a **fact**
+("this concept has DDC X"). Measuring the lobid harvest showed that most
+classifications are not facts but **weighted evidence** ("RVK WI 4700 appeared in
+13 catalogue records about this term") — and that the same field would otherwise
+carry both, indistinguishably: an authority DDC from the GND record beside a
+statistical co-occurrence.
+
+An entry is therefore `{code, count?, origin}` with
+`origin ∈ {authority, cooccurrence}`:
+
+| | authority | cooccurrence |
+|---|---|---|
+| Means | the record/authority states this classification | it co-occurred with the term in N records |
+| `count` | absent — there is no frequency to report | the observation count |
+| Source | `gnd_local`, every `BibRecord` producer | the lobid harvest |
+
+Rules, both mutation-tested:
+* Entries are kept **sorted** — authority first, then descending evidence — so
+  "the first" is "the best" and `[:3]` is "the three best" without the consumer
+  knowing the rules (`codes_for_system`/`primary_code`).
+* On merge, `count` is combined with **max, never sum** (the same landmine as
+  the pool `count`: summing inflates evidence when two sources saw the same
+  records), and `origin` keeps the stronger claim.
+
+Consequences accepted deliberately:
+* The pinned set/list duality **does not apply** to this field — entries are
+  dicts, hence unhashable; every container is an ordered list.
+* `SET_FIELDS` loses the system keys (a set conversion would raise and destroy
+  the ranking); only `missing_concepts` remains.
+* Merge and reader helpers **normalise their inputs** rather than assuming the
+  entry shape: plugins emit bare codes, and `dict("333")` raises. Tolerant at
+  the single choke point so every caller stays simple.
 
 ### The three formerly under-specified conventions
 

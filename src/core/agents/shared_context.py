@@ -233,13 +233,24 @@ class SharedContext(BaseSharedContext):
         dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]
 
         # --- initial GND classes from entries with DDC codes ---
-        initial_gnd_classes = []
-        seen_ddc = set()
+        # Ordered by accumulated evidence, strongest first: since the WP-D2
+        # harvest these codes carry co-occurrence weights, and first-seen order
+        # would put an incidental hit (one record) above a well-supported one.
+        # Deliberately NOT truncated — this is a display field, and cutting it
+        # would hide data rather than rank it. - Claude Generated
+        ddc_weight: Dict[str, int] = {}
         for entry in self.gnd_entries:
-            for ddc in codes_for_system(entry.get("classifications"), "DDC"):
-                if ddc and ddc not in seen_ddc:
-                    seen_ddc.add(ddc)
-                    initial_gnd_classes.append(ddc)
+            for code_entry in (entry.get("classifications") or {}).get("DDC") or []:
+                if isinstance(code_entry, dict):
+                    code, weight = code_entry.get("code"), code_entry.get("count") or 0
+                else:  # producer still emitting a bare code
+                    code, weight = code_entry, 0
+                code = str(code or "").strip()
+                if code:
+                    ddc_weight[code] = max(ddc_weight.get(code, 0), int(weight))
+        initial_gnd_classes = [
+            code for code, _ in sorted(ddc_weight.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
 
         # --- dk_search_results_flattened: DK-centric flat/merged view ---
         # Prefer the rich list produced by the dk_postprocess step

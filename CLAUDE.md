@@ -124,6 +124,14 @@ When documenting implemented features, the AI must apply these rules:
   Headless-Test beider Pfade. Suite 1357. **Offen: Konsumenten P1–P4** — P1 hat
   eine `input_type`-Parity-Landmine (Register). Details: `AIChangelog.md` +
   [`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md).
+- **WP-D2 Ernte ✅ DONE (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite
+  1405):** `classifications` trug in der Praxis **nichts** (0 von 5128 Einträgen
+  in echten Läufen) — lobid liefert die Notationen die ganze Zeit mit, auf den
+  `member`-Records. Jetzt geerntet als **Ko-Vorkommens-Heuristik**; dafür P0
+  revidiert: ein Eintrag ist `{code, count?, origin}`, `origin ∈ {authority,
+  cooccurrence}`, Merge per max (nie Summe). Abdeckung 6 % (strukturelle
+  lobid-Grenze: Pool aus dem Aggregation-Facet, Klassifikationen nur aus den
+  ausgelieferten Records). Details: `AIChangelog.md` (July 20–21).
 - **Nebenbefund July 20 (behoben):** Batch-Speichern crashte an nicht
   konvertierten Sets (`TypeError`, pro Item verschluckt → Läufe meldeten
   Fehlschläge statt Ergebnisse); `rvk` fehlte in `SET_FIELDS`. Beides
