@@ -20,6 +20,46 @@ from .pipeline_formatters import PipelineResultFormatter
 logger = logging.getLogger(__name__)
 
 
+# Pure RVK-notation helpers. Extracted from the method bodies they used to
+# live in (WP cleanup C): nested functions are unreachable from a test, and
+# these decide hierarchy and ranking — _is_parent_like alone determines
+# whether one notation is treated as a parent of another and dropped.
+# _source_rank/_status_rank additionally existed TWICE, byte-identical, in
+# two different methods. Verbatim moves; no behaviour change intended.
+# - Claude Generated
+
+def _branch_key(code: str) -> str:
+    match = re.match(r"^([A-Z]{1,3})\s*", code)
+    return match.group(1) if match else (code.split()[0] if code.split() else code)
+
+def _compact_rvk(code: str) -> str:
+    return re.sub(r"[^A-Z0-9.]", "", str(code or "").upper())
+
+def _is_parent_like(parent_code: str, child_code: str) -> bool:
+    parent_compact = _compact_rvk(parent_code)
+    child_compact = _compact_rvk(child_code)
+    return (
+        bool(parent_compact)
+        and bool(child_compact)
+        and child_compact != parent_compact
+        and child_compact.startswith(parent_compact)
+        and len(child_compact) > len(parent_compact) + 1
+    )
+
+def _source_rank(source: str) -> int:
+    return {
+        "rvk_gnd_index": 3,
+        "rvk_api": 2,
+        "catalog": 1,
+    }.get(source, 0)
+
+def _status_rank(status: str) -> int:
+    return {
+        "standard": 3,
+        "non_standard": 2,
+        "validation_error": 1,
+    }.get(status, 0)
+
 class RvkScoringMixin:
     """RVK scoring/selection methods (mixed into PipelineStepExecutor)."""
 
@@ -228,24 +268,6 @@ class RvkScoringMixin:
                 int(evidence.get("count", 0)) * 4
                 + len(evidence.get("keyword_hits", set())) * 3
                 + min(int(evidence.get("title_hits", 0)), 10)
-            )
-
-        def _branch_key(code: str) -> str:
-            match = re.match(r"^([A-Z]{1,3})\s*", code)
-            return match.group(1) if match else (code.split()[0] if code.split() else code)
-
-        def _compact_rvk(code: str) -> str:
-            return re.sub(r"[^A-Z0-9.]", "", str(code or "").upper())
-
-        def _is_parent_like(parent_code: str, child_code: str) -> bool:
-            parent_compact = _compact_rvk(parent_code)
-            child_compact = _compact_rvk(child_code)
-            return (
-                bool(parent_compact)
-                and bool(child_compact)
-                and child_compact != parent_compact
-                and child_compact.startswith(parent_compact)
-                and len(child_compact) > len(parent_compact) + 1
             )
 
         candidate_meta = []
@@ -1508,20 +1530,6 @@ class RvkScoringMixin:
             if canonicalize_keyword(keyword.split("(GND-ID:")[0].strip())
         }
 
-        def _source_rank(source: str) -> int:
-            return {
-                "rvk_gnd_index": 3,
-                "rvk_api": 2,
-                "catalog": 1,
-            }.get(source, 0)
-
-        def _status_rank(status: str) -> int:
-            return {
-                "standard": 3,
-                "non_standard": 2,
-                "validation_error": 1,
-            }.get(status, 0)
-
         for candidate in candidate_results:
             cls_type = str(candidate.get("classification_type", candidate.get("type", "DK"))).upper()
             if cls_type != "RVK":
@@ -1796,20 +1804,6 @@ class RvkScoringMixin:
         standard_candidates = []
         nonstandard_candidates = []
         aggregated_candidates: Dict[str, Dict[str, Any]] = {}
-
-        def _source_rank(source: str) -> int:
-            return {
-                "rvk_gnd_index": 3,
-                "rvk_api": 2,
-                "catalog": 1,
-            }.get(source, 0)
-
-        def _status_rank(status: str) -> int:
-            return {
-                "standard": 3,
-                "non_standard": 2,
-                "validation_error": 1,
-            }.get(status, 0)
 
         anchor_keywords = {
             canonicalize_keyword(keyword.split("(GND-ID:")[0].strip()).lower()
