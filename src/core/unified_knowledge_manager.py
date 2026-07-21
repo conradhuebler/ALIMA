@@ -127,7 +127,16 @@ class UnifiedKnowledgeManager:
         self._init_database()
         # One-time, non-destructive migration of a legacy same-file gnd_entries
         # table (older single-DB installs) into the separate store.
-        if str(database_config.db_type).lower() in ("sqlite", "sqlite3"):
+        #
+        # Gate on the EFFECTIVE engine, not the configured one: when the
+        # configured MySQL/MariaDB driver is unavailable, get_connection() falls
+        # back to SQLite, so there IS a file to attach even though the config
+        # still says "mariadb". Reading database_config.db_type here skipped the
+        # migration for every such install — the authority store stayed empty
+        # while 207k legacy GND entries sat in the SQLite file next to it.
+        # `_init_database` above already forces the connection open for exactly
+        # this reason, so the effective type is settled by now. - Claude Generated
+        if str(self.db_manager.get_db_type()).lower() in ("sqlite", "sqlite3"):
             self.local_gnd.migrate_from_legacy(database_config.sqlite_path)
         self.db_fallback_notice = getattr(self.db_manager, 'db_fallback_notice', None)
 
