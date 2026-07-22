@@ -152,7 +152,7 @@ derselben Verifikation (Opcode-Vergleich gegen HEADs echte Datei +
 
 | Datei | vorher → jetzt | Mixins | Commit |
 |---|---|---|---|
-| `unified_knowledge_manager.py` | 2077 → 1460 | `_ukm_schema.SchemaMigrationMixin` (350 Z.), `_ukm_catalog_dk.CatalogDkCacheMixin` (249 Z.) | `8d75d6c` |
+| `unified_knowledge_manager.py` | 2077 → 1091 | `_ukm_schema` (Schema/Migration), `_ukm_catalog_dk` (Catalog-DK), `_ukm_smart_search` (Smart-Search, 361 Z.) | `8d75d6c`, `<smart>` |
 | `tool_registry.py` | 1980 → 1381 | `_tool_generation.ToolGenerationMixin` (17 Fabrik-Methoden) | `0dcb04c` |
 | `biblio_client.py` | 2106 → 1642 | `_biblio_parsing` (Parser, 347 Z.) + `_biblio_transport` (Reliability, 182 Z.) | `54a5fd6`, `5aa7bda` |
 | `pipeline_manager.py` | 2437 → 1690 (Klasse 1955 → 1230) | `_pipeline_classic_steps.ClassicStepExecutorMixin` (10 klassische Step-Executoren, 728 Z.) | `4895a47` |
