@@ -101,7 +101,7 @@ class BiblioSuggester(BaseSuggester):
                     keyword: {
                         "count": int,
                         "gnd_ids": set,
-                        "classifications": dict,   # {system: set of codes}
+                        "classifications": dict,   # {system: [{code, count?, origin}]} (WP-D2)
                     }
                 }
             }

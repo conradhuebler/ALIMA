@@ -42,20 +42,24 @@ class SwbTransformTest(unittest.TestCase):
         self.assertEqual(SWBSuggester.transform(_FakeSwb({}), {"pages": []}), {})
 
     def test_subjects_shape_roundtrip(self):
-        # The compact {"subjects": …} form extract_gnd_from_swb now writes (small,
-        # always under the size cap, carries titles) must round-trip through
-        # transform back to the reduced view — no gnd_entries facts needed.
-        results = {"Wasser": {"count": 1, "gnd_ids": {"g1", "g2"},
-                              "classifications": {"DDC": {"540"}}}}
+        # The compact {"subjects": …} form extract_gnd_from_swb writes must
+        # round-trip through transform back to the reduced view. Since WP-D2 the
+        # transform emits the canonical entry shape for classifications
+        # ({system: [{code, origin}]}) rather than the old {system: set(codes)} —
+        # consistent with lobid and the pool. (A stored blob still holds bare
+        # codes; transform normalises them on read.)
+        from src.utils.classification_systems import codes_for_system
+
         blob = {
             "subjects": {
-                subj: {"count": d["count"], "gnd_ids": sorted(d["gnd_ids"]),
-                       "classifications": {s: sorted(c) for s, c in d["classifications"].items()}}
-                for subj, d in results.items()
+                "Wasser": {"count": 1, "gnd_ids": ["g1", "g2"],
+                           "classifications": {"DDC": ["540"]}},
             }
         }
         got = SWBSuggester.transform(SWBSuggester.__new__(SWBSuggester), blob)
-        self.assertEqual(got, results)
+        self.assertEqual(got["Wasser"]["count"], 1)
+        self.assertEqual(got["Wasser"]["gnd_ids"], {"g1", "g2"})
+        self.assertEqual(codes_for_system(got["Wasser"]["classifications"], "DDC"), ["540"])
 
 
 @unittest.skipIf(IMPORT_ERROR is not None, f"stack unavailable: {IMPORT_ERROR}")

@@ -136,7 +136,7 @@ class SearchServiceTest(unittest.TestCase):
 
     def tearDown(self):
         UnifiedKnowledgeManager.reset()
-        for pid in ("fake_a", "fake_b"):
+        for pid in ("fake_a", "fake_b", "fake_entry", "fake_c", "fake_d"):
             PROVIDER_REGISTRY.pop(pid, None)
         try:
             os.unlink(self.tmp.name)
@@ -149,6 +149,62 @@ class SearchServiceTest(unittest.TestCase):
             instance_id=pid, category="search_provider", provider_id=pid,
             enabled=True, is_primary=True,
         )
+
+    def test_fresh_entry_accepts_wpd2_entry_shape_classifications(self):
+        """Regression: the multi-source merge crashed on entry-shape classifications.
+
+        WP-D2 made classifications ``{system: [{code, count?, origin}]}`` entry
+        lists. ``_merge_term``'s FRESH-entry branch still built ``set(codes)``
+        over them → ``unhashable type: 'dict'``. It only surfaced on a live run,
+        because the existing tests used bare-code sets (``{"DDC": {"5"}}``),
+        which ``set()`` survives; lobid's co-occurrence harvest emits real entry
+        dicts. A keyword only ONE source returns takes the fresh branch.
+        """
+        PROVIDER_REGISTRY["fake_entry"] = _make_fake_provider("fake_entry", {
+            "cadmium": {
+                "Schwermetall": {
+                    "count": 5, "gnd_ids": {"g1"},
+                    "classifications": {
+                        "RVK": [
+                            {"code": "VN 9360", "count": 2, "origin": "cooccurrence"},
+                            {"code": "AR 22480", "count": 1, "origin": "cooccurrence"},
+                        ],
+                        "DDC": [{"code": "546.48", "origin": "authority"}],
+                    },
+                },
+            },
+        })
+        results, errors = service.search_gnd_keywords(
+            ["cadmium"], [self._inst("fake_entry")],
+            cache=False, aggregate_from_raw=False, ukm=self.km,
+        )
+        self.assertEqual(errors, {})
+        cls = results["cadmium"]["Schwermetall"]["classifications"]
+        self.assertEqual(codes_for_system(cls, "RVK"), ["VN 9360", "AR 22480"])
+        self.assertEqual(codes_for_system(cls, "DDC"), ["546.48"])
+        # count/origin survive the fresh-branch normalisation, not just the code.
+        self.assertEqual(cls["RVK"][0]["count"], 2)
+        self.assertEqual(cls["DDC"][0]["origin"], "authority")
+
+    def test_two_sources_merge_entry_shape_classifications(self):
+        """The collision branch too: same keyword from both sources, entry shape."""
+        PROVIDER_REGISTRY["fake_c"] = _make_fake_provider("fake_c", {
+            "cadmium": {"Cadmium": {"count": 3, "gnd_ids": {"g1"},
+                "classifications": {"RVK": [{"code": "VN 9360", "count": 2,
+                                             "origin": "cooccurrence"}]}}},
+        })
+        PROVIDER_REGISTRY["fake_d"] = _make_fake_provider("fake_d", {
+            "cadmium": {"Cadmium": {"count": 1, "gnd_ids": {"g2"},
+                "classifications": {"RVK": [{"code": "VN 9360", "count": 8,
+                                             "origin": "cooccurrence"}]}}},
+        })
+        results, _ = service.search_gnd_keywords(
+            ["cadmium"], [self._inst("fake_c"), self._inst("fake_d")],
+            cache=False, aggregate_from_raw=False, ukm=self.km,
+        )
+        cls = results["cadmium"]["Cadmium"]["classifications"]
+        self.assertEqual(codes_for_system(cls, "RVK"), ["VN 9360"])   # deduped
+        self.assertEqual(cls["RVK"][0]["count"], 8)                   # max, not summed
 
     def test_live_merge_across_sources(self):
         PROVIDER_REGISTRY["fake_a"] = _make_fake_provider("fake_a", {

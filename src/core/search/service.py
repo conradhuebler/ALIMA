@@ -42,6 +42,7 @@ from .aggregate import (
 from .factory import build_provider
 from .provider import SearchCapability, raw_cache_params_for
 from .registry import get_provider
+from src.utils.classification_systems import normalize_classifications
 
 logger = logging.getLogger(__name__)
 
@@ -237,11 +238,14 @@ def _merge_term(target: Dict[str, Dict[str, Any]], kw_map: Dict[str, Dict[str, A
             entry: Dict[str, Any] = {
                 "count": data.get("count", 1),
                 "gnd_ids": set(data.get("gnd_ids", set()) or set()),
-                "classifications": {
-                    system: set(codes)
-                    for system, codes in (data.get("classifications") or {}).items()
-                    if codes
-                },
+                # WP-D2: classifications are {system: [{code, count?, origin}]}
+                # entry lists, not code sets — normalize handles sets/lists/
+                # entries alike. Building set() over entry dicts raised
+                # "unhashable type: dict" in the classic multi-source merge
+                # (surfaced only on a live run with gnd_local's authority DDC).
+                "classifications": normalize_classifications(
+                    data.get("classifications")
+                ),
             }
             if data.get("display_count") is not None:
                 entry["display_count"] = data["display_count"]

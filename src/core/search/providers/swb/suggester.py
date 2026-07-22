@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Set, Optional, Union
 from bs4 import BeautifulSoup
 
 from src.core.search.base_suggester import BaseSuggester, BaseSuggesterError
+from src.utils.classification_systems import normalize_classifications
 
 # Every SWB HTTP request carries this timeout — a hung endpoint must not hang
 # the pipeline (project HTTP convention). - Claude Generated
@@ -74,11 +75,9 @@ class SWBSuggester(BaseSuggester):
                         else:
                             subject_data["gnd_ids"] = set()
 
-                        subject_data["classifications"] = {
-                            system: set(codes) if isinstance(codes, (list, set)) else {codes}
-                            for system, codes in (subject_data.get("classifications") or {}).items()
-                            if codes
-                        }
+                        subject_data["classifications"] = normalize_classifications(
+                            subject_data.get("classifications")
+                        )
 
                         result[search_term][subject_name] = subject_data
 
@@ -612,11 +611,9 @@ class SWBSuggester(BaseSuggester):
                 out[subj] = {
                     "count": data.get("count", 1),
                     "gnd_ids": set(data.get("gnd_ids", [])),
-                    "classifications": {
-                        system: set(codes)
-                        for system, codes in (data.get("classifications") or {}).items()
-                        if codes
-                    },
+                    "classifications": normalize_classifications(
+                        data.get("classifications")
+                    ),
                 }
             return out
 
@@ -660,7 +657,7 @@ class SWBSuggester(BaseSuggester):
                     keyword: {
                         "count": int,
                         "gnd_ids": set,
-                        "classifications": dict,   # {system: set of codes}
+                        "classifications": dict,   # {system: [{code, count?, origin}]} (WP-D2)
                     }
                 }
             }

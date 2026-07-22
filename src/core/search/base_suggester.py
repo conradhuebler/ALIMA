@@ -146,7 +146,7 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
                     keyword: {
                         "count": int,               # Number of occurrences
                         "gnd_ids": set,             # Set of GND IDs
-                        "classifications": dict,    # {system: set of codes} — dk/ddc/rvk equal-rank
+                        "classifications": dict,    # {system: [{code, count?, origin}]} (WP-D2) — dk/ddc/rvk equal-rank
                     }
                 }
             }

@@ -28,6 +28,7 @@ from ..core.data_models import (
 )
 from ..core.search_cli import SearchCLI
 from ..core.gnd_search_core import merge_code_entry
+from .classification_systems import normalize_classifications
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.search import SearchCapability, enabled_gnd_provider_ids, providers_for_capability
 from ..core.processing_utils import (
@@ -1178,11 +1179,9 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                                     original_results[search_term][swb_keyword] = {
                                         "count": swb_data.get("count", 1),
                                         "gnd_ids": swb_gnd_ids.copy(),
-                                        "classifications": {
-                                            system: set(codes)
-                                            for system, codes in (swb_data.get("classifications") or {}).items()
-                                            if codes
-                                        },
+                                        "classifications": normalize_classifications(
+                                            swb_data.get("classifications")
+                                        ),
                                     }
                                     swb_matches += len(swb_gnd_ids)
                                     if self.logger:
@@ -1212,11 +1211,9 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                             original_results[target_term][swb_keyword] = {
                                 "count": swb_data.get("count", 1),
                                 "gnd_ids": swb_gnd_ids.copy(),
-                                "classifications": {
-                                    system: set(codes)
-                                    for system, codes in (swb_data.get("classifications") or {}).items()
-                                    if codes
-                                },
+                                "classifications": normalize_classifications(
+                                    swb_data.get("classifications")
+                                ),
                             }
                             swb_matches += len(swb_gnd_ids)
                             if self.logger:
