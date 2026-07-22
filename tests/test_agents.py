@@ -64,8 +64,10 @@ class TestSharedContext(unittest.TestCase):
         ctx.extracted_keywords = ["Bibliothek", "Katalog"]
         ctx.selected_keywords = [{"gnd_id": "4006278-9", "title": "Bibliothek"}]
         ctx.gnd_entries = [
-            {"title": "Bibliothek", "gnd_id": "4006278-9", "gnd_ids": ["4006278-9"], "classifications": {"DDC": ["020"]}, "count": 5},
-            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"], "classifications": {"DDC": ["025.3"]}, "count": 3},
+            {"title": "Bibliothek", "gnd_id": "4006278-9", "gnd_ids": ["4006278-9"],
+             "classifications": {"DDC": [{"code": "020", "count": 5, "origin": "cooccurrence"}]}, "count": 5},
+            {"title": "Katalog", "gnd_id": "4145769-0", "gnd_ids": ["4145769-0"],
+             "classifications": {"DDC": [{"code": "025.3", "count": 3, "origin": "cooccurrence"}]}, "count": 3},
         ]
         ctx.dk_classifications = [{"code": "02", "title": "Bibliothekswesen", "confidence": 0.9}]
         ctx.keyword_chains = [
@@ -124,21 +126,59 @@ class TestSharedContext(unittest.TestCase):
             ctx.to_keyword_analysis_state().initial_gnd_classes, ["030", "020"]
         )
 
-    def test_initial_gnd_classes_tolerate_unweighted_codes(self):
-        """Authority entries have no count, and a producer may still emit bare
-        codes — neither may vanish from the display."""
+    def test_initial_gnd_classes_summary_is_signal_bearing_only(self):
+        """Since the authority-DDC read-back the pool unions hundreds of DDC.
+
+        The summary is a ranked HINT, so only codes with a relevance signal make
+        it — a co-occurrence count OR an authority determinacy. Bare authority
+        DDC (the GND's own classification, no count, no determinacy) and bare
+        codes have nothing to rank on and would flood the summary with
+        alphabetical noise, so they stay in the per-subject classifications only.
+        """
         ctx = make_shared_context()
         ctx.extracted_keywords = ["x"]
         ctx.gnd_entries = [
             {"title": "A", "gnd_ids": ["1"], "count": 1, "classifications": {
-                "DDC": [{"code": "551.48", "origin": "authority"}]}},
-            {"title": "B", "gnd_ids": ["2"], "count": 1,
-             "classifications": {"DDC": ["020"]}},
+                "DDC": [{"code": "546.62", "count": 3, "origin": "cooccurrence"}]}},
+            {"title": "B", "gnd_ids": ["2"], "count": 1, "classifications": {
+                "DDC": [{"code": "551.48", "determinacy": 1, "origin": "authority"}]}},
+            {"title": "C", "gnd_ids": ["3"], "count": 1, "classifications": {
+                # bare authority, no signal → excluded from the summary
+                "DDC": [{"code": "001.2", "origin": "authority"}]}},
+            {"title": "D", "gnd_ids": ["4"], "count": 1,
+             "classifications": {"DDC": ["003"]}},   # bare code → excluded
         ]
-        self.assertEqual(
-            sorted(ctx.to_keyword_analysis_state().initial_gnd_classes),
-            ["020", "551.48"],
-        )
+        classes = ctx.to_keyword_analysis_state().initial_gnd_classes
+        # evidenced co-occurrence first, then determinate authority; noise gone.
+        self.assertEqual(classes, ["546.62", "551.48"])
+        self.assertNotIn("001.2", classes)
+        self.assertNotIn("003", classes)
+
+    def test_initial_gnd_classes_empty_when_only_bare_authority(self):
+        """Empty honestly says 'no strongly-associated class', better than an
+        alphabetical dump implying relevance."""
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["x"]
+        ctx.gnd_entries = [
+            {"title": "A", "gnd_ids": ["1"], "count": 1, "classifications": {
+                "DDC": [{"code": "001.2", "origin": "authority"},
+                        {"code": "003", "origin": "authority"}]}},
+        ]
+        self.assertEqual(ctx.to_keyword_analysis_state().initial_gnd_classes, [])
+
+    def test_initial_gnd_classes_capped(self):
+        """Bounded even when many codes carry a signal."""
+        from src.core.agents.shared_context import _INITIAL_GND_CLASSES_LIMIT
+        ctx = make_shared_context()
+        ctx.extracted_keywords = ["x"]
+        ctx.gnd_entries = [
+            {"title": str(i), "gnd_ids": [str(i)], "count": 1, "classifications": {
+                "DDC": [{"code": f"{500+i}.{i}", "count": i + 1,
+                         "origin": "cooccurrence"}]}}
+            for i in range(_INITIAL_GND_CLASSES_LIMIT + 20)
+        ]
+        classes = ctx.to_keyword_analysis_state().initial_gnd_classes
+        self.assertEqual(len(classes), _INITIAL_GND_CLASSES_LIMIT)
 
     def test_to_keyword_analysis_state_carries_count_and_display_count(self):
         # Regression: agentic GND-Häufigkeit persisted as 0 because the KAS

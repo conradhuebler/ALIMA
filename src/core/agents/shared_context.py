@@ -16,6 +16,11 @@ from src.utils.classification_systems import codes_for_system
 
 logger = logging.getLogger(__name__)
 
+#: Cap on the ``initial_gnd_classes`` display summary. Since the authority-DDC
+#: read-back the pool can carry hundreds of DDC codes; this field is a ranked
+#: hint, not the full set (which lives in per-subject classifications).
+_INITIAL_GND_CLASSES_LIMIT = 30
+
 
 @dataclass
 class ToolResultCache:
@@ -233,24 +238,45 @@ class SharedContext(BaseSharedContext):
         dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]
 
         # --- initial GND classes from entries with DDC codes ---
-        # Ordered by accumulated evidence, strongest first: since the WP-D2
-        # harvest these codes carry co-occurrence weights, and first-seen order
-        # would put an incidental hit (one record) above a well-supported one.
-        # Deliberately NOT truncated — this is a display field, and cutting it
-        # would hide data rather than rank it. - Claude Generated
-        ddc_weight: Dict[str, int] = {}
+        # A ranked, bounded display summary of the DDC classes the initial GND
+        # hits carry. Only SIGNAL-BEARING codes make the summary: a co-occurrence
+        # ``count`` (how well the harvest supports it) or an authority
+        # ``determinacy`` (1 = definitive … 4 = loosely related). Bare authority
+        # DDC — the GND's own classification with neither count nor determinacy —
+        # cannot be ranked by relevance, and since the authority-DDC read-back
+        # the pool unions hundreds of them; an alphabetical dump of those is
+        # noise, not a hint. They stay in the per-subject ``classifications``
+        # (the full set); this summary shows only what has a relevance signal,
+        # so it is empty when nothing is strongly associated. Ranking: evidenced
+        # co-occurrence first (strongest), then authority by determinacy.
+        # - Claude Generated
+        ddc_best: Dict[str, Dict[str, int]] = {}
         for entry in self.gnd_entries:
             for code_entry in (entry.get("classifications") or {}).get("DDC") or []:
-                if isinstance(code_entry, dict):
-                    code, weight = code_entry.get("code"), code_entry.get("count") or 0
-                else:  # producer still emitting a bare code
-                    code, weight = code_entry, 0
-                code = str(code or "").strip()
-                if code:
-                    ddc_weight[code] = max(ddc_weight.get(code, 0), int(weight))
+                if not isinstance(code_entry, dict):
+                    continue  # bare code = no signal → not in the summary
+                code = str(code_entry.get("code") or "").strip()
+                count = int(code_entry.get("count") or 0)
+                det = code_entry.get("determinacy")
+                if not code or (count == 0 and det is None):
+                    continue  # no relevance signal → per-subject only
+                best = ddc_best.setdefault(code, {"count": 0, "det": 9})
+                best["count"] = max(best["count"], count)
+                if det is not None:
+                    best["det"] = min(best["det"], int(det))
+
+        def _rank(item):
+            code, sig = item
+            return (
+                0 if sig["count"] > 0 else 1,   # evidenced co-occurrence first
+                -sig["count"],                  # strongest co-occurrence first
+                sig["det"],                     # then authority, definitive first
+                code,
+            )
+
         initial_gnd_classes = [
-            code for code, _ in sorted(ddc_weight.items(), key=lambda kv: (-kv[1], kv[0]))
-        ]
+            code for code, _ in sorted(ddc_best.items(), key=_rank)
+        ][:_INITIAL_GND_CLASSES_LIMIT]
 
         # --- dk_search_results_flattened: DK-centric flat/merged view ---
         # Prefer the rich list produced by the dk_postprocess step
