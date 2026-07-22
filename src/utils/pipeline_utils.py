@@ -29,6 +29,7 @@ from ..core.data_models import (
 from ..core.search_cli import SearchCLI
 from ..core.gnd_search_core import merge_code_entry
 from .classification_systems import normalize_classifications
+from .error_visibility import log_caught
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.search import SearchCapability, enabled_gnd_provider_ids, providers_for_capability
 from ..core.processing_utils import (
@@ -635,7 +636,46 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         elif stream_callback:
             stream_callback("--> Suche abgeschlossen.\n", "search")
 
+        # Authority DDC from the local GND store, merged onto the pool subjects
+        # by GND-ID — same read-back the agentic path does. Without it the
+        # filled gnd_local store (migration + DNB enrichment) never reaches the
+        # pool and every classification stays co-occurrence. - Claude Generated
+        self._enrich_search_results_with_authority_ddc(search_results)
+
         return search_results
+
+    def _enrich_search_results_with_authority_ddc(
+        self, search_results: Dict[str, Dict[str, Any]]
+    ) -> None:
+        """Merge authority DDC (local GND store) onto the nested classic results.
+
+        Flattens the ``{term: {title: entry}}`` view to the entry list the
+        shared ``merge_authority_ddc`` atom expects. Best-effort: a store read
+        failure must not fail the search. - Claude Generated
+        """
+        from src.core.gnd_search_core import merge_authority_ddc
+
+        entries = [
+            data
+            for results in (search_results or {}).values()
+            for data in (results or {}).values()
+            if isinstance(data, dict)
+        ]
+        all_ids = {
+            gid for e in entries for gid in (e.get("gnd_ids") or []) if gid
+        }
+        if not all_ids:
+            return
+        try:
+            facts = self.cache_manager.get_gnd_facts_batch(list(all_ids))
+            ddcs_by_gid = {
+                gid: getattr(fact, "ddcs", "")
+                for gid, fact in (facts or {}).items()
+            }
+            merge_authority_ddc(entries, ddcs_by_gid)
+        except Exception as e:
+            # Best-effort: authority enrichment must never fail the search.
+            log_caught(self.logger, e, "authority-DDC enrichment")
 
     def execute_fallback_gnd_search(
         self,

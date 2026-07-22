@@ -184,5 +184,69 @@ class TestSearchCliMergeEquivalence(unittest.TestCase):
         self.assertEqual(combined["term"]["Neu"]["gnd_ids"], {"9"})
 
 
+class TestMergeAuthorityDdc(unittest.TestCase):
+    """The read-back that makes the filled gnd_local store reach the pool.
+
+    The store holds an authority DDC per GND-ID and ``get_gnd_batch`` serves it,
+    but both search paths used to fetch it only for description/synonyms and
+    discard the DDC — so every pool classification stayed ``cooccurrence`` and a
+    subject like "Cadmium" never got its authority DDC. This atom is shared by
+    the classic and agentic paths.
+    """
+
+    def _entry(self, gnd_ids, classifications=None):
+        from src.core.gnd_search_core import merge_authority_ddc
+        e = {"title": "X", "gnd_ids": list(gnd_ids),
+             "classifications": classifications or {}}
+        merge_authority_ddc([e], self.ddcs)
+        return e
+
+    def setUp(self):
+        # store DDC column format: pipe-separated codes, optional (determinacy)
+        self.ddcs = {"g1": "546.48(1)|669", "g2": "540", "g3": ""}
+
+    def test_authority_ddc_is_attached_by_gnd_id(self):
+        cls = self._entry(["g1"])["classifications"]
+        self.assertEqual(codes_for_system(cls, "DDC"), ["546.48", "669"])
+        self.assertTrue(all(e["origin"] == "authority" for e in cls["DDC"]))
+
+    def test_cooccurrence_on_other_systems_is_untouched(self):
+        """Merging DDC must not disturb an existing RVK co-occurrence."""
+        cls = self._entry(["g1"], {
+            "RVK": [{"code": "VN 9360", "count": 2, "origin": "cooccurrence"}],
+        })["classifications"]
+        self.assertEqual(codes_for_system(cls, "RVK"), ["VN 9360"])
+        self.assertEqual(cls["RVK"][0]["origin"], "cooccurrence")
+        self.assertEqual(codes_for_system(cls, "DDC"), ["546.48", "669"])
+
+    def test_authority_outranks_cooccurrence_on_the_same_code(self):
+        cls = self._entry(["g2"], {
+            "DDC": [{"code": "540", "count": 5, "origin": "cooccurrence"}],
+        })["classifications"]
+        self.assertEqual(codes_for_system(cls, "DDC"), ["540"])
+        self.assertEqual(cls["DDC"][0]["origin"], "authority")   # authority wins
+
+    def test_ddc_merges_from_every_gnd_id(self):
+        """A subject's merged spellings can each carry a DDC."""
+        cls = self._entry(["g1", "g2"])["classifications"]
+        self.assertEqual(set(codes_for_system(cls, "DDC")), {"546.48", "669", "540"})
+
+    def test_determinacy_sorts_authority_entries(self):
+        cls = self._entry(["g1"])["classifications"]
+        # 546.48 has determinacy 1 (definitive) → before 669 (no determinacy)
+        self.assertEqual(cls["DDC"][0]["code"], "546.48")
+
+    def test_missing_or_blank_store_ddc_is_a_noop(self):
+        self.assertEqual(self._entry(["g3"])["classifications"], {})
+        self.assertEqual(self._entry(["unknown"])["classifications"], {})
+
+    def test_returns_count_of_entries_that_gained_a_ddc(self):
+        from src.core.gnd_search_core import merge_authority_ddc
+        entries = [{"gnd_ids": ["g1"], "classifications": {}},
+                   {"gnd_ids": ["g3"], "classifications": {}},   # blank → no gain
+                   {"gnd_ids": ["g2"], "classifications": {}}]
+        self.assertEqual(merge_authority_ddc(entries, self.ddcs), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,6 +22,7 @@ from src.core.agents.registry import register_tool_fn
 from src.utils.classification_systems import codes_for_system
 from src.core.agents.tool_providers import DKDataProvider
 from src.core.gnd_search_core import (
+    merge_authority_ddc,
     merge_into_pool,
     parse_batch_response,
     parse_batch_response_with_terms,
@@ -288,6 +289,15 @@ def gnd_batch_search(
                         if r.get("synonyms") and not entry.get("synonyms"):
                             entry["synonyms"] = r["synonyms"]
                         break
+                # Authority DDC from the local GND store, by GND-ID — merged onto
+                # the pool subjects (shared with the classic path). The store's
+                # DDC was fetched above but discarded; this is the read-back that
+                # makes the filled store actually reach the pool. - Claude Generated
+                ddcs_by_gid = {
+                    gid: e.get("ddcs", "")
+                    for gid, e in (ed.get("entries") or {}).items()
+                }
+                merge_authority_ddc(entries, ddcs_by_gid)
             except Exception as e:
                 log_caught(logger, e, "gnd_batch_search: get_gnd_batch enrichment")
 

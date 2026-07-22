@@ -181,6 +181,39 @@ def pool_entry_from_reduced(kw_title: str, kw_data: Dict[str, Any]) -> Dict[str,
     return entry
 
 
+def merge_authority_ddc(entries: Iterable[Dict[str, Any]], ddcs_by_gid: Dict[str, Any]) -> int:
+    """Merge the local GND store's authority DDC onto pool entries, by GND-ID.
+
+    Shared by the classic and agentic search paths. Each pool entry carries the
+    ``gnd_ids`` of its subject; the store holds an authority DDC per GND-ID
+    (``ddcs_by_gid``, the ``gnd_entries.ddcs`` TEXT column served by
+    ``get_gnd_facts_batch`` / ``get_gnd_batch``). Without this the whole
+    authority path is dead-ended: the store is filled (migration + DNB
+    enrichment) and served, but nobody reads its DDC back onto the subjects, so
+    every pool classification stays ``cooccurrence`` and a term like "Cadmium"
+    never gets its authority DDC.
+
+    Merges from EVERY gnd_id of an entry (merged spellings can each carry one).
+    ``origin="authority"`` outranks the co-occurrence harvest on the same code
+    (``merge_classifications`` handles precedence). In place; returns how many
+    entries gained a DDC. - Claude Generated
+    """
+    from src.utils.classification_systems import merge_classifications, parse_stored_ddcs
+
+    touched = 0
+    for entry in entries:
+        gained = False
+        for gid in entry.get("gnd_ids", []) or []:
+            ddc_entries = parse_stored_ddcs(ddcs_by_gid.get(gid))
+            if ddc_entries:
+                entry["classifications"] = merge_classifications(
+                    entry.get("classifications"), {"DDC": ddc_entries}
+                )
+                gained = True
+        touched += gained
+    return touched
+
+
 def parse_batch_response(raw: Any) -> Dict[str, Dict[str, Any]]:
     """Parse a SWB/Lobid batch-search JSON response into a title→entry pool.
 
