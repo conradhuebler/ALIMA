@@ -329,12 +329,15 @@ class PipelineTabEventsMixin:
         # Optional: Auto-save after completion - Claude Generated
         if hasattr(analysis_state, 'working_title') and analysis_state.working_title:
             from ..utils.pipeline_utils import export_analysis_state_to_file
-            from ..utils.pipeline_defaults import get_autosave_dir
+            from ..utils.pipeline_defaults import autosave_filename, get_autosave_dir
 
             auto_save_dir = get_autosave_dir(getattr(self, 'config_manager', None))
             auto_save_dir.mkdir(parents=True, exist_ok=True)
 
-            auto_save_file = auto_save_dir / f"{analysis_state.working_title}.json"
+            # Timestamped so two agentic runs of the same document don't overwrite
+            # each other (the agentic working_title carries no timestamp of its
+            # own, unlike the classic path's). - Claude Generated
+            auto_save_file = auto_save_dir / autosave_filename(analysis_state.working_title)
             try:
                 export_analysis_state_to_file(analysis_state, str(auto_save_file))
                 self.logger.info(f"✅ Auto-saved pipeline result to: {auto_save_file}")
