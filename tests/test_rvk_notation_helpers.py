@@ -140,5 +140,69 @@ class TestNoDuplicateDefinitionsRemain(unittest.TestCase):
                 self.assertEqual(counts.get(name), 1, f"{name} is defined more than once")
 
 
+class TestIsStrongAnchorCandidate(unittest.TestCase):
+    """The keep-unconditionally rule, extracted from
+    ``_validate_catalog_rvk_candidates`` (F-14) so it can be tested.
+
+    Two anchor hits is always strong; one hit needs corroboration.
+    """
+
+    def setUp(self):
+        from src.utils._pipeline_rvk_scoring import _is_strong_anchor_candidate
+        self.strong = _is_strong_anchor_candidate
+
+    def test_two_anchor_hits_is_always_strong(self):
+        self.assertTrue(self.strong({"anchor_hit_count": 2}))
+        self.assertTrue(self.strong({"anchor_hit_count": 5}))
+
+    def test_zero_anchor_hits_is_never_strong(self):
+        self.assertFalse(self.strong({"anchor_hit_count": 0, "count_value": 999}))
+
+    def test_one_hit_needs_corroboration(self):
+        """A lone anchor hit alone is not enough."""
+        self.assertFalse(self.strong({"anchor_hit_count": 1}))
+        self.assertFalse(self.strong(
+            {"anchor_hit_count": 1, "keyword_hit_count": 1,
+             "count_value": 7, "title_hit_count": 2}
+        ))
+
+    def test_one_hit_with_repeated_keywords_is_strong(self):
+        self.assertTrue(self.strong({"anchor_hit_count": 1, "keyword_hit_count": 2}))
+
+    def test_one_hit_with_high_count_is_strong(self):
+        self.assertTrue(self.strong({"anchor_hit_count": 1, "count_value": 8}))
+
+    def test_one_hit_with_several_titles_is_strong(self):
+        self.assertTrue(self.strong({"anchor_hit_count": 1, "title_hit_count": 3}))
+
+    def test_the_corroboration_thresholds_are_boundaries(self):
+        """Just below each threshold is not strong; at it, is."""
+        self.assertFalse(self.strong({"anchor_hit_count": 1, "count_value": 7}))
+        self.assertTrue(self.strong({"anchor_hit_count": 1, "count_value": 8}))
+        self.assertFalse(self.strong({"anchor_hit_count": 1, "title_hit_count": 2}))
+        self.assertTrue(self.strong({"anchor_hit_count": 1, "title_hit_count": 3}))
+
+
+class TestCanTakeBranch(unittest.TestCase):
+    """The per-branch shortlist cap, extracted from
+    ``_validate_catalog_rvk_candidates`` (F-14) — closure vars are now params."""
+
+    def setUp(self):
+        from src.utils._pipeline_rvk_scoring import _can_take_branch
+        self.can = _can_take_branch
+
+    def test_branch_with_room_can_take(self):
+        self.assertTrue(self.can({"branch": "WI"}, {"WI": 3}, 5))
+
+    def test_branch_at_cap_cannot_take(self):
+        self.assertFalse(self.can({"branch": "WI"}, {"WI": 5}, 5))
+
+    def test_unseen_branch_can_take(self):
+        self.assertTrue(self.can({"branch": "RB"}, {"WI": 5}, 1))
+
+    def test_over_cap_cannot_take(self):
+        self.assertFalse(self.can({"branch": "WI"}, {"WI": 6}, 5))
+
+
 if __name__ == "__main__":
     unittest.main()

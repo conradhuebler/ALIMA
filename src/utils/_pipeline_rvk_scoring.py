@@ -60,6 +60,36 @@ def _status_rank(status: str) -> int:
         "validation_error": 1,
     }.get(status, 0)
 
+
+def _is_strong_anchor_candidate(item: Dict[str, Any]) -> bool:
+    """Whether a candidate's anchor match is strong enough to keep unconditionally.
+
+    Two anchor hits is always strong; one hit needs corroboration (repeated
+    keyword hits, a high catalog count, or several title hits). Extracted from
+    ``_validate_catalog_rvk_candidates`` (WP cleanup F-14) so it can be tested —
+    it was pure (no closure), moved verbatim. - Claude Generated
+    """
+    if item["anchor_hit_count"] >= 2:
+        return True
+    if item["anchor_hit_count"] == 1:
+        return (
+            int(item.get("keyword_hit_count", 0)) >= 2
+            or int(item.get("count_value", 0)) >= 8
+            or int(item.get("title_hit_count", 0)) >= 3
+        )
+    return False
+
+
+def _can_take_branch(item: Dict[str, Any], branch_counts: Dict[str, int],
+                     max_per_branch: int) -> bool:
+    """Whether this candidate's RVK branch still has room in the shortlist.
+
+    Extracted from ``_validate_catalog_rvk_candidates`` (WP cleanup F-14); the
+    two closure variables (``branch_counts``, ``max_per_branch``) became explicit
+    params — the body is otherwise unchanged. - Claude Generated
+    """
+    return branch_counts.get(item["branch"], 0) < max_per_branch
+
 class RvkScoringMixin:
     """RVK scoring/selection methods (mixed into PipelineStepExecutor)."""
 
@@ -262,14 +292,6 @@ class RvkScoringMixin:
                     seen_plausible_codes.add(normalized)
                     unique_plausible_codes.append(normalized)
 
-        def _evidence_score(code: str) -> int:
-            evidence = evidence_by_code.get(code, {})
-            return (
-                int(evidence.get("count", 0)) * 4
-                + len(evidence.get("keyword_hits", set())) * 3
-                + min(int(evidence.get("title_hits", 0)), 10)
-            )
-
         candidate_meta = []
         for code in unique_plausible_codes:
             evidence = evidence_by_code.get(code, {})
@@ -315,17 +337,6 @@ class RvkScoringMixin:
         anchor_counts: Dict[str, int] = {anchor: 0 for anchor in anchor_terms}
         meta_by_code = {item["code"]: item for item in candidate_meta}
 
-        def _is_strong_anchor_candidate(item: Dict[str, Any]) -> bool:
-            if item["anchor_hit_count"] >= 2:
-                return True
-            if item["anchor_hit_count"] == 1:
-                return (
-                    int(item.get("keyword_hit_count", 0)) >= 2
-                    or int(item.get("count_value", 0)) >= 8
-                    or int(item.get("title_hit_count", 0)) >= 3
-                )
-            return False
-
         anchored_candidates = [
             item for item in candidate_meta
             if item["anchor_hit_count"] > 0 and (not anchor_terms or _is_strong_anchor_candidate(item))
@@ -333,9 +344,6 @@ class RvkScoringMixin:
         if anchor_terms and not anchored_candidates:
             anchored_candidates = [item for item in candidate_meta if item["anchor_hit_count"] > 0]
         exploratory_candidates = [item for item in candidate_meta if item["anchor_hit_count"] == 0]
-
-        def _can_take_branch(item: Dict[str, Any]) -> bool:
-            return branch_counts.get(item["branch"], 0) < max_per_branch
 
         def _select_item(item: Dict[str, Any]) -> None:
             code = item["code"]
@@ -351,7 +359,7 @@ class RvkScoringMixin:
             for item in anchored_candidates:
                 if len(selected_codes) >= max_anchor_candidates:
                     break
-                if not _can_take_branch(item):
+                if not _can_take_branch(item, branch_counts, max_per_branch):
                     continue
                 if item["anchor_hits"] and not any(anchor_counts.get(anchor, 0) < max_per_anchor for anchor in item["anchor_hits"]):
                     continue
@@ -360,7 +368,7 @@ class RvkScoringMixin:
             for item in anchored_candidates:
                 if len(selected_codes) >= max_anchor_candidates:
                     break
-                if item["code"] in selected_set or not _can_take_branch(item):
+                if item["code"] in selected_set or not _can_take_branch(item, branch_counts, max_per_branch):
                     continue
                 _select_item(item)
 
@@ -370,7 +378,7 @@ class RvkScoringMixin:
         for item in exploratory_candidates:
             if exploration_slots <= 0 or len(selected_codes) >= max_validation_candidates:
                 break
-            if not _can_take_branch(item):
+            if not _can_take_branch(item, branch_counts, max_per_branch):
                 continue
             _select_item(item)
             exploration_slots -= 1
