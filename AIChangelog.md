@@ -6,6 +6,33 @@
 
 ## 2026
 
+### DOI/URL-Resolver: Schema-lose URLs + Blurb-Eskalation (August 4, 2026)
+
+Operator-Befund: `link.springer.com/book/10.1007/…` im GUI eingegeben lieferte
+162 Zeichen (Titel + Ein-Satz-Crossref-Blurb) statt der 4.784 Zeichen des
+Springer-Crawls. Zwei gestapelte Ursachen, beide behoben:
+
+1. **Schema-lose URLs fielen in den DOI-Fallback** — im GUI-Auto-Detect UND in
+   `UnifiedResolver._analyze_input` („Assume it's a DOI", mit der ganzen URL
+   als „DOI" durch die Crossref-Kette). Neu: geteilter Helfer
+   `looks_like_schemaless_url` (Host-Segment enthält Punkt, kein
+   `10.`-Präfix) → `https://` voranstellen und als URL klassifizieren. Beide
+   Schichten nutzen dieselbe Funktion.
+2. **Die DOI-Kette akzeptierte Mini-Abstracts als Endergebnis.** Neu:
+   `_resolve_doi_with_quality_escalation` — unter 300 Zeichen
+   (`_MIN_RICH_ABSTRACT_CHARS`) wird die Landing-Page
+   (`https://doi.org/<doi>`, Verlags-Redirect) gecrawlt und das reichere
+   Ergebnis gewinnt; API-Titel/-Autoren bleiben, `abstract` wird ersetzt
+   (damit auch `format_doi_metadata`-Konsumenten den langen Text sehen),
+   `source` markiert die Eskalation. Rauschbegrenzt: der Generic-Extraktor
+   kappt Seiteninhalt bei 2.000 Zeichen. Crawl schlechter/kaputt → API-Ergebnis
+   bleibt; API komplett leer → Crawl als Fallback.
+
+Live verifiziert: dieselbe schema-lose Eingabe liefert jetzt 4.765 Zeichen auf
+dem früheren Fehlpfad. Springer-DOIs (`10.1007`) hatten die Crawl-Eskalation
+schon immer (eigener Zweig); neu profitieren Nicht-Springer-DOIs und alle
+Aufrufer von `resolve()` (GUI, CLI, Webapp, Batch).
+
 ### WP-D1 P3+P4: GND-Signale + Identifier-Crosswalk (August 3, 2026)
 
 Die letzten beiden Konsumenten-Pfade der Daten-Achse.

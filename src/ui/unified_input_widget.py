@@ -40,7 +40,13 @@ from ..llm.llm_service import LlmService
 from .image_analysis_tab import ImageAnalysisTab
 from .workers import StoppableWorker
 from ..core.alima_manager import AlimaManager
-from ..utils.doi_resolver import UnifiedResolver, _get_doi_config, format_doi_metadata, resolve_input_to_text
+from ..utils.doi_resolver import (
+    UnifiedResolver,
+    _get_doi_config,
+    format_doi_metadata,
+    looks_like_schemaless_url,
+    resolve_input_to_text,
+)
 
 
 class TextExtractionWorker(StoppableWorker):
@@ -1105,6 +1111,12 @@ class UnifiedInputWidget(QWidget):
             # Extract DOI from DOI URL (e.g., https://doi.org/10.1007/...)
             doi_part = input_text.split("doi.org/")[-1]
             self.extract_text("doi", doi_part)
+        elif looks_like_schemaless_url(input_text):
+            # Host-looking input without a scheme ("link.springer.com/…") is a
+            # URL — the former assume-it's-a-DOI fallthrough sent it down the
+            # Crossref chain and returned a one-sentence blurb instead of the
+            # full landing-page crawl. - Claude Generated
+            self.extract_text("url", f"https://{input_text}")
         else:
             # Assume it's a DOI if it doesn't look like a URL
             self.extract_text("doi", input_text)

@@ -18,7 +18,11 @@ import re
 import unittest
 from unittest.mock import patch
 
-from src.utils.doi_resolver import UnifiedResolver
+from src.utils.doi_resolver import (
+    _MIN_RICH_ABSTRACT_CHARS,
+    UnifiedResolver,
+    looks_like_schemaless_url,
+)
 
 CROSSREF_WITH_ABSTRACT = (
     True,
@@ -116,6 +120,101 @@ class TestFormatDoiMetadata(unittest.TestCase):
         }, fallback_text="")
         self.assertNotIn("Not available", text)
         self.assertIn("Echter Text.", text)
+
+
+class TestSchemalessUrlRouting(unittest.TestCase):
+    """A host-looking input without scheme is a URL, not a DOI. The former
+    assume-it's-a-DOI fallthrough sent 'link.springer.com/book/…' down the
+    Crossref chain and the GUI showed a one-sentence blurb instead of the
+    4.7k-char landing-page crawl (reproduced live, Aug 4 2026)."""
+
+    def test_helper_truth_table(self):
+        self.assertTrue(looks_like_schemaless_url("link.springer.com/book/10.1007/x"))
+        self.assertTrue(looks_like_schemaless_url("doi.org/10.5040/x"))
+        self.assertTrue(looks_like_schemaless_url("example.com"))
+        self.assertFalse(looks_like_schemaless_url("10.1007/978-3-031-47390-6"))
+        self.assertFalse(looks_like_schemaless_url("https://link.springer.com/x"))
+        self.assertFalse(looks_like_schemaless_url("nur ein text mit leerzeichen"))
+        self.assertFalse(looks_like_schemaless_url("kein-host-anteil/pfad"))
+        self.assertFalse(looks_like_schemaless_url(""))
+
+    def _analyze(self, s):
+        return UnifiedResolver()._analyze_input(s)
+
+    def test_schemaless_springer_url_is_crawled_not_crossrefed(self):
+        kind, value = self._analyze("link.springer.com/book/10.1007/978-3-031-47390-6")
+        self.assertEqual(kind, "springer_url")
+        self.assertEqual(value, "https://link.springer.com/book/10.1007/978-3-031-47390-6")
+
+    def test_schemaless_doi_org_extracts_the_doi(self):
+        kind, value = self._analyze("doi.org/10.1007/978-3-031-47390-6")
+        self.assertEqual((kind, value), ("springer_doi", "10.1007/978-3-031-47390-6"))
+
+    def test_schemaless_generic_host_is_a_generic_url(self):
+        kind, value = self._analyze("example.com/artikel/42")
+        self.assertEqual((kind, value), ("generic_url", "https://example.com/artikel/42"))
+
+    def test_bare_dois_are_unchanged(self):
+        self.assertEqual(
+            self._analyze("10.1007/978-3-031-47390-6")[0], "springer_doi"
+        )
+        self.assertEqual(self._analyze("10.5040/9781350067417")[0], "crossref_doi")
+
+
+class TestQualityEscalation(unittest.TestCase):
+    """A thin API abstract (< _MIN_RICH_ABSTRACT_CHARS) escalates to a
+    landing-page crawl; the richer result wins, API title/authors are kept."""
+
+    _THIN = (
+        True,
+        {"title": "Cadmium Toxicity Mitigation", "doi": "10.5/x",
+         "abstract": "Ein-Satz-Blurb.", "source": "crossref"},
+        "Ein-Satz-Blurb.",
+    )
+    _RICH_TEXT = "X" * (_MIN_RICH_ABSTRACT_CHARS + 500)
+
+    def _resolve(self, api_result, crawl_result):
+        r = UnifiedResolver()
+        with patch.object(r, "_resolve_doi_with_fallback", return_value=api_result) as api, \
+             patch.object(r, "_resolve_generic_url", return_value=crawl_result) as crawl:
+            out = r.resolve("10.5040/9781350067417")
+        return out, api, crawl
+
+    def test_thin_abstract_escalates_and_crawl_wins(self):
+        crawl = (True, {"title": "Seitentitel", "content": "…", "source": "Generic Web Crawl"}, self._RICH_TEXT)
+        (ok, meta, text), _api, crawl_mock = self._resolve(self._THIN, crawl)
+        crawl_mock.assert_called_once_with("https://doi.org/10.5040/9781350067417")
+        self.assertTrue(ok)
+        self.assertEqual(text, self._RICH_TEXT)
+        # API metadata is authoritative for title; abstract carries the crawl
+        self.assertEqual(meta["title"], "Cadmium Toxicity Mitigation")
+        self.assertEqual(meta["abstract"], self._RICH_TEXT)
+        self.assertEqual(meta["source"], "crossref+landing_page_crawl")
+
+    def test_rich_abstract_does_not_escalate(self):
+        rich_api = (True, {"title": "T", "abstract": self._RICH_TEXT}, self._RICH_TEXT)
+        (ok, _meta, text), _api, crawl_mock = self._resolve(rich_api, (False, None, "unused"))
+        crawl_mock.assert_not_called()
+        self.assertEqual(text, self._RICH_TEXT)
+
+    def test_failed_crawl_keeps_the_api_result(self):
+        (ok, meta, text), _api, _crawl = self._resolve(self._THIN, (False, None, "down"))
+        self.assertTrue(ok)
+        self.assertEqual(text, "Ein-Satz-Blurb.")
+        self.assertEqual(meta["source"], "crossref")
+
+    def test_shorter_crawl_keeps_the_api_result(self):
+        (ok, _meta, text), _api, _crawl = self._resolve(
+            self._THIN, (True, {"title": "T"}, "Kurz.")
+        )
+        self.assertEqual(text, "Ein-Satz-Blurb.")
+
+    def test_api_total_failure_falls_back_to_crawl(self):
+        crawl = (True, {"title": "Seitentitel"}, self._RICH_TEXT)
+        (ok, meta, text), _api, _crawl = self._resolve((False, None, "kein Treffer"), crawl)
+        self.assertTrue(ok)
+        self.assertEqual(text, self._RICH_TEXT)
+        self.assertEqual(meta["title"], "Seitentitel")
 
 
 if __name__ == "__main__":

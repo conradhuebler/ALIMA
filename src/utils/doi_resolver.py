@@ -11,6 +11,28 @@ from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 import logging
 
+# Below this many characters an API "abstract" is treated as a marketing blurb
+# (Crossref carries one-sentence texts for many books), not as a final answer —
+# the resolver escalates to a landing-page crawl. - Claude Generated
+_MIN_RICH_ABSTRACT_CHARS = 300
+
+
+def looks_like_schemaless_url(value: str) -> bool:
+    """True for host-looking input without a scheme (``link.springer.com/…``).
+
+    Decides URL-vs-DOI for manual input: the segment before the first slash is
+    a hostname (contains a dot) and is not a DOI prefix (``10.xxxx``). Shared
+    by ``UnifiedResolver._analyze_input`` and the GUI input widget so both
+    layers classify identically — a schema-less Springer URL used to fall into
+    the assume-it's-a-DOI branch and came back as a one-sentence Crossref
+    blurb instead of the full landing-page crawl. - Claude Generated
+    """
+    s = str(value or "").strip()
+    if not s or s.startswith(("http://", "https://")) or " " in s:
+        return False
+    host = s.split("/", 1)[0]
+    return "." in host and not host.startswith("10.")
+
 
 class UnifiedResolver:
     """Unified URL/DOI resolution with enhanced Springer crawling and generic web support - Claude Generated"""
@@ -53,7 +75,7 @@ class UnifiedResolver:
                 return self._resolve_generic_url(resolved_value)
             elif input_type == "crossref_doi":
                 self.logger.info("Using DOI resolution with fallback (Crossref → OpenAlex → DataCite)")
-                return self._resolve_doi_with_fallback(resolved_value)
+                return self._resolve_doi_with_quality_escalation(resolved_value)
             else:
                 error_msg = f"Unable to determine input type for: {input_string}"
                 self.logger.error(error_msg)
@@ -72,6 +94,12 @@ class UnifiedResolver:
             Tuple[input_type: str, resolved_value: str]
         """
         input_clean = input_string.strip()
+
+        # Host-looking input without a scheme ("link.springer.com/…") is a URL
+        # the user just didn't prefix — normalise and let the URL branches
+        # (Springer/doi.org/generic) classify it properly. - Claude Generated
+        if looks_like_schemaless_url(input_clean):
+            input_clean = f"https://{input_clean}"
 
         # Check if it's a URL
         if input_clean.startswith(("http://", "https://")):
@@ -120,6 +148,46 @@ class UnifiedResolver:
     def _is_springer_doi(self, doi: str) -> bool:
         """Check if DOI is from Springer (starts with 10.1007) - Claude Generated"""
         return doi.startswith("10.1007")
+
+    def _resolve_doi_with_quality_escalation(
+        self, doi: str
+    ) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """API chain first; a mini-abstract escalates to a landing-page crawl.
+
+        Crossref carries one-sentence marketing blurbs for many books. An API
+        "success" below ``_MIN_RICH_ABSTRACT_CHARS`` is therefore not accepted
+        as the final answer: the DOI landing page (``https://doi.org/<doi>``,
+        publisher redirect) is crawled — noise-bounded, the generic extractor
+        caps page content at 2000 chars — and the RICHER of the two results
+        wins. API metadata (title/authors) is kept either way; on escalation
+        the ``abstract`` is replaced so every consumer, including
+        ``format_doi_metadata``, sees the richer text. - Claude Generated
+        """
+        success, metadata, text = self._resolve_doi_with_fallback(doi)
+        text_len = len((text or "").strip()) if success else 0
+        if success and text_len >= _MIN_RICH_ABSTRACT_CHARS:
+            return success, metadata, text
+
+        self.logger.info(
+            f"DOI {doi}: API abstract is thin ({text_len} chars) — "
+            f"escalating to landing-page crawl"
+        )
+        crawl_ok, crawl_meta, crawl_text = self._resolve_generic_url(
+            f"https://doi.org/{doi}"
+        )
+        crawl_len = len((crawl_text or "").strip()) if crawl_ok else 0
+        if crawl_ok and crawl_len > text_len:
+            merged = dict(crawl_meta or {})
+            merged.update({k: v for k, v in (metadata or {}).items() if v})
+            merged["abstract"] = crawl_text
+            merged["source"] = (
+                f"{(metadata or {}).get('source', 'api')}+landing_page_crawl"
+            )
+            self.logger.info(
+                f"DOI {doi}: crawl escalation won ({text_len} → {crawl_len} chars)"
+            )
+            return True, merged, crawl_text
+        return success, metadata, text
 
     def _resolve_springer_url(
         self, url: str
