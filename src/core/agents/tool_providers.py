@@ -21,6 +21,57 @@ logger = logging.getLogger(__name__)
 # DK Data Provider
 # ============================================================
 
+def aggregate_catalog_classification_entries(
+    results: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Title records → per-code candidate rows, uniform over all systems (WP-D2).
+
+    Replaces three copy-pasted per-system loops that also carried a DK-only
+    asymmetry: only DK got frequency aggregation while RVK/DDC were hardcoded
+    ``count=1`` — DDC candidates therefore died at any frequency threshold > 1.
+    Now every system's ``(system, code)`` pair is counted across all records
+    (how many catalog titles carry it) and the row keeps the aggregate.
+
+    Records carry the canonical ``classifications`` dict; the row key ``"dk"``
+    holds the notation of ANY system (``classification_type`` says which) — a
+    result-ROW field name, deliberately NOT renamed here (see
+    general-notation-direction: a blanket rename destroys the row vocabulary
+    consumers). - Claude Generated
+    """
+    from src.utils.classification_systems import KNOWN_SYSTEMS, codes_for_system
+
+    freq: Dict[tuple, int] = {}
+    for records in results.values():
+        if not isinstance(records, list):
+            continue
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            for system in KNOWN_SYSTEMS:
+                for code in codes_for_system(rec.get("classifications"), system):
+                    freq[(system, code)] = freq.get((system, code), 0) + 1
+
+    entries: List[Dict[str, Any]] = []
+    for query, records in results.items():
+        if not isinstance(records, list):
+            continue
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            title = rec.get("title", "")
+            for system in KNOWN_SYSTEMS:
+                for code in codes_for_system(rec.get("classifications"), system):
+                    entries.append({
+                        "keyword": query,
+                        "dk": code,
+                        "title": title,
+                        "count": freq.get((system, code), 1),
+                        "source": "catalog",
+                        "classification_type": system,
+                    })
+    return entries
+
+
 @dataclass
 class DKDataResult:
     """Uniform result from DK classification data collection.
@@ -288,61 +339,7 @@ class DKDataProvider:
                 return entries, tool_calls
 
             results = data.get("results", {}) or {}
-
-            # First pass: count how often each DK code appears across all records
-            # (= how many catalog titles carry that DK code → frequency signal)
-            dk_freq: Dict[str, int] = {}
-            for records in results.values():
-                if not isinstance(records, list):
-                    continue
-                for rec in records:
-                    if not isinstance(rec, dict):
-                        continue
-                    for dk in (rec.get("dk_codes") or []):
-                        if dk:
-                            dk_freq[str(dk)] = dk_freq.get(str(dk), 0) + 1
-
-            # Second pass: build entries with aggregated frequency count
-            for query, records in results.items():
-                if not isinstance(records, list):
-                    continue
-                for rec in records:
-                    if not isinstance(rec, dict):
-                        continue
-                    title = rec.get("title", "")
-                    dk_codes = rec.get("dk_codes", []) or []
-                    rvk_codes = rec.get("rvk_codes", []) or []
-                    ddc_codes = rec.get("ddc_codes", []) or []
-                    for dk in dk_codes:
-                        if dk:
-                            entries.append({
-                                "keyword": query,
-                                "dk": str(dk),
-                                "title": title,
-                                "count": dk_freq.get(str(dk), 1),
-                                "source": "catalog",
-                                "classification_type": "DK",
-                            })
-                    for rvk in rvk_codes:
-                        if rvk:
-                            entries.append({
-                                "keyword": query,
-                                "dk": str(rvk),
-                                "title": title,
-                                "count": 1,
-                                "source": "catalog",
-                                "classification_type": "RVK",
-                            })
-                    for ddc in ddc_codes:
-                        if ddc:
-                            entries.append({
-                                "keyword": query,
-                                "dk": str(ddc),
-                                "title": title,
-                                "count": 1,
-                                "source": "catalog",
-                                "classification_type": "DDC",
-                            })
+            entries.extend(aggregate_catalog_classification_entries(results))
             if self.stream_callback:
                 dk_count = sum(1 for e in entries if e.get("classification_type") == "DK")
                 self.stream_callback(f"  ✅ {len(entries)} Einträge ({dk_count} DK)\n")

@@ -413,8 +413,9 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
         Returns:
             Mapping ``{search_term: [record, ...]}``. Each record contains
-            rsn, web_url, title, authors, year, dk_codes, rvk_codes, ddc_codes,
-            subjects, mab_subjects.
+            rsn, web_url, title, authors, isbn, publication, year,
+            ``classifications`` (canonical ``{system: [{code, origin}]}``,
+            WP-D2), subjects, mab_subjects.
         """
         libero_map = {"kw": "ku", "title": "k", "freetext": "ku"}
         libero_use = libero_map.get(search_type, search_type)
@@ -438,14 +439,21 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
             processed = self.process_search_results(hits, max_items=max_results)
 
+            from ..classification_systems import build_classifications
+
             records = []
             for item in processed:
                 rsn = item.get("rsn")
                 title = item.get("title", "").strip()
                 if not title:
                     continue
-                dk_codes = list(item.get("decimal_classifications") or [])
-                rvk_codes = list(item.get("rvk_classifications") or [])
+                # WP-D2: title records carry the ONE canonical classification
+                # dict instead of parallel dk_codes/rvk_codes/ddc_codes lists
+                classifications = build_classifications([
+                    ("DK", item.get("decimal_classifications")),
+                    ("RVK", item.get("rvk_classifications")),
+                    ("DDC", item.get("ddc_codes")),
+                ])
                 # Claude Generated - catalog web link for LLM / operator output.
                 # The TU-Freiberg web OPAC expects RSNs prefixed with "0-"
                 # (e.g. "0-364641185"); the SOAP API returns the bare numeric
@@ -471,9 +479,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                     "isbn": item.get("isbn", ""),
                     "publication": item.get("publication", ""),
                     "year": item.get("year", "") or item.get("publication_year", ""),
-                    "dk_codes": dk_codes,
-                    "rvk_codes": rvk_codes,
-                    "ddc_codes": list(item.get("ddc_codes") or []),
+                    "classifications": classifications,
                     "subjects": list(item.get("subjects") or []),
                     "mab_subjects": list(item.get("mab_subjects") or []),
                 })

@@ -6,6 +6,39 @@
 
 ## 2026
 
+### WP-D2, Schnitt 1: Katalog-Title-Records auf die kanonische Form (August 4, 2026)
+
+Der letzte bespoke Klassifikations-Transport ist weg: Katalog-Title-Records
+(`biblio_client.search_titles` → `catalog_titles`-Tool, Renderer, Agentik)
+trugen parallele `dk_codes`/`rvk_codes`/`ddc_codes`-Listen neben dem überall
+sonst kanonischen `classifications: {SYSTEM: [{code, origin}]}`. Harter
+Schnitt, alle Konsumenten migriert:
+
+- **Produzent:** `search_titles` emittiert das kanonische Dict; neuer Helfer
+  `build_classifications((system, codes)-Pairs, origin=authority)` beim
+  Vokabular-Owner `classification_systems` (aus `bib_record._classifications`
+  extrahiert, das jetzt darüber läuft).
+- **Konsumenten:** `tool_providers` — die drei kopierten per-System-Schleifen
+  sind EINE generalisierte, testbare Funktion
+  (`aggregate_catalog_classification_entries`); dabei fiel eine echte
+  **DK-Asymmetrie**: nur DK bekam Frequenz-Aggregation, RVK/DDC waren hart
+  `count=1` — **DDC-Kandidaten starben an jedem Frequenz-Threshold > 1**.
+  Jetzt zählt jedes `(System, Code)`-Paar über alle Records.
+  `title_list`-Renderer liest kanonisch (zeigt jetzt alle Systeme, nicht nur
+  DK/RVK); `bib_record._from_catalog` normalisiert über den Choke-Point.
+- Die Row-Vokabel `"dk"` (Ergebnis-Zeilen, `classification_type` sagt das
+  System) bleibt bewusst — die Blanket-Rename-Warnung aus
+  `general-notation-direction` gilt weiter.
+- Raw-Cache geprüft: `catalog_titles`-Zeilen sind write-only (kein
+  Read-Back-Pfad) — alte Zeilen in Alt-Form können nichts still degradieren,
+  kein Purge nötig. Anzeige-Degradation nur für alte Saved-States mit
+  Alt-Records im Title-List-Renderer (Codes fehlen dort dann).
+- Tool-Parameter `dk_codes` des RVK-Lookups bleibt (agent-facing Name,
+  decide-on-touch).
+
+Suite 1655 (+3: Aggregations-Tests pinnen den DDC-Count-Fix und die
+System-Gleichrangigkeit).
+
 ### WP-K5: SearchTab-Überarbeitung (August 4, 2026)
 
 Operator-Auftrag: „nur Altlasten, auf modernen Stand bringen." Kritische

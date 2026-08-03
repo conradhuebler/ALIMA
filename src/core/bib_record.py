@@ -26,7 +26,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from src.utils.classification_systems import (
     ORIGIN_AUTHORITY,
-    merge_classifications,
+    build_classifications,
     normalize_classifications,
     split_classification_code,
 )
@@ -143,24 +143,15 @@ def _clean_strings(values: Any) -> List[str]:
 
 
 def _classifications(pairs: Iterable[tuple]) -> Dict[str, List[Dict[str, Any]]]:
-    """Build the canonical entry dict from ``(system, codes)`` pairs.
+    """``(system, codes)`` pairs → canonical dict, with string cleaning.
 
-    Everything here is ``origin="authority"``: a bibliographic record STATES its
-    classification, it is not statistical evidence like a co-occurrence harvest.
-    Systems are normalised through the shared registry, so a producer's spelling
-    (``"ddc"``, ``"DDC"``) cannot introduce a second key for one system, and the
-    same system arriving twice (e.g. a prefixed string plus a parallel list)
-    merges rather than overwriting. Unknown systems are dropped, not guessed at.
+    Thin wrapper over the shared :func:`build_classifications` (WP-D2 owner);
+    only the ``_clean_strings`` flattening (finc nests lists) lives here.
+    Everything is ``origin="authority"``: a record STATES its classification.
     """
-    out: Dict[str, List[Dict[str, Any]]] = {}
-    for system, codes in pairs:
-        out = merge_classifications(
-            out,
-            normalize_classifications(
-                {system: _clean_strings(codes)}, origin=ORIGIN_AUTHORITY
-            ),
-        )
-    return out
+    return build_classifications(
+        [(system, _clean_strings(codes)) for system, codes in pairs]
+    )
 
 
 def _from_prefixed(values: Any) -> List[tuple]:
@@ -218,6 +209,9 @@ def _from_finc(rec: Dict[str, Any]) -> BibRecord:
 
 
 def _from_catalog(rec: Dict[str, Any]) -> BibRecord:
+    """Catalog title records carry the canonical ``classifications`` dict since
+    WP-D2 (formerly parallel ``dk_codes``/``rvk_codes``/``ddc_codes`` lists) —
+    normalised through the choke point rather than trusted verbatim."""
     return BibRecord(
         source="catalog",
         identifiers=_identifiers(rsn=rec.get("rsn"), isbn=rec.get("isbn")),
@@ -225,11 +219,9 @@ def _from_catalog(rec: Dict[str, Any]) -> BibRecord:
         authors=_clean_strings(rec.get("authors")),
         year=str(rec.get("year") or ""),
         subjects=_clean_strings([rec.get("subjects"), rec.get("mab_subjects")]),
-        classifications=_classifications([
-            ("DK", rec.get("dk_codes")),
-            ("RVK", rec.get("rvk_codes")),
-            ("DDC", rec.get("ddc_codes")),
-        ]),
+        classifications=normalize_classifications(
+            rec.get("classifications"), origin=ORIGIN_AUTHORITY
+        ),
         urls=_urls(catalog=rec.get("web_url")),
         publisher=str(rec.get("publication") or ""),
         raw=rec,

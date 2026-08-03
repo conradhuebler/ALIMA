@@ -260,6 +260,28 @@ def primary_code(classifications: Any, system: str) -> str:
     return codes[0] if codes else ""
 
 
+def build_classifications(
+    pairs: Any, *, origin: str = ORIGIN_AUTHORITY
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Build the canonical dict from ``(system, codes)`` pairs (WP-D2).
+
+    The producer-side twin of :func:`normalize_classifications`: a record
+    STATES its classifications, hence the ``authority`` default. Repeated
+    systems merge instead of overwriting; empty code containers are skipped.
+    Extracted from ``bib_record._classifications`` so every producer that
+    still carries parallel per-system lists (catalog title records) converts
+    through the one owner. - Claude Generated
+    """
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for system, codes in pairs or []:
+        if not codes:
+            continue
+        out = merge_classifications(
+            out, normalize_classifications({system: codes}, origin=origin)
+        )
+    return out
+
+
 def normalize_classifications(
     value: Any, *, origin: str = ORIGIN_COOCCURRENCE
 ) -> Dict[str, List[Dict[str, Any]]]:

@@ -112,7 +112,7 @@ class CatalogProvider(SuggesterBackedProvider):
                     "as the fallback/cross-check when search_finc has no hits (its index "
                     "may not cover every older or print-only holding), or when finc isn't "
                     "configured at all. Returns per-query lists of records (rsn, title, "
-                    "authors, year, dk_codes, rvk_codes, subjects) — year/publication here "
+                    "authors, year, classifications, subjects) — year/publication here "
                     "is authoritative, straight from the library's own MAB catalog record. "
                     "No full-text/e-resource link capability (no resource_url) and no "
                     "GND/SWB/Lobid enrichment — pure catalog hits intended for title-list "

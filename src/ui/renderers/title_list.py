@@ -13,8 +13,7 @@ Input data shape::
             "authors": ["Müller, K."],
             "year": 2024,
             "isbn": "978-3-…",
-            "dk_codes": ["57.62"],
-            "rvk_codes": [],
+            "classifications": {"DK": [{"code": "57.62", "origin": "authority"}]},
         },
         …
     ]
@@ -45,13 +44,15 @@ def _format_authors(authors: Any) -> str:
 
 
 def _format_codes(row: Dict[str, Any]) -> str:
-    dks = row.get("dk_codes") or []
-    rvks = row.get("rvk_codes") or []
+    """Kanonisches ``classifications``-Dict → Anzeige-Zeile (WP-D2) —
+    zeigt jetzt alle Systeme, nicht mehr nur DK/RVK. - Claude Generated"""
+    from src.utils.classification_systems import KNOWN_SYSTEMS, codes_for_system
+
     parts: List[str] = []
-    if dks:
-        parts.append("DK: " + ", ".join(str(c) for c in dks))
-    if rvks:
-        parts.append("RVK: " + ", ".join(str(c) for c in rvks))
+    for system in KNOWN_SYSTEMS:
+        codes = codes_for_system(row.get("classifications"), system)
+        if codes:
+            parts.append(f"{system}: " + ", ".join(codes))
     return " · ".join(parts)
 
 

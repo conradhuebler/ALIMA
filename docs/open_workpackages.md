@@ -77,15 +77,23 @@ weiter ab, auch mit Priors. Die drei `ResultItem`-Nähte sind unberührt.
 > (klassisch = GND-Systematik-Klassen aus dem LLM-`<class>`-Tag, agentisch =
 > geerntete DDC) — dieselbe Namenskollision wie F-1, bisher unentschieden.
 
-**Status:** **Datenform ✅ in D1-P0 erledigt** (July 19): Pool/Nested/
-`ResultItem` tragen `classifications: {system: codes}` mit dk/ddc/rvk als
-gleichrangigen Keys. **Rest = Logik-Generalisierung:** DDC-Harvest,
-`dk_*`-Renames, Logik in `_pipeline_dk_steps.py`/`_pipeline_rvk_scoring.py`
-generalisieren; Katalog-Title-Record-Keys (`dk_codes`/`rvk_codes`/`ddc_codes`
-in `biblio_client`/`tool_providers`/`title_list`) in die kanonische Form ziehen.
-**Ansatz:** auf den extrahierten Mixins arbeiten (Naht `32670d5`); Richtung:
-Memory `general_notation_direction`.
-**Größe:** groß. **Verifikation:** Suite + DK- und RVK-Pipeline-Läufe.
+**Status:** **Datenform ✅** (D1-P0, July 19) · **Ernte ✅** (July 20–21) ·
+**Title-Record-Keys ✅ (August 4):** `search_titles` emittiert das kanonische
+Dict, `dk_codes`/`rvk_codes`/`ddc_codes` sind weg; die drei kopierten
+per-System-Schleifen in `tool_providers` sind eine generalisierte Funktion —
+dabei fiel die DK-Frequenz-Asymmetrie (DDC-Kandidaten starben an Threshold > 1).
+Details: `AIChangelog.md` (August 4).
+
+**Rest (Entscheidungen, keine Mechanik):**
+- **`dk_*`-Renames (WS2):** KAS hat `notation_*`-Aliasse, `dk_*` bleibt der
+  persistierte Name; Row-Vokabel `"dk"` bewusst nicht angefasst
+  (Blanket-Rename-Warnung). Offen ist nur die *Politik*-Bestätigung: Sweep
+  oder „neue Code-Stellen nutzen `notation_*`, Rest bei Berührung"?
+- **`initial_gnd_classes`-Kollision:** klassisch = GND-Systematik-Klassen aus
+  dem LLM-`<class>`-Tag, agentisch = geernteter DDC-Hinweis — zwei Vokabulare
+  in einem Feld; Operator-Entscheidung (belassen+dokumentieren vs. Feld
+  splitten).
+- swb liefert strukturell keine Notationen (keine in der Antwort).
 
 ---
 

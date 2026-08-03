@@ -83,9 +83,8 @@ _CATALOG_TITLES_RECORD = {
     "isbn": "9783527123456",
     "publication": "Weinheim : Wiley-VCH, 2021",
     "year": "2021",
-    "dk_codes": ["DK 54"],
-    "rvk_codes": [],
-    "ddc_codes": [],
+    # WP-D2: canonical classifications dict (formerly dk_codes/rvk_codes/ddc_codes)
+    "classifications": {"DK": [{"code": "DK 54", "origin": "authority"}]},
     "subjects": [],
     "mab_subjects": [],
 }
@@ -229,6 +228,60 @@ class TestExtractCatalogHitsFromToolLog(unittest.TestCase):
         ]
         result = extract_catalog_hits_from_tool_log(tool_log)
         self.assertEqual(len(result["hits"]), 2)
+
+
+class TestAggregateCatalogClassificationEntries(unittest.TestCase):
+    """WP-D2: one generalized loop over all systems replaces three copy-pasted
+    per-system loops. Pins the fixed asymmetry: previously only DK got
+    frequency aggregation while RVK/DDC were hardcoded count=1 (DDC candidates
+    died at any frequency threshold > 1)."""
+
+    def _record(self, title, cls):
+        return {"title": title, "classifications": cls}
+
+    def test_counts_aggregate_per_system_and_code(self):
+        from src.core.agents.tool_providers import (
+            aggregate_catalog_classification_entries,
+        )
+
+        ddc = {"DDC": [{"code": "631.4", "origin": "authority"}]}
+        results = {
+            "Boden": [self._record("T1", ddc), self._record("T2", ddc)],
+            "Cadmium": [self._record("T3", ddc)],
+        }
+        entries = aggregate_catalog_classification_entries(results)
+        self.assertEqual(len(entries), 3)  # one row per record occurrence
+        # the fixed asymmetry: DDC gets the cross-record aggregate, not 1
+        self.assertTrue(all(e["count"] == 3 for e in entries))
+        self.assertTrue(all(e["classification_type"] == "DDC" for e in entries))
+        self.assertTrue(all(e["dk"] == "631.4" for e in entries))
+
+    def test_all_systems_are_peers(self):
+        from src.core.agents.tool_providers import (
+            aggregate_catalog_classification_entries,
+        )
+
+        results = {"Q": [self._record("T", {
+            "DK": [{"code": "54", "origin": "authority"}],
+            "RVK": [{"code": "AR 12000", "origin": "authority"}],
+            "DDC": [{"code": "631.4", "origin": "authority"}],
+        })]}
+        entries = aggregate_catalog_classification_entries(results)
+        self.assertEqual(
+            {e["classification_type"] for e in entries}, {"DK", "RVK", "DDC"}
+        )
+        for e in entries:
+            self.assertEqual(e["keyword"], "Q")
+            self.assertEqual(e["source"], "catalog")
+            self.assertEqual(e["count"], 1)
+
+    def test_malformed_rows_are_skipped(self):
+        from src.core.agents.tool_providers import (
+            aggregate_catalog_classification_entries,
+        )
+
+        results = {"Q": "kein-list", "R": [None, {"title": "ohne cls"}]}
+        self.assertEqual(aggregate_catalog_classification_entries(results), [])
 
 
 if __name__ == "__main__":

@@ -83,9 +83,10 @@ DUPLICATE_TABLE_DATA = [
 
 TITLE_LIST_DATA = [
     {"title": "Cadmium in soils", "authors": ["Müller, K."],
-     "year": 2024, "isbn": "978-3-123", "dk_codes": ["57.62"]},
+     "year": 2024, "isbn": "978-3-123",
+     "classifications": {"DK": [{"code": "57.62", "origin": "authority"}]}},
     {"title": "Heavy metals", "authors": [], "year": None, "isbn": "",
-     "dk_codes": [], "rvk_codes": []},
+     "classifications": {}},
 ]
 
 

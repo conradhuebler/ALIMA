@@ -1147,8 +1147,8 @@ def catalog_title_search(
 
     Returns:
         ``{"hits": [...], "queries": [...], "tool_calls": N}``.
-        Each hit: ``{query, rsn, title, authors, year, dk_codes,
-        rvk_codes, ddc_codes, subjects, mab_subjects}``.
+        Each hit: ``{query, rsn, title, authors, year, classifications
+        ({system: [{code, origin}]}, WP-D2), subjects, mab_subjects}``.
     """
     if tool_registry is None:
         raise RuntimeError("catalog_title_search requires tool_registry")

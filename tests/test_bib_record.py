@@ -51,9 +51,13 @@ CATALOG_RECORD = {
     "isbn": "9783031473906",
     "publication": "Springer",
     "year": "2023",
-    "dk_codes": ["504.53"],
-    "rvk_codes": ["AR 12000"],
-    "ddc_codes": ["631.4"],
+    # WP-D2: search_titles emits the canonical dict (formerly parallel
+    # dk_codes/rvk_codes/ddc_codes lists)
+    "classifications": {
+        "DK": [{"code": "504.53", "origin": "authority"}],
+        "RVK": [{"code": "AR 12000", "origin": "authority"}],
+        "DDC": [{"code": "631.4", "origin": "authority"}],
+    },
     "subjects": ["Schwermetall"],
     "mab_subjects": ["Bodenkunde"],
 }
