@@ -52,13 +52,17 @@ client-seitig verifiziert (der `pica.doi`-Index tokenisiert!); nackte
 10-stellige Nummern = PPN. Nebenbefund: PPN-Lookup suchte im Schlagwort-Index
 und traf nie — jetzt `pica.ppn`, live bewiesen. Details: `AIChangelog.md`.
 
+**DOI-Anreicherung ✅ DONE (August 4):** `crosswalk_doi_record` füttert die
+P2/P3-Kanäle bei jedem DOI-Lauf (klassischer Input-Step = GUI+CLI, Batch,
+`record_sink`); Gate = k10plus-Lookup-Plugin, ISBN-Fallback aus dem
+DOI-Suffix; live bewiesen. Details: `AIChangelog.md` (August 4).
+
 **Offen in D1 (Rest = Adoption, keine neuen Pfade):** GUI/CLI senden
-`isbn`/`ppn` noch nicht; DOI läuft in CLI/GUI bewusst über
-`resolve_input_to_text` — natürlicher nächster Schritt: DOI-Input reichert
-sich via `k10plus_resolve` um Subjects+DDC an; Agentik erhält keine
-Record-Priors; `execute_notation_classification` bricht ohne
-Katalog-Kandidaten weiter ab, auch mit Priors. Die drei `ResultItem`-Nähte
-sind unberührt.
+`isbn`/`ppn` noch nicht als Eingabetyp; **Webapp** normalisiert DOI→Text vor
+dem Start und verliert die Identität (bekommt die Anreicherung noch nicht);
+Agentik erhält keine Record-Priors; `execute_notation_classification` bricht
+ohne Katalog-Kandidaten weiter ab, auch mit Priors. Die drei
+`ResultItem`-Nähte sind unberührt.
 
 ### WP-D2 · Notation-Generalisierung — ✅ ABGESCHLOSSEN (August 4, 2026)
 

@@ -179,6 +179,16 @@ class _DoiInputSource:
         success, _metadata, result = resolver.resolve(source)
         if not success:
             raise RuntimeError(result or f"{self.id} konnte '{source}' nicht auflösen")
+        # WP-D1-Adoption: nur wenn der Aufrufer einen record_sink reicht, den
+        # K10plus-Record dazuholen (P2/P3-Kanäle) — sonst kostet die DOI-
+        # Auflösung keinen zusätzlichen Request. - Claude Generated
+        sink = opts.get("record_sink")
+        if isinstance(sink, dict):
+            from .bib_lookup import crosswalk_doi_record
+
+            record = crosswalk_doi_record(source, logger=logger)
+            if record is not None:
+                sink["record"] = record
         return result, f"DOI ({self._use}): {source}", self.id
 
 

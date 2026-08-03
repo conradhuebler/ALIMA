@@ -6,6 +6,31 @@
 
 ## 2026
 
+### DOI-Anreicherung: Crosswalk füttert die P2/P3-Kanäle (August 4, 2026)
+
+Der Adoptions-Schritt, der P2+P3+P4 für jeden DOI-Input wirksam macht: eine
+DOI liefert weiter ihren Analyse-Text (Crossref-Kette/Crawl), holt sich jetzt
+aber zusätzlich den K10plus-Katalog-Record — dessen Klassifikationen werden
+P2-Priors, GND-Subjects P3-Pool-Kandidaten.
+
+- **`crosswalk_doi_record(doi)`** (`bib_lookup`): Gate ist das
+  **k10plus-Lookup-Plugin** (Plugins-Tab) — deaktiviert ⇒ keine Anreicherung,
+  kein eigenes Config-Feld. DOI-Miss → **ISBN-Fallback** aus dem DOI-Suffix
+  (978/979+13; Springer-Buch-DOIs betten die ISBN ein). Strikt best-effort
+  (`log_caught`), ein SRU-Request pro DOI-Lauf.
+- **Drei Nähte:** klassischer Input-Step (GUI **und** CLI tragen die
+  DOI-Identität als `input_type`/`source_value` in den Start; Anreicherung
+  läuft im Worker-Thread, Stream-Notiz „📚 Katalog-Anreicherung"), Batch-
+  DOI-Zweig (Metadaten-Kanal wie ISBN/PPN), `doi_*`-Input-Sources via
+  `record_sink` (nur auf Anforderung — ohne Sink kein Extra-Request).
+- **Live bewiesen** (Cadmium-Buch `10.1007/978-3-031-47390-6`): DOI-Miss →
+  ISBN-Fallback → `DDC 571.954662` als Autoritäts-Prior; die
+  Kandidaten-Verifikation verwarf korrekt 5 unverifizierte DOI-„Treffer".
+- **Offen:** Webapp normalisiert DOI→Text vor dem Pipeline-Start und verliert
+  die Identität — bekommt die Anreicherung noch nicht (Register).
+
+Suite 1666 (+11).
+
 ### WP-D2, Schnitt 1: Katalog-Title-Records auf die kanonische Form (August 4, 2026)
 
 Der letzte bespoke Klassifikations-Transport ist weg: Katalog-Title-Records

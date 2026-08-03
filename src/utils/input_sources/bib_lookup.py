@@ -14,7 +14,8 @@ duplicate them.
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+import logging
+from typing import Any, List, Optional, Tuple
 
 from src.core.bib_record import BibRecord, to_bibrecord
 from src.core.plugins.schema import INT, TEXT, ConfigField, PluginDoc
@@ -44,6 +45,47 @@ def lookup_bibrecord(
     if not results:
         raise ValueError(f"Keine Treffer für {identifier}")
     return to_bibrecord(results[0], "sru")
+
+
+def crosswalk_doi_record(doi: str, logger: Any = None) -> Optional[BibRecord]:
+    """DOI → K10plus-Katalog-Record als :class:`BibRecord` (WP-D1-Adoption).
+
+    Die DOI-Anreicherung: zu einer DOI den Katalog-Datensatz holen, damit
+    dessen Klassifikationen (P2-Priors) und GND-Subjects (P3-Signale) in die
+    Pipeline fließen. Gate ist das **k10plus-Lookup-Plugin** (Plugins-Tab) —
+    deaktiviert ⇒ keine Anreicherung, kein eigenes Config-Feld. Viele
+    K10plus-Records tragen keine DOI; bei einem Miss wird die im DOI-Suffix
+    eingebettete ISBN probiert (Springer-Buch-DOIs: ``10.1007/978-…``).
+    Best-effort: ``None`` bei Miss, Fehler oder deaktiviertem Plugin.
+    - Claude Generated
+    """
+    from dataclasses import asdict
+
+    from src.utils.error_visibility import log_caught
+
+    log = logger or logging.getLogger(__name__)
+    try:
+        from src.utils.lookups.resolve import build_lookup
+
+        if build_lookup(None, "k10plus") is None:
+            log.debug("DOI-Anreicherung übersprungen: k10plus-Lookup deaktiviert")
+            return None
+
+        from src.utils.k10plus_resolver import fetch_record_for_identifier
+
+        record = fetch_record_for_identifier(doi, kind="doi", logger=log)
+        if record is None:
+            # eingebettete ISBN im DOI-Suffix (978/979 + 13 Ziffern)?
+            compact = str(doi or "").rsplit("/", 1)[-1].replace("-", "")
+            if compact.isdigit() and len(compact) == 13 and compact.startswith(("978", "979")):
+                log.info(f"DOI {doi}: kein K10plus-Treffer — ISBN-Fallback {compact}")
+                record = fetch_record_for_identifier(compact, kind="isbn", logger=log)
+        if record is None:
+            return None
+        return to_bibrecord(asdict(record), "k10plus")
+    except Exception as e:  # Netz/Config — Anreicherung ist strikt best-effort
+        log_caught(log, e, "crosswalk_doi_record")
+        return None
 
 
 class _BibLookupSource:

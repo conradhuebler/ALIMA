@@ -133,6 +133,33 @@ class ClassicStepExecutorMixin:
                 self.logger.warning("No input text available in analysis state")
                 return False
 
+            # WP-D1-Adoption: DOI-Anreicherung. GUI/CLI lösen die DOI vor dem
+            # Start zu Text auf, die Identität steht aber in input_type/
+            # source_value — der Crosswalk holt den K10plus-Record und füllt
+            # die P2/P3-Kanäle. Gate: k10plus-Lookup-Plugin (Plugins-Tab);
+            # ein SRU-Request pro DOI-Lauf, hier im Worker-Thread. - Claude Generated
+            state = self.current_analysis_state
+            if (
+                getattr(state, "input_type", None) == "doi"
+                and getattr(state, "source_value", None)
+                and not state.input_record_classifications
+            ):
+                from ..utils.input_sources.bib_lookup import crosswalk_doi_record
+
+                record = crosswalk_doi_record(state.source_value, logger=self.logger)
+                if record is not None:
+                    if record.classifications:
+                        state.input_record_classifications = record.classifications
+                    if record.gnd_subjects:
+                        state.input_record_gnd_subjects = record.gnd_subjects
+                    if self.stream_callback and (record.classifications or record.gnd_subjects):
+                        systems = ", ".join(sorted(record.classifications)) or "—"
+                        self.stream_callback(
+                            f"📚 Katalog-Anreicherung (K10plus): Klassifikationen [{systems}]"
+                            f"{', GND-Schlagwörter' if record.gnd_subjects else ''} übernommen",
+                            "input",
+                        )
+
             step.output_data = {
                 "text": self.current_analysis_state.original_abstract,
                 "processed": True,

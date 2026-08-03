@@ -597,6 +597,17 @@ class BatchProcessor:
 
             # Format with metadata like GUI does - Claude Generated
             formatted_text = format_doi_metadata(metadata, text_result or "")
+
+            # WP-D1-Adoption: DOI-Anreicherung — Katalog-Record wie beim
+            # ISBN/PPN-Pfad in die P2/P3-Kanäle (Gate: k10plus-Plugin) - Claude Generated
+            from .input_sources.bib_lookup import crosswalk_doi_record
+
+            record = crosswalk_doi_record(source.source_value, logger=self.logger)
+            metadata = dict(metadata or {})
+            if record is not None and record.classifications:
+                metadata["classifications"] = record.classifications
+            if record is not None and record.gnd_subjects:
+                metadata["gnd_subjects"] = record.gnd_subjects
             return formatted_text, metadata
 
         elif source.source_type == SourceType.TXT:
