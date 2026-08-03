@@ -130,8 +130,8 @@ danach in die Datenbank geschaut wurde.
 | # | Bereich | Befund | Status |
 |---|---|---|---|
 | F-12 | core | **Aufrufe nicht existierender Methoden.** `update_gnd_entry` (2 GUI-Stellen), `gnd_keyword_exists` (`search_cmd`), `get_all_gnd_ids_for_keyword` (`_validate_catalog_subjects`). Wurzel: eine halbe „CacheManager compatibility"-Fassade auf `UnifiedKnowledgeManager` — weil die Hälfte existierte, wirkte der Rest plausibel. Zwei der drei waren ungeschützt, einer wurde von einem breiten `except` geschluckt. | ✅ **DONE** (`a3bb317`): alle drei behoben, tote Fassade (−216 Z., 4 Methoden ohne Aufrufer) gelöscht. AST-Scan über die zwei zentralen Manager findet danach **0** Fälle. ⚠️ Der Scan deckt nur statisch auflösbare Ziele ab — Provider/Suggester/LLM-Backends nicht. |
-| F-13 | tests | **Kernlogik ohne jede Testabdeckung.** 84 Module ohne Test-Erwähnung; drei davon sind reine Logik, kein GUI: `_pipeline_rvk_scoring` (1992 Z.), `_pipeline_dk_steps` (1186), `batch_processor` (895). **Der Batch-Save-Crash lag genau in dem Modul, das die Suite nie berührt.** Der einzige Test, der RVK-Scoring nennt, mockt es weg. | ✅ **Teilweise** (`11f77c8`, `06c4417`): 84 Charakterisierungstests für LLM-Antwort-Extraktion, Batch-Parsing/Naming/OCR-Heuristik und die RVK-Scoring-Primitive. **Offen:** die großen Entscheidungsmethoden (`_select_final_rvk_candidates` 209 Z., `_validate_catalog_rvk_candidates` 394 Z.). |
-| F-14 | utils | **Untestbar konstruiert.** In `_pipeline_rvk_scoring` waren 19 von 40 Funktionen in Methodenkörper verschachtelt, u.a. die Hierarchie-Helfer; `_source_rank`/`_status_rank` existierten byte-identisch **doppelt**. | ✅ **Teilweise** (`06c4417`): 5 reine Helfer verbatim auf Modulebene (Opcode-Vergleich + `LOAD_GLOBAL`-Scan), Duplikate zusammengeführt, Test gegen Wieder-Einnistung. **Offen:** 14 verschachtelte Funktionen mit Closure-Bindung (`_validate_code` 160 Z., `_prefilter_candidates`, `_pick_diverse`) — keine reine Verschiebung mehr. |
+| F-13 | tests | **Kernlogik ohne jede Testabdeckung.** 84 Module ohne Test-Erwähnung; drei davon sind reine Logik, kein GUI: `_pipeline_rvk_scoring` (1992 Z.), `_pipeline_dk_steps` (1186), `batch_processor` (895). **Der Batch-Save-Crash lag genau in dem Modul, das die Suite nie berührt.** Der einzige Test, der RVK-Scoring nennt, mockt es weg. | ✅ **DONE** (`11f77c8`, `06c4417`, dann July 22 `3591550`/`eee36cb`): 84 Charakterisierungstests für LLM-Antwort-Extraktion, Batch-Parsing/Naming/OCR-Heuristik und die RVK-Scoring-Primitive; die beiden großen Entscheidungsmethoden (`_select_final_rvk_candidates`, `_validate_catalog_rvk_candidates`) sind charakterisiert. |
+| F-14 | utils | **Untestbar konstruiert.** In `_pipeline_rvk_scoring` waren 19 von 40 Funktionen in Methodenkörper verschachtelt, u.a. die Hierarchie-Helfer; `_source_rank`/`_status_rank` existierten byte-identisch **doppelt**. | ✅ **Weitgehend** (`06c4417`, July 22 `eee36cb`): 5 reine Helfer verbatim auf Modulebene, Duplikate zusammengeführt, Test gegen Wieder-Einnistung; dazu `_is_strong_anchor_candidate` (verbatim) + `_can_take_branch` (Closure-Vars → Params) extrahiert, `_evidence_score` (tot) gelöscht. **Rest (9 verschachtelte, decide-on-touch):** `_select_item` (stateful) + `_validate_code` (I/O-Grenze, ThreadPool) bleiben bewusst innen; `_prefilter_candidates`/`_pick_diverse`/3×`_sort_key`/`_merge_promoted`/`_emit_promotion_log` sind seit `3591550` über ihre Mutterfunktionen mit-charakterisiert — Extraktion nur noch bei Berührung. |
 
 **Offen als Politikfrage (B):** 336 breite `except`-Blöcke schlucken still (59 nur
 `pass`, 277 nur Debug/Warning). Vier der sieben Defekte dieser Runde lebten davon,
@@ -152,10 +152,10 @@ derselben Verifikation (Opcode-Vergleich gegen HEADs echte Datei +
 
 | Datei | vorher → jetzt | Mixins | Commit |
 |---|---|---|---|
-| `unified_knowledge_manager.py` | 2077 → 1091 | `_ukm_schema` (Schema/Migration), `_ukm_catalog_dk` (Catalog-DK), `_ukm_smart_search` (Smart-Search, 361 Z.) | `8d75d6c`, `<smart>` |
+| `unified_knowledge_manager.py` | 2077 → 1091 | `_ukm_schema` (Schema/Migration), `_ukm_catalog_dk` (Catalog-DK), `_ukm_smart_search` (Smart-Search, 393 Z.) | `8d75d6c`, `35f55c1` |
 | `tool_registry.py` | 1980 → 1381 | `_tool_generation.ToolGenerationMixin` (17 Fabrik-Methoden) | `0dcb04c` |
-| `biblio_client.py` | 2106 → 1642 | `_biblio_parsing` (Parser, 347 Z.) + `_biblio_transport` (Reliability, 182 Z.) | `54a5fd6`, `5aa7bda` |
-| `pipeline_manager.py` | 2437 → 1690 (Klasse 1955 → 1230) | `_pipeline_classic_steps.ClassicStepExecutorMixin` (10 klassische Step-Executoren, 728 Z.) | `4895a47` |
+| `biblio_client.py` | 2106 → 994 | `_biblio_parsing` (Parser, 347 Z.) + `_biblio_transport` (Reliability, 182 Z.) + `_biblio_soap` (SOAP/Web-Achse, 673 Z.) | `54a5fd6`, `5aa7bda`, `1946ded` |
+| `pipeline_manager.py` | 2437 → 1103 | `_pipeline_classic_steps.ClassicStepExecutorMixin` (10 klassische Step-Executoren, 728 Z.) + `_pipeline_agentic.AgenticPipelineMixin` (368 Z.) + `_pipeline_single_step.SingleStepExecutorMixin` (270 Z.; eine nicht-verbatim Zeile: method-lokaler `PipelineStep`-Import gegen Import-Zyklus, real getrieben in `tests/test_pipeline_single_step_mixin.py`) | `4895a47`, `f47c9d5`, July 22 |
 
 **Der `LOAD_GLOBAL`-Scan hat sich erneut bezahlt gemacht** (wie bei F-5): beim
 `tool_registry`-Split fehlte `logger` im neuen Modul — benutzt in 5 Fehlerpfaden,
@@ -175,10 +175,12 @@ Laufzeit-Import, wenn das Mixin `from __future__ import annotations` trägt.
 (Gemini-Streaming — „nicht vorher, nicht getrennt"); `pipeline_utils.py` (2049)
 bewusst gestoppt (Cross-cutting-Notiz); `_pipeline_rvk_scoring.py` (1992) hat 14
 Closure-gebundene Funktionen (kein reiner Move — F-14). **Die frei zerlegbare
-God-File-Spitze ist damit abgetragen** (kein zerlegbarer Core-God-File mehr über
-~1690). Reste an bereits gesplitteten Dateien (opportunistisch, nicht dringend):
-die SOAP/Web-Achse in `biblio_client` (~600 Z.), Smart-Search/Raw-Cache im UKM
-(~475 Z.), die agentische Workflow-Achse in `pipeline_manager`.
+God-File-Spitze ist damit abgetragen**, und die Reste-Liste an bereits
+gesplitteten Dateien ist ebenfalls abgearbeitet (July 22): SOAP/Web-Achse
+`1946ded`, UKM-Smart-Search `35f55c1`, agentischer Pfad `f47c9d5`,
+Single-Step/Resume-Achse (s. Tabelle). Kein Core-Modul außer den bewusst
+geparkten (`llm_service` → T1, `pipeline_utils`, `_pipeline_rvk_scoring`)
+liegt mehr über ~1400 Zeilen.
 
 ## Cross-cutting / meta
 - **GUI testing gate (refined June 30)**: the gate is on *final sign-off*, not on

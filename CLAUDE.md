@@ -156,14 +156,16 @@ When documenting implemented features, the AI must apply these rules:
   ändern. **Übernommen bisher 9 von 189** stillen Blöcken um reinen Code
   (agentischer Tool-Pfad + `alima_manager`); Rest opportunistisch bei Berührung,
   kein Sweep. Verteilung: 61 core, 52 ui, 42 utils, 14 webapp.
-- **Aufräumen D — Core-God-Files ⏳ (July 21, F-15, Suite 1537):** vier zerlegt —
-  `unified_knowledge_manager` 2077→1460 (`8d75d6c`), `tool_registry` 1980→1381
-  (`0dcb04c`), `biblio_client` 2106→1642 (`54a5fd6`/`5aa7bda`), `pipeline_manager`
-  2437→1690 (`4895a47`) — verbatim Mixins wie F-5 (UI), via MRO, null
-  Aufrufstellen; verifiziert per Opcode-Vergleich + `LOAD_GLOBAL`-Scan (fand beim
-  `tool_registry` einen echten `logger`-Bruch, den die Suite nicht gefangen
-  hätte). **Frei zerlegbare Spitze abgetragen.** Vorbelegt/gestoppt:
-  `llm_service` (T1), `pipeline_utils`, `_pipeline_rvk_scoring` (Closure).
+- **Aufräumen D — Core-God-Files ✅ DONE (July 21–22, F-15, Suite 1587):** vier
+  zerlegt, inkl. aller Reste-Achsen — `unified_knowledge_manager` 2077→1091,
+  `tool_registry` 1980→1381, `biblio_client` 2106→994, `pipeline_manager`
+  2437→1103 (3 Mixins) — verbatim Mixins wie F-5 (UI), via MRO, null
+  Aufrufstellen; verifiziert per Opcode-Vergleich + `LOAD_GLOBAL`-Scan +
+  realem Drive-Test für die eine nicht-verbatim Zeile
+  (`tests/test_pipeline_single_step_mixin.py`). F-13/F-14-Rest geschlossen
+  (July 22, `3591550`/`eee36cb`: beide großen RVK-Entscheidungsmethoden
+  charakterisiert). Vorbelegt/gestoppt: `llm_service` (T1), `pipeline_utils`,
+  `_pipeline_rvk_scoring` (Closure).
   Register: [`docs/cleanup_findings.md`](docs/cleanup_findings.md) F-15.
 - **Testpolitik (July 19):** GUI/Browser-Klick-Tests macht der Operator **on the fly
   beim Benutzen** — kein Gate, Brüche werden gemeldet. WPs gelten mit grüner Suite +
