@@ -133,6 +133,34 @@ class TestClassificationEntriesSurviveRoundTrip(unittest.TestCase):
             with self.subTest(system=system):
                 self.assertIsInstance(converted["classifications"][system], list)
 
+    def test_input_record_classifications_survive_save_and_load(self):
+        """WP-D1 P2: the record-prior field round-trips through a real file;
+        pre-P2 saves (key absent) load with the default empty dict."""
+        import os
+        import tempfile
+
+        state = _state_with_sets()
+        state.input_record_classifications = {
+            "DK": [{"code": "556.55", "origin": "authority"}]
+        }
+        path = os.path.join(tempfile.mkdtemp(), "state.json")
+        PipelineJsonManager.save_analysis_state(state, path)
+        reloaded = PipelineJsonManager.load_analysis_state(path)
+        self.assertEqual(
+            reloaded.input_record_classifications,
+            {"DK": [{"code": "556.55", "origin": "authority"}]},
+        )
+
+        # legacy save without the field
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        del data["input_record_classifications"]
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        self.assertEqual(
+            PipelineJsonManager.load_analysis_state(path).input_record_classifications, {}
+        )
+
     def test_missing_concepts_still_becomes_a_set(self):
         """The one remaining set field must not have been lost in the change."""
         converted = PipelineJsonManager.convert_lists_to_sets(

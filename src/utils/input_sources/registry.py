@@ -10,6 +10,11 @@ source declares its ``config_fields`` (so it is a real, per-instance-configurabl
 plugin — the reason the DOI resolver is split into three separately configurable
 sources), an ``id``/``label`` for the registry + UI, ``can_handle`` for
 auto-detection, and ``extract`` for the work.
+
+Side channel (WP-D1 P2): ``extract`` returns a fixed 3-tuple, so a source that
+produces a full bibliographic record (bib_lookup) additionally deposits the
+``BibRecord`` under ``"record"`` in a caller-supplied ``record_sink`` dict
+(passed through ``**opts``). Callers that don't pass one are unaffected.
 """
 
 from __future__ import annotations

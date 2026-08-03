@@ -143,6 +143,18 @@ class BibLookupTest(unittest.TestCase):
                 get_input_source("isbn")().extract("9780000000009")
         self.assertIn("Keine Treffer", str(ctx.exception))
 
+    def test_record_sink_side_channel_carries_the_bibrecord(self):
+        """WP-D1 P2: a caller-supplied record_sink dict receives the BibRecord
+        (the 3-tuple contract cannot carry it); without one nothing changes."""
+        hit = dict(self._HIT, classifications=["DK 556.55"])
+        sink = {}
+        with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([hit])):
+            get_input_source("isbn")().extract("9780000000001", record_sink=sink)
+        record = sink.get("record")
+        self.assertIsNotNone(record)
+        self.assertEqual(record.title, "Limnologie der Alpenseen")
+        self.assertIn("DK", record.classifications)
+
     def test_dispatches_through_execute_input_extraction(self):
         """End to end: the new type reaches the ONE dispatcher by id."""
         with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([self._HIT])), \

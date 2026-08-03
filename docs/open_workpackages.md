@@ -35,11 +35,21 @@ vorher nie aufgerufene `can_handle`-Vertrag — Aliase `doi`/`url` erreichen
 damit den einen Dispatcher). Nebenbefund behoben: `_from_sru` stringifizierte
 `gnd_subjects`-Dicts. Details: `AIChangelog.md` (August 3).
 
-**Offen in D1:** P1-Oberflächen-Adoption (GUI/CLI kennen `isbn`/`ppn` noch
-nicht als Eingabetyp; DOI läuft in CLI/GUI weiter bewusst über
-`resolve_input_to_text` — Alias `doi` am Dispatcher wählt EINE Quelle, die
-Fallback-Kette bleibt dort) sowie **P2–P4** (Record→Priors, →GND-Signale,
-Crosswalk). Die drei `ResultItem`-Nähte sind weiterhin unberührt.
+**P2 ✅ DONE (August 3, 2026):** Record-Klassifikationen als Priors in
+`dk_classification` — markierter Autoritäts-Block im Prompt (informiert, nie
+überschreibt), RVK-Priors in `allowed_standard_rvk_map` mit Quelle
+`input_record` (`_source_rank` 4); Kanäle: KAS-Feld
+`input_record_classifications` (persistiert), Batch-Metadaten →
+`execute_complete_pipeline`, `record_sink`-Seitenkanal im
+Input-Source-Vertrag; klassischer Input-Step akzeptiert `isbn`/`ppn`.
+Details: `AIChangelog.md` (August 3).
+
+**Offen in D1:** P1/P2-Oberflächen-Adoption (GUI/CLI senden `isbn`/`ppn` noch
+nicht; DOI läuft in CLI/GUI weiter bewusst über `resolve_input_to_text`);
+Agentik erhält noch keine Record-Priors; `execute_dk_classification` bricht
+ohne Katalog-Kandidaten weiter ab, auch mit Priors; sowie **P3–P4**
+(Record→GND-Signale, Crosswalk). Die drei `ResultItem`-Nähte sind weiterhin
+unberührt.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
 > ✅ **Ernte erledigt (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite 1405).**

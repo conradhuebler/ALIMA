@@ -1946,6 +1946,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         input_text: str,
         pipeline_config=None,
         stream_callback: Optional[callable] = None,
+        input_record_classifications: Optional[Dict[str, Any]] = None,
     ) -> "KeywordAnalysisState":
         """
         Execute a complete ALIMA pipeline synchronously without Qt dependencies.
@@ -1954,6 +1955,11 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
 
         This is the preferred method for batch processing since it runs purely
         synchronously in any thread context (no QThread/event loop required).
+
+        ``input_record_classifications`` (WP-D1 P2): the input record's own
+        classifications (canonical ``{SYSTEM: [{code, origin}]}``) when the
+        input came from a bibliographic record — stored on the state and fed
+        into dk_classification as priors.
 
         Claude Generated
         """
@@ -2034,6 +2040,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
             final_llm_analysis=kw_analysis,
             working_title=llm_title,
             pipeline_mode="classic",
+            input_record_classifications=input_record_classifications or {},
         )
 
         # ── Step 4: DK classification (optional) ─────────────────────────────
@@ -2074,6 +2081,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                     model=dk_cfg.model if dk_cfg else None,
                     rvk_anchor_keywords=rvk_anchor_keywords,
                     stream_callback=_cb("dk_classification"),
+                    record_priors=input_record_classifications or None,
                 )
                 state.dk_classifications = dk_classes
                 state.dk_llm_analysis = dk_analysis

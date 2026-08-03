@@ -95,6 +95,12 @@ class _BibLookupSource:
         text = record.to_analysis_text()
         if not text.strip():
             raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
+        # WP-D1 P2 side channel: the 3-tuple contract cannot carry the record,
+        # so a caller that wants it (classification priors) passes a dict as
+        # ``record_sink`` and finds the BibRecord under "record". - Claude Generated
+        sink = opts.get("record_sink")
+        if isinstance(sink, dict):
+            sink["record"] = record
         source_info = f"{self.label}: {source} — {record.title}" if record.title else f"{self.label}: {source}"
         return text, source_info, self.id
 

@@ -6,6 +6,42 @@
 
 ## 2026
 
+### WP-D1 P2: Record-Klassifikationen als Priors (August 3, 2026)
+
+Der zweite Konsumenten-Pfad: die **eigenen** Klassifikationen des
+Eingabe-Datensatzes fließen in den `dk_classification`-Schritt — als Prior, der
+informiert, nie überschreibt (Klassifikations-Vertrauens-Regel des WP-Docs).
+
+**Mechanik** (alles hinter `record_priors=None`, ohne Priors byte-identisch,
+per Test gepinnt):
+- `prepare_dk_classification_context(record_priors=…)`: markierter
+  Autoritäts-Block vor dem Katalog-Auszug („bevorzugt berücksichtigen, sofern
+  sie zum Inhalt passen; sie ersetzen die eigene Analyse nicht") für
+  DK/DDC/RVK/BK-Codes des Records.
+- **RVK-Priors** zusätzlich in `allowed_standard_rvk_map` — die Guardrails sind
+  ein hartes Gate, ein Code außerhalb der Map überlebt die Post-Validierung
+  nicht. Quelle `input_record`, `_source_rank` 4 (über `rvk_gnd_index`): die
+  Katalog-Aussage über GENAU dieses Dokument schlägt jede abgeleitete Quelle.
+  Ein als `non_standard` bekannter Code wird NICHT zu Standard befördert
+  (Status beschreibt die Notation, nicht die Relevanz); bestehende
+  Katalog-Einträge werden nicht überschrieben.
+
+**Kanäle bis dorthin:**
+- Neues KAS-Feld `input_record_classifications` (kanonische Form, persistiert;
+  Alt-Saves ohne Feld laden mit `{}` — Roundtrip-Test).
+- Batch: ISBN/PPN-Metadaten tragen `record.classifications`,
+  `execute_complete_pipeline(input_record_classifications=…)` setzt sie auf den
+  State und reicht sie an den DK-Schritt.
+- `record_sink`-Seitenkanal im Input-Source-Vertrag: das 3-Tupel kann den
+  Record nicht tragen; `bib_lookup.extract` legt das `BibRecord` in ein vom
+  Aufrufer gereichtes Dict. Klassischer Input-Step nutzt ihn und akzeptiert
+  jetzt auch `isbn`/`ppn` als Input-Typ.
+
+**Bewusst offen:** Agentik erhält noch keine Record-Priors (Input-Kanal der
+Workflows kennt keine Records); `execute_dk_classification` bricht weiterhin
+ohne Katalog-Kandidaten ab, auch wenn Priors vorliegen (Minimaländerung);
+GUI/CLI-Oberflächen senden `isbn`/`ppn` noch nicht (P1-Rest).
+
 ### WP-D1 P1, erster Schnitt: Record → Analyse-Input (August 3, 2026)
 
 `to_bibrecord()` hat seinen ersten echten Konsumenten. Vier Teile:

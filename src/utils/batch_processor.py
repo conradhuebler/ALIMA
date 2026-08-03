@@ -466,6 +466,7 @@ class BatchProcessor:
                 input_text=input_text,
                 pipeline_config=pipeline_config,
                 stream_callback=self.stream_callback,
+                input_record_classifications=(source_metadata or {}).get("classifications"),
             )
 
             result.state = state
@@ -738,6 +739,9 @@ class BatchProcessor:
                     "title": record.title,
                     "authors": "; ".join(record.authors),
                     "source": kind,
+                    # WP-D1 P2: the record's own classifications travel along and
+                    # become dk_classification priors - Claude Generated
+                    "classifications": record.classifications,
                 }
                 return text, metadata
 

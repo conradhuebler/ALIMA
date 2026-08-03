@@ -54,32 +54,40 @@ class ClassicStepExecutorMixin:
         input_data = step.input_data or {}
         input_type = input_data.get("type", "text")
         
-        if input_type in ["file", "pdf", "image", "auto"] and "file_path" in input_data:
-            # File-based input processing
+        if input_type in ["file", "pdf", "image", "auto", "isbn", "ppn"] and "file_path" in input_data:
+            # File-based input processing (isbn/ppn carry the identifier in
+            # file_path — same envelope, resolved by the input-source registry)
             try:
                 if self.stream_callback:
                     self.stream_callback("🔄 Verarbeite Datei-Input...", "input")
-                
+
                 file_path = input_data["file_path"]
+                record_sink = {}  # WP-D1 P2: bib_lookup deposits the BibRecord here - Claude Generated
                 extracted_text, source_info, extraction_method = execute_input_extraction(
                     llm_service=self.llm_service,
                     input_source=file_path,
                     input_type=input_type,
                     stream_callback=self._wrap_stream_callback_for_input,
-                    logger=self.logger
+                    logger=self.logger,
+                    record_sink=record_sink,
                 )
-                
+
                 # Update analysis state with extracted text
                 if not self.current_analysis_state:
                     self.logger.error("No analysis state available for file processing")
                     return False
-                
+
                 self.current_analysis_state.original_abstract = extracted_text
-                
+
+                # WP-D1 P2: input record's own classifications become priors - Claude Generated
+                record = record_sink.get("record")
+                if record is not None and getattr(record, "classifications", None):
+                    self.current_analysis_state.input_record_classifications = record.classifications
+
                 # Store extraction info
                 if not hasattr(self.current_analysis_state, 'extraction_info'):
                     self.current_analysis_state.extraction_info = {}
-                
+
                 self.current_analysis_state.extraction_info.update({
                     "source": file_path,
                     "method": extraction_method,
@@ -696,6 +704,8 @@ class ClassicStepExecutorMixin:
                 "top_p": step_config.top_p or 0.1,
                 "dk_frequency_threshold": getattr(step_config, 'dk_frequency_threshold', DEFAULT_DK_FREQUENCY_THRESHOLD),
                 "rvk_anchor_keywords": rvk_anchor_keywords,
+                # WP-D1 P2: input record's own classifications as priors - Claude Generated
+                "record_priors": getattr(self.current_analysis_state, "input_record_classifications", None) or None,
                 "repetition_penalty": step_config.repetition_penalty,
                 "think": step_config.think,
             }

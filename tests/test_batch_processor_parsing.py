@@ -199,6 +199,8 @@ class TestIsbnPpnResolve(unittest.TestCase):
         self.proc = object.__new__(BatchProcessor)
         self.proc.logger = logging.getLogger("test_batch_isbn_ppn")
 
+    _CLS = {"DK": [{"code": "556.55", "origin": "authority"}]}
+
     def _record(self):
         from src.core.bib_record import BibRecord
 
@@ -209,6 +211,7 @@ class TestIsbnPpnResolve(unittest.TestCase):
             publisher="Verlag X",
             subjects=["Seenkunde"],
             abstract="Studien zur Seenkunde.",
+            classifications=dict(self._CLS),
         )
 
     def test_isbn_uses_isbn_index_and_returns_metadata(self):
@@ -223,7 +226,13 @@ class TestIsbnPpnResolve(unittest.TestCase):
         self.assertIn("Titel: Limnologie der Alpenseen", text)
         self.assertEqual(
             metadata,
-            {"title": "Limnologie der Alpenseen", "authors": "Müller, Anna", "source": "ISBN"},
+            {
+                "title": "Limnologie der Alpenseen",
+                "authors": "Müller, Anna",
+                "source": "ISBN",
+                # WP-D1 P2: the record's own classifications travel along
+                "classifications": self._CLS,
+            },
         )
 
     def test_ppn_uses_keyword_index(self):
