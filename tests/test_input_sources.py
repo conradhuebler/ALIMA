@@ -60,6 +60,100 @@ class DispatchParityTest(unittest.TestCase):
         self.assertIn("fehlgeschlagen", str(ctx.exception))
 
 
+class ResolutionStagesTest(unittest.TestCase):
+    """The two-stage input-type resolution (WP-D1 P1 landmine fix): exact
+    registry id first, then the ``can_handle`` contract — which every source
+    declared but nothing called until July 2026. This is what lets the surface
+    aliases (``doi``/``url``) and new record types reach the one dispatcher."""
+
+    def test_exact_id_wins(self):
+        self.assertIs(
+            pipeline_input._resolve_input_source_class("text", "abc"),
+            get_input_source("text"),
+        )
+
+    def test_alias_url_resolves_via_can_handle(self):
+        self.assertIs(
+            pipeline_input._resolve_input_source_class("url", "https://a.org"),
+            get_input_source("url_fetch"),
+        )
+
+    def test_alias_doi_resolves_to_first_doi_source(self):
+        """Deliberate: the alias picks ONE backend (crossref); the fallback
+        chain stays with resolve_input_to_text."""
+        self.assertIs(
+            pipeline_input._resolve_input_source_class("doi", "10.1/x"),
+            get_input_source("doi_crossref"),
+        )
+
+    def test_unknown_type_resolves_to_none(self):
+        self.assertIsNone(pipeline_input._resolve_input_source_class("bogus", "x"))
+
+
+class BibLookupTest(unittest.TestCase):
+    """ISBN/PPN input sources (WP-D1 P1) — record → BibRecord → analysis text."""
+
+    _HIT = {
+        "rsn": "998877",
+        "title": "Limnologie der Alpenseen",
+        "author": ["Müller, Anna"],
+        "publication": "Verlag X",
+        "subjects": ["Seenkunde"],
+        "gnd_subjects": [{"term": "Limnologie", "gnd_id": "4074296-3"}],
+        "abstract": "Studien zur Seenkunde.",
+    }
+
+    def _client(self, results, captured=None):
+        class _FakeClient:
+            def __init__(self, preset="", timeout=30, max_records=50, **kw):
+                if captured is not None:
+                    captured.update(preset=preset, timeout=timeout, max_records=max_records)
+
+            def search(self, term, search_type="keyword"):
+                if captured is not None:
+                    captured.update(term=term, search_type=search_type)
+                return results
+
+        return _FakeClient
+
+    def test_registered(self):
+        self.assertIn("isbn", list_input_sources())
+        self.assertIn("ppn", list_input_sources())
+
+    def test_isbn_extract_formats_record(self):
+        captured = {}
+        with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([self._HIT], captured)):
+            text, info, method = get_input_source("isbn")().extract("9780000000001")
+        self.assertEqual(method, "isbn")
+        self.assertEqual(captured["search_type"], "isbn")
+        self.assertEqual(captured["max_records"], 1)
+        self.assertIn("Titel: Limnologie der Alpenseen", text)
+        self.assertIn("Schlagwörter: Seenkunde; Limnologie", text)
+        self.assertIn("Limnologie der Alpenseen", info)
+
+    def test_ppn_uses_keyword_index(self):
+        captured = {}
+        with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([self._HIT], captured)):
+            get_input_source("ppn")().extract("998877")
+        self.assertEqual(captured["search_type"], "keyword")
+
+    def test_no_hit_raises(self):
+        with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([])):
+            with self.assertRaises(ValueError) as ctx:
+                get_input_source("isbn")().extract("9780000000009")
+        self.assertIn("Keine Treffer", str(ctx.exception))
+
+    def test_dispatches_through_execute_input_extraction(self):
+        """End to end: the new type reaches the ONE dispatcher by id."""
+        with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([self._HIT])), \
+             patch.object(pipeline_input, "_input_settings_for", return_value={}):
+            text, info, method = pipeline_input.execute_input_extraction(
+                None, "9780000000001", input_type="isbn"
+            )
+        self.assertEqual(method, "isbn")
+        self.assertIn("Titel:", text)
+
+
 class UrlFetchTest(unittest.TestCase):
     """scrape_url now routes through net_guard.fetch_guarded (SSRF guard):
     mock the guard's response surface + a public DNS resolution. - Claude Generated"""

@@ -716,93 +716,34 @@ class BatchProcessor:
                 self.logger.error(f"Image analysis failed: {e}")
                 raise RuntimeError(f"Failed to analyze image: {e}")
 
-        elif source.source_type == SourceType.ISBN:
-            # ISBN lookup via K10Plus/MARC - Claude Generated
+        elif source.source_type in (SourceType.ISBN, SourceType.PPN):
+            # Catalog lookup via the shared BibRecord path (WP-D1 P1). Batch calls
+            # lookup_bibrecord directly (not execute_input_extraction) because it
+            # also needs title/authors for file naming. - Claude Generated
+            kind = source.source_type.value
             try:
-                from ..utils.clients.marcxml_client import MarcXmlClient
+                from .input_sources.bib_lookup import lookup_bibrecord
 
-                self.logger.info(f"Looking up ISBN {source.source_value} via K10Plus...")
-                client = MarcXmlClient(preset="k10plus", max_records=1)
-                results = client.search(source.source_value, search_type="isbn")
-
-                if not results:
-                    raise ValueError(f"Keine Treffer für ISBN {source.source_value}")
-
-                record = results[0]
-                text_parts = []
-
-                # Build text from metadata
-                if record.get("title"):
-                    text_parts.append(f"Titel: {record['title']}")
-                if record.get("author"):
-                    text_parts.append(f"Autor: {'; '.join(record['author'])}")
-                if record.get("publication"):
-                    text_parts.append(f"Erschienen: {record['publication']}")
-                if record.get("abstract"):
-                    text_parts.append(f"Abstract:\n{record['abstract']}")
-                if record.get("subjects"):
-                    text_parts.append(f"Schlagwörter: {'; '.join(record['subjects'][:10])}")
-
-                text = "\n\n".join(text_parts)
+                record = lookup_bibrecord(
+                    source.source_value,
+                    search_type="isbn" if source.source_type == SourceType.ISBN else "keyword",
+                    logger=self.logger,
+                )
+                text = record.to_analysis_text()
                 if not text.strip():
                     raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
 
-                self.logger.info(f"ISBN lookup successful: {len(text)} characters")
-                # Extract metadata for filename - Claude Generated
+                self.logger.info(f"{kind} lookup successful: {len(text)} characters")
                 metadata = {
-                    "title": record.get("title", ""),
-                    "authors": "; ".join(record.get("author", [])) if record.get("author") else "",
-                    "source": "ISBN"
+                    "title": record.title,
+                    "authors": "; ".join(record.authors),
+                    "source": kind,
                 }
                 return text, metadata
 
             except Exception as e:
-                self.logger.error(f"ISBN lookup failed: {e}")
-                raise RuntimeError(f"Failed to lookup ISBN {source.source_value}: {e}")
-
-        elif source.source_type == SourceType.PPN:
-            # PPN (K10Plus record ID) lookup - Claude Generated
-            try:
-                from ..utils.clients.marcxml_client import MarcXmlClient
-
-                self.logger.info(f"Looking up PPN {source.source_value} via K10Plus...")
-                client = MarcXmlClient(preset="k10plus", max_records=1)
-                results = client.search(source.source_value)
-
-                if not results:
-                    raise ValueError(f"Keine Treffer für PPN {source.source_value}")
-
-                record = results[0]
-                text_parts = []
-
-                # Build text from metadata
-                if record.get("title"):
-                    text_parts.append(f"Titel: {record['title']}")
-                if record.get("author"):
-                    text_parts.append(f"Autor: {'; '.join(record['author'])}")
-                if record.get("publication"):
-                    text_parts.append(f"Erschienen: {record['publication']}")
-                if record.get("abstract"):
-                    text_parts.append(f"Abstract:\n{record['abstract']}")
-                if record.get("subjects"):
-                    text_parts.append(f"Schlagwörter: {'; '.join(record['subjects'][:10])}")
-
-                text = "\n\n".join(text_parts)
-                if not text.strip():
-                    raise ValueError("Keine Metadaten vom Katalog zurückgegeben")
-
-                self.logger.info(f"PPN lookup successful: {len(text)} characters")
-                # Extract metadata for filename - Claude Generated
-                metadata = {
-                    "title": record.get("title", ""),
-                    "authors": "; ".join(record.get("author", [])) if record.get("author") else "",
-                    "source": "PPN"
-                }
-                return text, metadata
-
-            except Exception as e:
-                self.logger.error(f"PPN lookup failed: {e}")
-                raise RuntimeError(f"Failed to lookup PPN {source.source_value}: {e}")
+                self.logger.error(f"{kind} lookup failed: {e}")
+                raise RuntimeError(f"Failed to lookup {kind} {source.source_value}: {e}")
 
         elif source.source_type == SourceType.URL:
             # URL web scraping via the shared url_fetch input source (Debt D-9). - Claude Generated

@@ -54,12 +54,10 @@ def execute_input_extraction(
     # former if/elif — Debt D-11). text/file/pdf/image behave byte-for-byte as
     # before (their sources call the same helpers below). - Claude Generated
     try:
-        from .input_sources import INPUT_SOURCE_REGISTRY
-
-        src_cls = INPUT_SOURCE_REGISTRY.get(input_type)
+        src_cls = _resolve_input_source_class(input_type, input_source)
         if src_cls is None:
             raise Exception(f"Unbekannter Input-Typ: {input_type}")
-        settings = _input_settings_for(input_type)
+        settings = _input_settings_for(getattr(src_cls, "id", input_type))
         try:
             source_obj = src_cls(**settings)
         except TypeError:
@@ -76,6 +74,34 @@ def execute_input_extraction(
         if logger:
             logger.error(error_msg)
         raise Exception(error_msg)
+
+
+def _resolve_input_source_class(input_type: str, input_source: str):
+    """Resolve an input type to its source class, in two stages - Claude Generated.
+
+    1. Exact registry id (``pdf``, ``image``, ``url_fetch``, ``doi_crossref``,
+       ``isbn`` …) — the fast path every existing caller uses.
+    2. ``can_handle`` scan — the contract every source declares but which was
+       never called until July 2026. This resolves the surface aliases (GUI/
+       webapp ``doi``/``url``) without a hand-maintained mapping table. First
+       registered match wins, so the alias ``doi`` picks ``doi_crossref`` alone;
+       the crossref→openalex→datacite fallback chain deliberately stays with
+       ``resolve_input_to_text``.
+
+    Returns ``None`` if no source claims the type.
+    """
+    from .input_sources import INPUT_SOURCE_REGISTRY
+
+    src_cls = INPUT_SOURCE_REGISTRY.get(input_type)
+    if src_cls is not None:
+        return src_cls
+    for cls in INPUT_SOURCE_REGISTRY.values():
+        try:
+            if cls().can_handle(input_source, input_type):
+                return cls
+        except Exception:  # a probe must never break dispatch - Claude Generated
+            continue
+    return None
 
 
 def _input_settings_for(input_type: str) -> dict:

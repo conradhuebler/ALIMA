@@ -6,6 +6,43 @@
 
 ## 2026
 
+### WP-D1 P1, erster Schnitt: Record → Analyse-Input (August 3, 2026)
+
+`to_bibrecord()` hat seinen ersten echten Konsumenten. Vier Teile:
+
+**1. `BibRecord.to_analysis_text()`** — der eine Record→Analyse-Text-Formatter
+(Titel/Autor/Erschienen/Abstract/Schlagwörter, degradiert ohne Abstract zu
+Titel+Schlagwörtern). Ersetzt die zwei byte-identischen handgerollten Kopien im
+`batch_processor` (ISBN- und PPN-Zweig). Klassifikationen bewusst NICHT im
+Text — die gehen als Priors in den Klassifikationsschritt (P2).
+
+**2. Input-Sources `isbn`/`ppn`** (`src/utils/input_sources/bib_lookup.py`):
+Identifier → SRU-Lookup (`MarcXmlClient`, Preset konfigurierbar, Default
+k10plus) → `to_bibrecord(…, "sru")` → `to_analysis_text()`. Kein
+`mcp_tool_spec` (Identifier-Lookup existiert schon in der `lookup`-Kategorie).
+Batch-ISBN/PPN delegiert an den geteilten `lookup_bibrecord`-Helfer (braucht
+Titel/Autoren für die Dateinamen, die das `extract`-Tupel nicht trägt); die
+Batch-Texte enthalten dadurch jetzt auch die GND-Schlagwort-Terme.
+
+**3. Landmine entschärft (Dispatcher):** `execute_input_extraction` löst
+`input_type` jetzt zweistufig auf — exakte Registry-ID, dann der
+`can_handle`-Vertrag, den **jede Quelle deklarierte, aber nichts je aufrief**.
+Damit erreichen die Oberflächen-Aliase (`doi`/`url`) und neue Record-Typen den
+einen Dispatcher ohne Mapping-Tabelle. Bewusst: Alias `doi` wählt EINE Quelle
+(crossref); die Fallback-Kette bleibt bei `resolve_input_to_text`.
+Settings-Lookup läuft über die *aufgelöste* ID.
+
+**4. Nebenbefund behoben:** `_from_sru` stringifizierte `gnd_subjects`-Einträge
+— die sind im echten `MarcXmlClient` Dicts `{term, gnd_id}`, die Fixture hatte
+Strings (das „triviale Fixtures verdecken Live-Bugs"-Muster). Fixture auf die
+echte Form gehoben, Test vor dem Fix rot verifiziert, Terme statt
+`str(dict)`-Müll.
+
+Offen in P1: Oberflächen-Adoption (GUI/CLI kennen `isbn`/`ppn` noch nicht als
+Eingabetyp; DOI läuft in CLI/GUI weiter direkt über `resolve_input_to_text` —
+dokumentierte Entscheidung, kein Versehen). Danach P2 (Record-Klassifikationen
+als Priors), P3 (Subjects als GND-Signale), P4 (Crosswalk).
+
 ### Aufräumen A+C: tote Aufrufe, ungetestete Kernlogik (July 21, 2026)
 
 Drei Commits (`a3bb317`, `11f77c8`, `06c4417`), Suite 1432 → 1525. Ausgelöst

@@ -36,6 +36,7 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ### Input sources (`input_sources/`)
 - `INPUT_SOURCE_REGISTRY` + `@register_input_source`; `execute_input_extraction` is a registry dispatcher (text/file/pdf/image byte-parity). `url_fetch` (extracted from `batch_processor`) + three separately-configurable DOI plugins (`doi_crossref`/`openalex`/`datacite`) wrapping `UnifiedResolver`.
+- **Two-stage type resolution (WP-D1 P1, Aug 3):** exact registry id first, then the `can_handle` contract (surface aliases `doi`/`url`; alias `doi` picks crossref alone — the fallback chain stays with `resolve_input_to_text`). `bib_lookup.py` adds `isbn`/`ppn` (SRU lookup → `BibRecord.to_analysis_text()`); batch ISBN/PPN delegates to its `lookup_bibrecord`.
 - Providers: Ollama, OpenAI-compatible, Gemini, Anthropic; multi-host, priority ordering, task-specific preferences; environment-variable overrides.
 
 ## [Variable Section - Short-term Information]

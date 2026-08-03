@@ -26,18 +26,20 @@ DOI-Record-Keys klein. Verifikation ist ein deterministischer Headless-Test
 (beide Pfade, eine Fixture, echter Produktionscode) statt eines Live-Laufs.
 Details: `AIChangelog.md` (July 20) + [`wp_records_as_first_class.md`](wp_records_as_first_class.md).
 
-**Offen in D1: die Konsumenten P1–P4** (Record→Input, →Priors, →GND-Signale,
-Crosswalk). ⚠️ **P1 hat eine eigene Parity-Landmine**, vor dem Start klären: das
-`input_type`-Vokabular driftet über die Oberflächen (Registry-IDs
-`doi_crossref`/`image`/`url_fetch` vs. GUI `doi`/`img`/`url` vs. Batch-eigenes
-`SourceType`-Enum), und **DOI läuft heute komplett an
-`execute_input_extraction` vorbei** — CLI/GUI rufen `resolve_input_to_text`
-direkt, die registrierten `doi_*`-Sources sind nur über MCP erreichbar. Eine
-neue Record-Source im Registry würde nur 1 von 6 Aufrufstellen erreichen.
-Der Record→Text-Formatter existiert bereits zweimal dupliziert
-(`batch_processor.py:727-742` + `:771-786`) — das Zusammenlegen ist der
-risikoärmste Teil von P1. `to_bibrecord()` ist bewusst noch nicht verdrahtet
-(die drei `ResultItem`-Nähte sind unberührt), P1 ist der erste echte Konsument.
+**P1 erster Schnitt ✅ DONE (August 3, 2026):** `BibRecord.to_analysis_text()`
+ersetzt die zwei duplizierten Batch-Formatter; neue Input-Sources `isbn`/`ppn`
+(SRU-Lookup → `to_bibrecord` → Analyse-Text) sind der erste echte
+`to_bibrecord()`-Konsument; die Landmine ist am Dispatcher entschärft
+(`execute_input_extraction` löst zweistufig auf: exakte Registry-ID, dann der
+vorher nie aufgerufene `can_handle`-Vertrag — Aliase `doi`/`url` erreichen
+damit den einen Dispatcher). Nebenbefund behoben: `_from_sru` stringifizierte
+`gnd_subjects`-Dicts. Details: `AIChangelog.md` (August 3).
+
+**Offen in D1:** P1-Oberflächen-Adoption (GUI/CLI kennen `isbn`/`ppn` noch
+nicht als Eingabetyp; DOI läuft in CLI/GUI weiter bewusst über
+`resolve_input_to_text` — Alias `doi` am Dispatcher wählt EINE Quelle, die
+Fallback-Kette bleibt dort) sowie **P2–P4** (Record→Priors, →GND-Signale,
+Crosswalk). Die drei `ResultItem`-Nähte sind weiterhin unberührt.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
 > ✅ **Ernte erledigt (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite 1405).**

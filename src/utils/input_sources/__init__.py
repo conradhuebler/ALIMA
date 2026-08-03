@@ -21,6 +21,7 @@ from .registry import (
 from . import builtin as _builtin  # noqa: F401,E402
 from . import url_fetch as _url_fetch  # noqa: F401,E402
 from . import doi as _doi  # noqa: F401,E402
+from . import bib_lookup as _bib_lookup  # noqa: F401,E402
 
 # Side-effect import: register the category adapter.
 from . import category as _category  # noqa: F401,E402

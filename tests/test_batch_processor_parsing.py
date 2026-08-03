@@ -16,7 +16,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from src.utils.batch_processor import (
     BatchSource,
@@ -186,6 +186,65 @@ class TestPoorQualityHeuristic(unittest.TestCase):
     def test_umlauts_count_as_alphanumeric(self):
         """str.isalnum() is unicode-aware — German text is not punished."""
         self.assertFalse(self.proc._is_poor_quality_text("Öl Wärme Größe Fluß"))
+
+
+class TestIsbnPpnResolve(unittest.TestCase):
+    """The ISBN/PPN branch of _resolve_source_to_text now runs over the shared
+    BibRecord path (WP-D1 P1) instead of two hand-rolled formatter copies."""
+
+    def setUp(self):
+        import logging
+        from src.utils.batch_processor import BatchProcessor
+
+        self.proc = object.__new__(BatchProcessor)
+        self.proc.logger = logging.getLogger("test_batch_isbn_ppn")
+
+    def _record(self):
+        from src.core.bib_record import BibRecord
+
+        return BibRecord(
+            source="sru",
+            title="Limnologie der Alpenseen",
+            authors=["Müller, Anna"],
+            publisher="Verlag X",
+            subjects=["Seenkunde"],
+            abstract="Studien zur Seenkunde.",
+        )
+
+    def test_isbn_uses_isbn_index_and_returns_metadata(self):
+        from src.utils.batch_processor import BatchSource, SourceType
+
+        with patch("src.utils.input_sources.bib_lookup.lookup_bibrecord") as lookup:
+            lookup.return_value = self._record()
+            text, metadata = self.proc._resolve_source_to_text(
+                BatchSource(SourceType.ISBN, "9780000000001")
+            )
+        self.assertEqual(lookup.call_args.kwargs["search_type"], "isbn")
+        self.assertIn("Titel: Limnologie der Alpenseen", text)
+        self.assertEqual(
+            metadata,
+            {"title": "Limnologie der Alpenseen", "authors": "Müller, Anna", "source": "ISBN"},
+        )
+
+    def test_ppn_uses_keyword_index(self):
+        from src.utils.batch_processor import BatchSource, SourceType
+
+        with patch("src.utils.input_sources.bib_lookup.lookup_bibrecord") as lookup:
+            lookup.return_value = self._record()
+            _text, metadata = self.proc._resolve_source_to_text(
+                BatchSource(SourceType.PPN, "998877")
+            )
+        self.assertEqual(lookup.call_args.kwargs["search_type"], "keyword")
+        self.assertEqual(metadata["source"], "PPN")
+
+    def test_no_hit_becomes_runtime_error_naming_the_identifier(self):
+        from src.utils.batch_processor import BatchSource, SourceType
+
+        with patch("src.utils.input_sources.bib_lookup.lookup_bibrecord") as lookup:
+            lookup.side_effect = ValueError("Keine Treffer für 978X")
+            with self.assertRaises(RuntimeError) as ctx:
+                self.proc._resolve_source_to_text(BatchSource(SourceType.ISBN, "978X"))
+        self.assertIn("Failed to lookup ISBN 978X", str(ctx.exception))
 
 
 class TestBatchStateResume(unittest.TestCase):
