@@ -44,12 +44,20 @@ damit den einen Dispatcher). Nebenbefund behoben: `_from_sru` stringifizierte
 Input-Source-Vertrag; klassischer Input-Step akzeptiert `isbn`/`ppn`.
 Details: `AIChangelog.md` (August 3).
 
-**Offen in D1:** P1/P2-Oberflächen-Adoption (GUI/CLI senden `isbn`/`ppn` noch
-nicht; DOI läuft in CLI/GUI weiter bewusst über `resolve_input_to_text`);
-Agentik erhält noch keine Record-Priors; `execute_dk_classification` bricht
-ohne Katalog-Kandidaten weiter ab, auch mit Priors; sowie **P3–P4**
-(Record→GND-Signale, Crosswalk). Die drei `ResultItem`-Nähte sind weiterhin
-unberührt.
+**P3 + P4 ✅ DONE (August 3, 2026):** P3 — `BibRecord.gnd_subjects` →
+`merge_record_gnd_subjects` injiziert GND-verknüpfte Record-Schlagwörter als
+verifizierte Pool-Kandidaten (`input_record`-Bucket, `count=1`); Kanäle wie
+P2. P4 — `k10plus_resolve`-Tool: DOI ↔ PPN ↔ ISBN via K10plus, jeder Kandidat
+client-seitig verifiziert (der `pica.doi`-Index tokenisiert!); nackte
+10-stellige Nummern = PPN. Nebenbefund: PPN-Lookup suchte im Schlagwort-Index
+und traf nie — jetzt `pica.ppn`, live bewiesen. Details: `AIChangelog.md`.
+
+**Offen in D1 (Rest = Adoption, keine neuen Pfade):** GUI/CLI senden
+`isbn`/`ppn` noch nicht; DOI läuft in CLI/GUI bewusst über
+`resolve_input_to_text` — natürlicher nächster Schritt: DOI-Input reichert
+sich via `k10plus_resolve` um Subjects+DDC an; Agentik erhält keine
+Record-Priors; `execute_dk_classification` bricht ohne Katalog-Kandidaten
+weiter ab, auch mit Priors. Die drei `ResultItem`-Nähte sind unberührt.
 
 ### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
 > ✅ **Ernte erledigt (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite 1405).**

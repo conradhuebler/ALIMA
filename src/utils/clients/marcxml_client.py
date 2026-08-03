@@ -290,6 +290,7 @@ class MarcXmlClient:
                 "author": "pica.per",   # Person
                 "subject": "pica.slw",  # Schlagwörter (correct index for K10plus)
                 "isbn": "pica.isb",     # ISBN
+                "ppn": "pica.ppn",      # Record id (WP-D1 P4; keyword index never matched a PPN)
                 "all": "pica.all",      # All fields
             }
             index = index_map_k10plus.get(search_type, "pica.slw")

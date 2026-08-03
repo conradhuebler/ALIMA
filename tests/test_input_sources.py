@@ -131,11 +131,13 @@ class BibLookupTest(unittest.TestCase):
         self.assertIn("Schlagwörter: Seenkunde; Limnologie", text)
         self.assertIn("Limnologie der Alpenseen", info)
 
-    def test_ppn_uses_keyword_index(self):
+    def test_ppn_uses_the_ppn_index(self):
+        """WP-D1 P4 fix: the former keyword index searched the PPN as a
+        SUBJECT term (pica.slw) and never matched — live-verified 0 hits."""
         captured = {}
         with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([self._HIT], captured)):
             get_input_source("ppn")().extract("998877")
-        self.assertEqual(captured["search_type"], "keyword")
+        self.assertEqual(captured["search_type"], "ppn")
 
     def test_no_hit_raises(self):
         with patch("src.utils.clients.marcxml_client.MarcXmlClient", self._client([])):

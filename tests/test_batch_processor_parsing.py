@@ -200,6 +200,7 @@ class TestIsbnPpnResolve(unittest.TestCase):
         self.proc.logger = logging.getLogger("test_batch_isbn_ppn")
 
     _CLS = {"DK": [{"code": "556.55", "origin": "authority"}]}
+    _GND_SUBJECTS = [{"term": "Limnologie", "gnd_id": "4074296-3"}]
 
     def _record(self):
         from src.core.bib_record import BibRecord
@@ -212,6 +213,7 @@ class TestIsbnPpnResolve(unittest.TestCase):
             subjects=["Seenkunde"],
             abstract="Studien zur Seenkunde.",
             classifications=dict(self._CLS),
+            gnd_subjects=list(self._GND_SUBJECTS),
         )
 
     def test_isbn_uses_isbn_index_and_returns_metadata(self):
@@ -232,10 +234,12 @@ class TestIsbnPpnResolve(unittest.TestCase):
                 "source": "ISBN",
                 # WP-D1 P2: the record's own classifications travel along
                 "classifications": self._CLS,
+                # WP-D1 P3: GND-linked subjects travel along as pool candidates
+                "gnd_subjects": self._GND_SUBJECTS,
             },
         )
 
-    def test_ppn_uses_keyword_index(self):
+    def test_ppn_uses_the_ppn_index(self):
         from src.utils.batch_processor import BatchSource, SourceType
 
         with patch("src.utils.input_sources.bib_lookup.lookup_bibrecord") as lookup:
@@ -243,7 +247,7 @@ class TestIsbnPpnResolve(unittest.TestCase):
             _text, metadata = self.proc._resolve_source_to_text(
                 BatchSource(SourceType.PPN, "998877")
             )
-        self.assertEqual(lookup.call_args.kwargs["search_type"], "keyword")
+        self.assertEqual(lookup.call_args.kwargs["search_type"], "ppn")
         self.assertEqual(metadata["source"], "PPN")
 
     def test_no_hit_becomes_runtime_error_naming_the_identifier(self):

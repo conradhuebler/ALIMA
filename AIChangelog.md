@@ -6,6 +6,45 @@
 
 ## 2026
 
+### WP-D1 P3+P4: GND-Signale + Identifier-Crosswalk (August 3, 2026)
+
+Die letzten beiden Konsumenten-Pfade der Daten-Achse.
+
+**P3 — Record-Subjects als GND-Signale.** Ein Katalog-Datensatz, der seine
+Schlagwörter MIT GND-IDs nennt, hat den Lookup schon erledigt:
+- `BibRecord.gnd_subjects` (`{term, gnd_id}`) neu; `_from_sru` befüllt es aus
+  den MarcXml-Dicts (die reinen Terme bleiben zusätzlich in `subjects`/P1-Text).
+- `merge_record_gnd_subjects` (`gnd_search_core`): injiziert sie als
+  verifizierte Kandidaten in den Such-Pool — eigener `input_record`-Bucket,
+  `count=1` (Count-Landmine: ein Prior darf gesuchte Evidenz nicht überstimmen),
+  `gnd_ids` als Set, bestehende Buckets unangetastet. Das finale Keyword-LLM
+  sieht sie als Kandidaten; es entscheidet.
+- Kanäle wie P2: KAS-Feld `input_record_gnd_subjects` (persistiert),
+  Batch-Metadaten → `execute_complete_pipeline`, klassischer Input-/Such-Step
+  via `record_sink`.
+
+**P4 — Identifier-Crosswalk (K10plus).** DOI ↔ PPN ↔ ISBN in beide Richtungen,
+live verifiziert (alle drei konvergieren auf denselben Record):
+- `fetch_record_for_identifier` + `detect_identifier_kind`
+  (`k10plus_resolver`). ⚠️ Der K10plus-`pica.doi`-Index **tokenisiert**: eine
+  quoted DOI-Phrase meldet Millionen „Treffer", der exakte steht nur zufällig
+  vorn. Deshalb wird jeder Kandidat client-seitig gegen den angefragten
+  Identifier geprüft — kein verifizierter Treffer ⇒ `None`, lieber kein Record
+  als ein plausibel-falscher.
+- Ambiguität entschieden: nackte 10-stellige Nummern sind PPN (ISBN-10 nur mit
+  Bindestrichen/`kind="isbn"`); ISBN-13 am 978/979-Präfix.
+- Neues Agent-Tool `k10plus_resolve` am bestehenden Lookup-Plugin: liefert
+  `identifiers {ppn, doi, isbn}` + den Record als kanonisches `BibRecord`-Dict
+  (P1-Text, P2-Priors, P3-Subjects lesen dieselbe Form).
+- **Nebenbefund behoben:** PPN-Lookup suchte die PPN im **Schlagwort-Index**
+  (`pica.slw`) — live bewiesen: 0 Treffer für eine gültige PPN. Das
+  Batch-PPN-Feature war von Anfang an tot. Jetzt `pica.ppn`-Index
+  (MarcXmlClient-Map + `ppn`-Input-Source + Batch), live 1 Treffer.
+
+Offen bleibt (Register): Oberflächen-Adoption, Agentik-Priors, DOI-Input →
+Crosswalk-Anreicherung (der natürliche nächste Schritt: eine DOI holt sich via
+`k10plus_resolve` Subjects+DDC dazu).
+
 ### WP-D1 P2: Record-Klassifikationen als Priors (August 3, 2026)
 
 Der zweite Konsumenten-Pfad: die **eigenen** Klassifikationen des

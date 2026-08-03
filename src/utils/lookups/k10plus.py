@@ -53,6 +53,24 @@ class K10PlusLookup:
     @classmethod
     def mcp_tool_specs(cls) -> List[LookupToolSpec]:
         return [LookupToolSpec(
+            name="k10plus_resolve",
+            description="Identifier-Crosswalk über K10plus (WP-D1 P4): löst eine "
+            "DOI, ISBN oder PPN zum bibliografischen K10plus-Datensatz auf und "
+            "liefert die jeweils ANDEREN Identifier mit (ppn/doi/isbn) plus "
+            "Titel/Autoren/DDC/Schlagwörter. Nackte 10-stellige Nummern werden "
+            "als PPN gedeutet — für ISBN-10 ohne Bindestriche kind='isbn' setzen.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "description": "DOI (auch doi.org-URL), ISBN oder PPN"},
+                    "kind": {"type": "string", "enum": ["doi", "isbn", "ppn"],
+                             "description": "Optional: Identifier-Typ erzwingen"},
+                },
+                "required": ["identifier"],
+            },
+            method="resolve_identifier",
+            cache_key_param="identifier",
+        ), LookupToolSpec(
             name="k10plus_package",
             description="Fetch the bibliographic records of a K10plus Paketsigel "
             "(package seal), e.g. 'ZDB-2-CMS'. Returns records (ppn, doi, title, "
@@ -68,6 +86,44 @@ class K10PlusLookup:
             method="fetch_package",
             cache_key_param="siegel",
         )]
+
+    def resolve_identifier(
+        self,
+        identifier: str,
+        kind: Optional[str] = None,
+        logger: "Optional[logging.Logger]" = None,
+    ) -> dict:
+        """DOI/ISBN/PPN → K10plus record incl. the other identifiers - Claude Generated.
+
+        The crosswalk tool body (WP-D1 P4). Returns the record normalised as a
+        ``BibRecord`` dict, so downstream consumers (P1 analysis text, P2
+        priors, P3 GND subjects) read the one canonical shape.
+        """
+        from dataclasses import asdict
+
+        from src.core.bib_record import to_bibrecord
+        from src.utils.k10plus_resolver import (
+            detect_identifier_kind,
+            fetch_record_for_identifier,
+        )
+
+        kind = (kind or detect_identifier_kind(identifier)).lower()
+        record = fetch_record_for_identifier(identifier, kind=kind, logger=logger)
+        if record is None:
+            return {
+                "success": False,
+                "identifier": identifier,
+                "kind": kind,
+                "error": f"Kein verifizierter K10plus-Treffer für {kind} '{identifier}'",
+            }
+        bib = to_bibrecord(asdict(record), "k10plus")
+        return {
+            "success": True,
+            "identifier": identifier,
+            "kind": kind,
+            "identifiers": bib.identifiers,
+            "record": bib.to_dict(),
+        }
 
     def fetch_records(
         self,

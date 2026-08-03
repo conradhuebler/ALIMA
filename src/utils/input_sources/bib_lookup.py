@@ -117,7 +117,8 @@ class IsbnInputSource(_BibLookupSource):
 class PpnInputSource(_BibLookupSource):
     id = "ppn"
     label = "PPN (Katalog)"
-    # The SRU clients expose no dedicated PPN index; the record id is found via
-    # the default keyword index (same behaviour the batch path had).
-    _search_type = "keyword"
+    # WP-D1 P4: dedicated pica.ppn index (k10plus preset). The former default
+    # keyword index searched the PPN as a SUBJECT term and could never match —
+    # the batch PPN path inherited that latent defect.
+    _search_type = "ppn"
     _identifier_label = "PPN (K10plus-Datensatznummer)"

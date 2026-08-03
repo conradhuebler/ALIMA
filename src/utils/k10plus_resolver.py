@@ -500,3 +500,108 @@ def fetch_records_for_siegel(
 
     logger.info(f"Siegel '{siegel}': {len(all_records)} records extracted")
     return all_records
+
+
+# ── Identifier crosswalk (WP-D1 P4) ──────────────────────────────────────────
+
+_DOI_KIND_RE = re.compile(r"^10\.\d{4,9}/\S+$")
+_SRU_IDENT = (
+    "https://sru.k10plus.de/opac-de-627"
+    "?version=1.2&operation=searchRetrieve"
+    "&query={query}&maximumRecords={n}&recordSchema=picaxml"
+)
+
+
+def detect_identifier_kind(identifier: str) -> str:
+    """Classify an identifier as ``doi`` / ``isbn`` / ``ppn`` - Claude Generated.
+
+    DOI: the ``10.xxxx/...`` pattern (doi.org URLs are normalised first).
+    ISBN: 13 digits with the 978/979 bookland prefix, or a 10-char form that
+    carries FORMATTING (hyphens/spaces) — a bare 10-digit number is ambiguous
+    between ISBN-10 and a K10plus PPN and is treated as a **PPN** (callers that
+    know better pass ``kind`` explicitly).
+    Everything else is a PPN — the record id has no self-describing shape, so
+    it is the fallback rather than a guess.
+    """
+    s = str(identifier or "").strip()
+    low = s.lower()
+    if low.startswith(("http://", "https://")) and "doi.org/" in low:
+        return "doi"
+    if _DOI_KIND_RE.match(s):
+        return "doi"
+    compact = s.replace("-", "").replace(" ", "")
+    is_isbn_shaped = (
+        len(compact) in (10, 13)
+        and compact[:-1].isdigit()
+        and (compact[-1].isdigit() or compact[-1] in "xX")
+    )
+    if is_isbn_shaped:
+        if len(compact) == 13 and compact.startswith(("978", "979")):
+            return "isbn"
+        if len(compact) == 10 and compact != s:  # formatting present → written as ISBN
+            return "isbn"
+    return "ppn"
+
+
+def fetch_record_for_identifier(
+    identifier: str,
+    kind: Optional[str] = None,
+    timeout: int = 20,
+    logger: Optional[logging.Logger] = None,
+) -> Optional[K10PlusRecord]:
+    """Resolve one identifier (DOI/ISBN/PPN) to its K10plus record - Claude Generated.
+
+    The crosswalk core (WP-D1 P4): whichever identifier comes in, the returned
+    ``K10PlusRecord`` carries the others (ppn/doi/isbn) plus the full
+    bibliographic record (title/authors/ddc/subjects).
+
+    The K10plus ``pica.doi`` index TOKENIZES its input — a quoted DOI phrase
+    reports millions of "hits" with the exact match ranked first (verified
+    live, Aug 2026). Results are therefore never trusted positionally: every
+    candidate is checked client-side against the requested identifier, and no
+    verified match ⇒ ``None`` — better no record than a plausible wrong one.
+    """
+    from urllib.parse import quote
+
+    logger = logger or logging.getLogger(__name__)
+    kind = (kind or detect_identifier_kind(identifier)).lower()
+
+    value = str(identifier or "").strip()
+    if kind == "doi":
+        value = _clean_doi(value)
+        query = quote(f'pica.doi="{value}"', safe="")
+        n = 5
+    elif kind == "isbn":
+        value = value.replace("-", "").replace(" ", "")
+        query = quote(f"pica.isb={value}", safe="")
+        n = 5
+    else:
+        query = quote(f"pica.ppn={value}", safe="")
+        n = 1
+    if not value:
+        return None
+
+    url = _SRU_IDENT.format(query=query, n=n)
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=timeout)
+        resp.raise_for_status()
+        records = _parse_pica_xml(resp.content)
+    except Exception as e:  # network/HTTP/XML failure — expected failure class
+        logger.warning(f"K10plus crosswalk ({kind}={value}) failed: {e}")
+        return None
+
+    for record in records:
+        if kind == "doi" and _clean_doi(record.doi).lower() == value.lower():
+            return record
+        if kind == "isbn" and value in (
+            [record.isbn.replace("-", "")] + [i.replace("-", "") for i in record.additional_isbns]
+        ):
+            return record
+        if kind == "ppn" and record.ppn == value:
+            return record
+    if records:
+        logger.info(
+            f"K10plus crosswalk: {len(records)} candidates for {kind}={value}, "
+            f"none verified — returning none"
+        )
+    return None

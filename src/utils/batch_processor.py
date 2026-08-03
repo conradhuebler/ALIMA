@@ -467,6 +467,7 @@ class BatchProcessor:
                 pipeline_config=pipeline_config,
                 stream_callback=self.stream_callback,
                 input_record_classifications=(source_metadata or {}).get("classifications"),
+                input_record_gnd_subjects=(source_metadata or {}).get("gnd_subjects"),
             )
 
             result.state = state
@@ -727,7 +728,7 @@ class BatchProcessor:
 
                 record = lookup_bibrecord(
                     source.source_value,
-                    search_type="isbn" if source.source_type == SourceType.ISBN else "keyword",
+                    search_type="isbn" if source.source_type == SourceType.ISBN else "ppn",
                     logger=self.logger,
                 )
                 text = record.to_analysis_text()
@@ -742,6 +743,8 @@ class BatchProcessor:
                     # WP-D1 P2: the record's own classifications travel along and
                     # become dk_classification priors - Claude Generated
                     "classifications": record.classifications,
+                    # WP-D1 P3: GND-linked subjects become pool candidates - Claude Generated
+                    "gnd_subjects": record.gnd_subjects,
                 }
                 return text, metadata
 
