@@ -5,6 +5,7 @@ dropdown's provider/model list, a refresh hook, and the global LLM+pipeline
 queue badge data.
 """
 
+import asyncio
 import logging
 
 from fastapi import APIRouter
@@ -15,16 +16,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Per-provider budget for the live model probe. The former sync loop probed
+# every provider sequentially IN the event loop — one unreachable host froze
+# the whole webapp until its network timeout, and the dropdown read as "keine
+# Provider-Config" (the same disease the Qt GUI had with sync
+# force_check=True). - Claude Generated
+_DETECT_TIMEOUT_S = 8.0
+
 
 @router.get("/api/models")
 async def get_available_models() -> list:
     """Get available provider/model combinations for override dropdown - Claude Generated
 
     Live-detects models per provider via ProviderDetectionService (shared 300s TTL
-    cache, same source as the Qt6 GUI), instead of reading the runtime-only
-    ``provider.available_models`` field that is never populated on the webapp
-    backend. Falls back to the persisted list / preferred model when detection
-    yields nothing (e.g. provider unreachable) so the dropdown is never empty.
+    cache, same source as the Qt6 GUI). Probes run in PARALLEL worker threads
+    with a per-provider timeout, so the event loop stays free and one dead host
+    cannot stall the response; a timed-out probe thread finishes in the
+    background and still warms the TTL cache for the next call. Falls back to
+    the persisted list / preferred model when detection yields nothing, so the
+    dropdown is never empty.
     """
     try:
         app_context = AppContext()
@@ -34,11 +44,19 @@ async def get_available_models() -> list:
         unified_config = config_manager.get_unified_config()
         enabled_providers = unified_config.get_enabled_providers()
 
-        models = []
-        for provider in enabled_providers:
+        async def probe(provider) -> list:
             provider_name = provider.name
             try:
-                available = detection.get_available_models(provider_name) or []
+                available = await asyncio.wait_for(
+                    asyncio.to_thread(detection.get_available_models, provider_name),
+                    timeout=_DETECT_TIMEOUT_S,
+                ) or []
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Model detection for {provider_name} exceeded "
+                    f"{_DETECT_TIMEOUT_S}s — using persisted fallback"
+                )
+                available = []
             except Exception as e:
                 logger.warning(f"Model detection failed for {provider_name}: {e}")
                 available = []
@@ -46,13 +64,23 @@ async def get_available_models() -> list:
                 available = list(getattr(provider, 'available_models', []) or [])
             if not available and getattr(provider, 'preferred_model', None):
                 available = [provider.preferred_model]
-            for model in available:
-                models.append({
+            return [
+                {
                     "provider": provider_name,
                     "model": model,
-                    "value": f"{provider_name}|{model}"
-                })
-        return models
+                    "value": f"{provider_name}|{model}",
+                }
+                for model in available
+            ]
+
+        # Ein Vorwärm-Aufruf, damit die Probe-Threads sich die EINE lazy
+        # initialisierte LlmService teilen — sonst rennen fünf Threads in den
+        # unguarded ``_llm_service is None``-Race und initialisieren je einen
+        # eigenen Service, serialisiert am Config-Lock (~5×5s). - Claude Generated
+        await asyncio.to_thread(detection.get_available_providers)
+
+        per_provider = await asyncio.gather(*(probe(p) for p in enabled_providers))
+        return [row for rows in per_provider for row in rows]
     except Exception as e:
         logger.error(f"Error getting models: {e}")
         return []
@@ -72,12 +100,14 @@ async def refresh_models() -> list:
         app_context = AppContext()
         services = app_context.get_services()
         config_manager = services['config_manager']
-        config_manager.load_config(force_reload=True)
+        # Sync config/provider rebuilds off the event loop (same reasoning as
+        # the probe threads above). - Claude Generated
+        await asyncio.to_thread(config_manager.load_config, force_reload=True)
         try:
-            services['llm_service'].reload_providers()
+            await asyncio.to_thread(services['llm_service'].reload_providers)
         except Exception as e:
             logger.warning(f"llm_service.reload_providers failed: {e}")
-        config_manager.get_provider_detection_service().reload()
+        await asyncio.to_thread(config_manager.get_provider_detection_service().reload)
     except Exception as e:
         logger.error(f"Error refreshing models: {e}")
     return await get_available_models()

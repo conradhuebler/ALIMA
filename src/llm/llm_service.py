@@ -1277,6 +1277,20 @@ class LlmService(QObject):
             raw_url = provider_config.base_url if hasattr(provider_config, 'base_url') else ""
             if raw_url:
                 base_url = raw_url
+                # Schema-loser Host ("www.ollama.com"): der ollama-Client rät
+                # daraus http://…:11434 — gefilterter Port, endloser
+                # Connect-Hang (Webapp-Dropdown-Befund Aug 4). Ein Host mit
+                # Punkt, der keine IP ist, meint einen öffentlichen
+                # HTTPS-Endpoint; localhost/IPs behalten die
+                # ollama-Konvention. - Claude Generated
+                if "://" not in base_url:
+                    host_part = base_url.split("/", 1)[0].split(":", 1)[0]
+                    is_ip = host_part.replace(".", "").isdigit()
+                    if "." in host_part and not is_ip:
+                        base_url = f"https://{base_url}"
+                        self.logger.info(
+                            f"Ollama {provider}: schema-lose base_url '{raw_url}' → '{base_url}'"
+                        )
             elif hasattr(provider_config, 'host') and provider_config.host:
                 protocol = 'https' if getattr(provider_config, 'use_ssl', False) else 'http'
                 port = getattr(provider_config, 'port', 11434)
@@ -1309,7 +1323,14 @@ class LlmService(QObject):
             if not OLLAMA_AVAILABLE:
                 raise ImportError("ollama library not available. Please install it: pip install ollama")
 
-            client_instance = ollama.Client(**client_params)
+            # Connect begrenzt (5s), Read unbegrenzt: Fehlkonfigurationen und
+            # tote Hosts schlagen in Sekunden fehl statt endlos zu hängen —
+            # lange Generierungen bleiben unangetastet. - Claude Generated
+            import httpx
+
+            client_instance = ollama.Client(
+                **client_params, timeout=httpx.Timeout(None, connect=5.0)
+            )
             self.clients[provider] = client_instance
 
             self.logger.debug(f"Native Ollama client {provider_name} initialized successfully at {base_url}")

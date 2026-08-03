@@ -6,6 +6,38 @@
 
 ## 2026
 
+### Webapp „findet keine Provider-Config": drei Schichten, eine Wurzel (August 4, 2026)
+
+Operator-Befund: das Provider/Modell-Dropdown der Webapp blieb leer bzw. lud
+endlos. Diagnose ergab drei gestapelte Ursachen:
+
+1. **`/api/models` blockierte den Event-Loop** — die synchrone Live-Detection
+   lief sequenziell IM `async def` (dieselbe Krankheit wie die GUI-Freezes mit
+   `force_check=True`). Ein hängender Provider fror die ganze Webapp ein.
+   **Fix:** Proben parallel in Worker-Threads, Per-Provider-Budget
+   (`_DETECT_TIMEOUT_S` = 8 s), Fallback auf persistierte Liste/
+   `preferred_model`; Vorwärm-Aufruf gegen den unguarded Lazy-Init-Race der
+   geteilten `LlmService`; auch `/api/models/refresh` läuft off-loop.
+   Gemessen (echtes asyncio-Loop-Modell): **8,0 s kalt, 0,0 s warm** (TTL).
+2. **Die Wurzel des Hängers: schema-lose Ollama-Config.** `host:
+   "www.ollama.com"` (ohne Schema, Default-Port) ließ den ollama-Client
+   `http://www.ollama.com:11434` raten — gefilterter Port, SYN-Drop,
+   unendliches Connect-Timeout (ollama-python-Default: unbegrenzt). Dasselbe
+   Schema-los-Muster wie beim DOI-Resolver am Vortag.
+   **Fixes:** (a) Config-Wert korrigiert (`base_url: https://ollama.com`,
+   Backup `config.json.bak-ollama-fix`) → 18 Modelle in 0,5 s; (b)
+   `llm_service`: schema-lose `base_url` mit Punkt-Host (keine IP) wird auf
+   `https://` normalisiert — im host/port-Zweig bewusst NICHT geraten
+   (Intranet-Ollama auf Hostnamen ist legitim); (c) `ollama.Client` bekommt
+   `httpx.Timeout(None, connect=5.0)` — tote Hosts schlagen in Sekunden fehl,
+   lange Generierungen bleiben unbegrenzt.
+3. **LLMachine (aus/unerreichbar) brauchte 26 s pro Probe** — jetzt vom
+   8-s-Budget geschnitten, degradiert in den Fallback; der weiterlaufende
+   Probe-Thread wärmt den TTL-Cache im Hintergrund.
+
+Tests: `tests/test_webapp_models_endpoint.py` (4) pinnen Parallel-Budget,
+Fallback-Kette und „ein toter Host stallt die schnellen nicht".
+
 ### DOI-Anreicherung: Crosswalk füttert die P2/P3-Kanäle (August 4, 2026)
 
 Der Adoptions-Schritt, der P2+P3+P4 für jeden DOI-Input wirksam macht: eine
