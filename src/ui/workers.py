@@ -327,3 +327,43 @@ class DNBSyncWorker(QThread):
 
         self.finished.emit(success, errors)
         self.logger.info(f"DNB sync completed: {success} success, {errors} errors")
+
+class GndSearchWorker(StoppableWorker):
+    """Runs the unified GND search off the UI thread (SearchTab) - Claude Generated
+
+    The tab used to call ``search_gnd_keywords`` synchronously in the Qt main
+    thread with sprinkled ``processEvents()`` — network searches froze the UI.
+    The UnifiedKnowledgeManager singleton is thread-safe (per-thread DB
+    connections), so the whole resolve+search+merge runs here.
+    """
+
+    finished_with_results = pyqtSignal(dict, object)  # results, failed-source set
+    search_failed = pyqtSignal(str)
+
+    def __init__(self, search_terms: list, provider_ids: list):
+        super().__init__()
+        self._search_terms = list(search_terms)
+        self._provider_ids = list(provider_ids)
+
+    def run(self):
+        try:
+            from ..core.search.service import (
+                resolve_gnd_instances,
+                search_gnd_keywords,
+            )
+
+            instances = resolve_gnd_instances(self._provider_ids)
+            self.logger.info(
+                f"GND search: {len(self._search_terms)} terms via "
+                f"{[i.provider_id for i in instances]}"
+            )
+            results, errors = search_gnd_keywords(
+                self._search_terms, instances, cache=True
+            )
+            if self.is_interrupted():
+                return
+            self.finished_with_results.emit(results, errors or set())
+        except Exception as e:  # network/provider failure — expected class here
+            self.logger.error(f"GND search failed: {e}", exc_info=True)
+            if not self.is_interrupted():
+                self.search_failed.emit(str(e))

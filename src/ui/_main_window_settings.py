@@ -69,6 +69,14 @@ class MainWindowSettingsMixin:
                 self.logger.info("Chat tool registry refreshed after settings change")
         except Exception as e:
             self.logger.warning(f"Could not refresh plugin tools: {e}")
+        # WP-K5: SearchTab-Quellen-Checkboxen folgen Plugin-Änderungen jetzt
+        # ohne Neustart - Claude Generated
+        try:
+            tab = getattr(self, "search_tab", None)
+            if tab is not None and hasattr(tab, "refresh_sources"):
+                tab.refresh_sources()
+        except Exception as e:
+            self.logger.warning(f"Could not refresh SearchTab sources: {e}")
 
     def load_settings(self):
         """Lädt die gespeicherten Einstellungen"""

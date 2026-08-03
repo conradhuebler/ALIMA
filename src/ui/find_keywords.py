@@ -1,36 +1,53 @@
+"""SearchTab — GND-Schlagwortsuche + Pipeline-Nachbearbeitung.
+
+Zwei Rollen in einem Tab:
+
+* **Standalone-Suche**: Begriffe gegen die aktivierten GND-Quellen-Plugins
+  suchen (derselbe Provider-Service wie die Pipeline, inkl. Mapping-first- und
+  WP2-Raw-Cache). Läuft seit dem Aug-2026-Umbau in einem Worker-Thread.
+* **Pipeline-Nachbearbeitung**: `update_data(analysis_state)` zeigt die
+  Pipeline-Suchergebnisse mit Auswahl-/Cache-Transparenz; Doppelklick toggelt
+  die Auswahl, `selection_changed` trägt Änderungen zurück.
+
+Umbau Aug 2026 (WP-K5): asynchrone Suche (``GndSearchWorker``), Quellen-
+Checkboxen live aus dem Plugin-System (``refresh_sources`` — vorher nur beim
+Start gebaut), Häufigkeit zeigt ``display_count`` statt des Pool-``count``
+(Count-Landmine: der ist bei Cache-Hits immer 1), Klassifikations-Spalte aus
+dem kanonischen Pool-Vokabular, Pipeline-Mapping-Ansicht tatsächlich im Layout
+(war gebaut, aber nie angehängt), tote Signale/Methoden/Legacy-Zweige entfernt.
+
+Externer Vertrag (MainWindow): Konstruktor-Signatur, ``update_data``,
+``update_search_field``, ``display_search_results``, ``refresh_styles``,
+``refresh_sources``, Signal ``selection_changed``;
+``_gnd_source_ids`` ist unbound testbar (tests/test_search_plugins.py).
+"""
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
     QTextEdit,
+    QTextBrowser,
     QPushButton,
     QGroupBox,
     QCheckBox,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QHeaderView,
     QSplitter,
-    QApplication,
     QProgressBar,
-    QSpinBox,
     QFrame,
-    QSizePolicy,
-    QGridLayout,
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QFont, QColor, QIcon
-from typing import Dict, List, Optional
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor
+from typing import Any, Dict, List, Optional
 import logging
 import re
-import sys
 from pathlib import Path
 
-from ..core.search_cli import SearchCLI
-from ..core.gnd_search_core import merge_code_entry
-from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
-from ..utils.config_models import PipelineStepConfig, PipelineMode
-from .workers import PipelineWorker
+from .workers import DNBSyncWorker, GndSearchWorker
 from .styles import (
     get_main_stylesheet,
     get_button_styles,
@@ -41,19 +58,75 @@ from .styles import (
 )
 
 
-class SearchTab(QWidget):
-    """
-    Tab für die unified GND-Schlagwortsuche
-    Unterstützt verschiedene Backends: Lobid, SWB und lokaler Katalog
-    """
+# ── Pure helpers (Qt-frei, testbar) ──────────────────────────────────────────
 
-    # Signale
-    status_updated = pyqtSignal(str)
-    error_occurred = pyqtSignal(str)
-    search_completed = pyqtSignal(dict)
-    keywords_found = pyqtSignal(str)
-    keywords_exact = pyqtSignal(str)
-    selection_changed = pyqtSignal(dict)  # Emits modified_selections - Claude Generated
+def extract_search_terms(text: str) -> List[str]:
+    """Suchbegriffe aus Freitext: Anführungszeichen = exakte Phrase, sonst
+    Komma-getrennt. - Claude Generated"""
+    quoted_pattern = r'"([^"]+)"'
+    quoted = re.findall(quoted_pattern, text)
+    remaining = re.sub(quoted_pattern, "", text)
+    return quoted + [t.strip() for t in remaining.split(",") if t.strip()]
+
+
+def determine_relation(keyword: str, search_term: str) -> int:
+    """0 = exakt, 1 = ähnlich (Teilstring), 2 = verschieden. - Claude Generated"""
+    kw, st = keyword.lower(), search_term.lower()
+    if kw == st:
+        return 0
+    if st in kw or kw in st:
+        return 1
+    return 2
+
+
+def preferred_display_count(entry: Dict[str, Any]) -> int:
+    """Die echte Häufigkeit für die Anzeige: ``display_count`` wenn vorhanden,
+    sonst ``count``. Der Pool-``count`` ist ein Ranking-Platzhalter und bei
+    Cache-Hits immer 1 (Count-Landmine, F-4) — ihn anzuzeigen war der
+    "Häufigkeit zeigt 1"-Bug dieses Tabs. - Claude Generated"""
+    try:
+        return int(entry.get("display_count") or entry.get("count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def format_classifications_compact(
+    classifications: Any, max_per_system: int = 2
+) -> str:
+    """Kanonisches ``{SYSTEM: [entries]}`` als kompakte Zellen-Zeile,
+    z.B. ``DDC 551.48 · RVK WI 5000, WI 4800 (+1)``. - Claude Generated"""
+    from ..utils.classification_systems import KNOWN_SYSTEMS, codes_for_system
+
+    parts = []
+    for system in KNOWN_SYSTEMS:
+        codes = codes_for_system(classifications, system)
+        if not codes:
+            continue
+        shown = ", ".join(codes[:max_per_system])
+        more = f" (+{len(codes) - max_per_system})" if len(codes) > max_per_system else ""
+        parts.append(f"{system} {shown}{more}")
+    return " · ".join(parts)
+
+
+_RELATION_SYMBOLS = ["=", "≈", "≠"]
+_RELATION_COLORS = [QColor("#4caf50"), QColor("#ff9800"), QColor("#9e9e9e")]
+
+_CACHE_STATUS_ICONS = {"cache": "💾", "new": "🌐", "outdated": "⚠️"}
+_CACHE_STATUS_TOOLTIPS = {
+    "cache": "Aus Datenbank-Cache",
+    "new": "Neu von der Quelle geholt",
+    "outdated": "Cache älter als 90 Tage",
+}
+
+# Tabellenspalten (eine Wahrheit für alle Füller + den Doppelklick-Toggle)
+_COLS = ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "Klassifikation", "Status"]
+_COL_TERM, _COL_GND, _COL_COUNT, _COL_REL, _COL_CLS, _COL_STATUS = range(len(_COLS))
+
+
+class SearchTab(QWidget):
+    """GND-Suche (standalone) + Pipeline-Ergebnis-Nachbearbeitung."""
+
+    selection_changed = pyqtSignal(dict)  # {'modified': {...}, 'manual': [...]}
 
     def __init__(
         self,
@@ -62,102 +135,67 @@ class SearchTab(QWidget):
         config_file: Path = Path.home() / ".alima_config.json",
         alima_manager=None,
         pipeline_manager=None,
+        ub_catalog_tab=None,
     ):
         super().__init__(parent)
         self.cache_manager = cache_manager
-        self.alima_manager = alima_manager  # Add AlimaManager for PipelineManager - Claude Generated
-        self.current_results = None
-        self.current_gnd_id = None
         self.logger = logging.getLogger(__name__)
-        self.result_list = []
-        self.katalog_keywords = []
-        self.gnd_ids = []  # Liste der gefundenen GND-IDs
-        self.unkown_terms = []
+        # Vereinheitlichung (Aug 4): der UB-Katalog ist ein Ergebnis-Reiter
+        # dieses Tabs mit GETEILTER Sucheingabe — der frühere
+        # SearchTabUnified-Combo-Umschalter ist damit weg.
+        self.ub_catalog_tab = ub_catalog_tab
 
-        # Pipeline integration state tracking - Claude Generated
+        # Pipeline-Nachbearbeitungszustand
         self.original_pipeline_state = None
-        self.current_display_state = None
-        self.modified_selections = {}  # {gnd_id: 'selected'/'deselected'}
-        self.manual_additions = []  # List of manually added GND entries
-        self.has_unsaved_changes = False
-        self.cache_status = {}  # Cache for GND entry status (cache/new/outdated)
+        self.modified_selections: Dict[str, str] = {}
+        self.manual_additions: List[Dict[str, Any]] = []
+        self.cache_status: Dict[str, str] = {}
+        # Pool-Einträge der letzten Suche je GND-ID (für die Detail-Ansicht)
+        self._entries_by_gnd: Dict[str, Dict[str, Any]] = {}
 
-        # Use injected central PipelineManager instead of creating redundant instance - Claude Generated
-        self.pipeline_manager = pipeline_manager
-        if not self.pipeline_manager:
-            self.logger.warning("No PipelineManager provided - pipeline integration disabled")
-
-        self.config_file = config_file
+        self._search_worker: Optional[GndSearchWorker] = None
+        self._manual_worker: Optional[GndSearchWorker] = None
+        self.sync_worker: Optional[DNBSyncWorker] = None
 
         self.init_ui()
 
+    # ── UI-Aufbau ────────────────────────────────────────────────────────────
+
     def init_ui(self):
-        """Initialisiert die Benutzeroberfläche des Such-Tabs"""
-        # Use main stylesheet
         self.setStyleSheet(get_main_stylesheet())
         btn_styles = get_button_styles()
 
-        # Hauptlayout mit Abständen
         layout = QVBoxLayout(self)
         layout.setSpacing(LAYOUT["spacing"])
         layout.setContentsMargins(
             LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"], LAYOUT["margin"]
         )
 
-        # ========= Kontrolleiste oben (wie bei AbstractTab) =========
+        # Kontrolleiste
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(0, 0, 0, 5)
-
-        # Status-Label
         self.status_label = QLabel("Aktueller Status: Bereit")
         self.status_label.setStyleSheet(get_status_label_styles()["info"])
         control_bar.addWidget(self.status_label)
-
         control_bar.addStretch(1)
-
-        # Fortschrittsanzeige
         self.progressBar = QProgressBar()
         self.progressBar.setVisible(False)
-        self.progressBar.setTextVisible(True)
-        self.progressBar.setFormat("Verarbeite... %p%")
+        self.progressBar.setRange(0, 0)  # busy indicator — Dauer ist netzabhängig
         self.progressBar.setFixedWidth(200)
         control_bar.addWidget(self.progressBar)
-
         layout.addLayout(control_bar)
 
-        # ========= Transparency Section (Collapsible) =========
-        self.transparency_group = QGroupBox("📋 Pipeline-Mapping")
-        self.transparency_group.setCheckable(True)
-        self.transparency_group.setChecked(False)  # Collapsed by default
-        transparency_layout = QVBoxLayout(self.transparency_group)
-        transparency_layout.setContentsMargins(10, 10, 10, 10)
-        transparency_layout.setSpacing(5)
-
-        self.transparency_text = QTextEdit()
-        self.transparency_text.setReadOnly(True)
-        self.transparency_text.setMaximumHeight(250)
-        self.transparency_text.setPlaceholderText(
-            "Mapping-Details werden nach Pipeline-Ausführung hier angezeigt..."
-        )
-        transparency_layout.addWidget(self.transparency_text)
-
-        #layout.addWidget(self.transparency_group) # TODO -> bevor restoring, make it functional
-
-        # Splitter between search input and results
         main_splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # ========= Suchbereich =========
+        # Suchbereich
         search_widget = QWidget()
         search_box_layout = QVBoxLayout(search_widget)
         search_box_layout.setContentsMargins(0, 0, 0, 0)
-        search_box_layout.setSpacing(LAYOUT["spacing"])
-
         search_group = QGroupBox("Schlagwortsuche")
         search_layout = QVBoxLayout(search_group)
         search_layout.setSpacing(LAYOUT["inner_spacing"])
         search_layout.setContentsMargins(10, 20, 10, 10)
 
-        # Hauptsuchfeld mit Beschreibung
         search_header = QLabel("Suchbegriffe:")
         search_header.setFont(get_scaled_font(bold=True))
         search_layout.addWidget(search_header)
@@ -170,150 +208,119 @@ class SearchTab(QWidget):
         self.search_input.setFont(get_scaled_font(size_delta=+1))
         search_layout.addWidget(self.search_input)
 
-        # Suchoptionen-Bereich
+        # Quellen-Zeile — wird von refresh_sources() live neu gebaut
         options_frame = QFrame()
         options_frame.setStyleSheet(
             f"background-color: {COLORS['background_dark']}; border-radius: 6px; padding: 4px;"
         )
-        options_layout = QHBoxLayout(options_frame)
-
-        # Checkboxen für die verschiedenen Suchquellen
-        sources_label = QLabel("Suchquellen:")
+        self.sources_layout = QHBoxLayout(options_frame)
+        sources_label = QLabel("GND-Quellen (Plugins):")
         sources_label.setFont(get_scaled_font(size_delta=-1, bold=True))
-        options_layout.addWidget(sources_label)
-
-        # Eine Checkbox je aktivierter (+verfügbarer) GND-Quelle aus dem
-        # Plugin-System statt hartkodierter Lobid/SWB/Katalog-Widgets — externe
-        # Provider-Plugins erscheinen hier automatisch. - Claude Generated
-        self.source_checkboxes = {}
-        default_checked = {"lobid", "swb"}
-        for provider_id in self._gnd_source_ids():
-            try:
-                from ..core.search.registry import get_provider
-
-                cls = get_provider(provider_id)
-                label = getattr(cls, "label", provider_id)
-                tooltip = cls.doc().description if hasattr(cls, "doc") else ""
-            except Exception:
-                label, tooltip = provider_id, ""
-            checkbox = QCheckBox(label)
-            checkbox.setChecked(provider_id in default_checked)
-            if tooltip:
-                checkbox.setToolTip(tooltip)
-            options_layout.addWidget(checkbox)
-            self.source_checkboxes[provider_id] = checkbox
-
-        options_layout.addStretch(1)
-
-        # Ergebnisanzahl-Steuerung
-        results_label = QLabel("Max. Ergebnisse:")
-        results_label.setFont(get_scaled_font(size_delta=-1, bold=True))
-        #options_layout.addWidget(results_label)
-
-        self.num_results = QSpinBox()
-        self.num_results.setRange(1, 50)
-        self.num_results.setValue(10)
-        self.num_results.setToolTip(
-            "Maximale Anzahl zu verarbeitender Ergebnisse pro Quelle"
-        )
-        #options_layout.addWidget(self.num_results)
-
+        self.sources_layout.addWidget(sources_label)
+        self.sources_layout.addStretch(1)
+        self.source_checkboxes: Dict[str, QCheckBox] = {}
+        self.refresh_sources()
+        # UB-Katalog ist keine GND-Quelle, sondern die DK/RVK-Suche im Bestand —
+        # eigene Checkbox NACH den Plugins, von refresh_sources unberührt.
+        self.ub_catalog_checkbox = None
+        if self.ub_catalog_tab is not None:
+            self.ub_catalog_checkbox = QCheckBox("UB-Katalog (DK/RVK)")
+            self.ub_catalog_checkbox.setToolTip(
+                "Zusätzlich die DK/RVK-Suche im UB-Katalog ausführen "
+                "(Ergebnis im Reiter „UB-Katalog“; deutlich langsamer)"
+            )
+            self.sources_layout.insertWidget(
+                self.sources_layout.count() - 1, self.ub_catalog_checkbox
+            )
         search_layout.addWidget(options_frame)
 
-        # Suchbutton
+        # Ein Button, zwei Zustände: startet die Suche bzw. bricht die
+        # laufende ab (Operator-Wunsch Aug 4). - Claude Generated
+        self._btn_styles = btn_styles
         self.search_button = QPushButton("Suche starten")
         self.search_button.setStyleSheet(btn_styles["primary"])
-        self.search_button.clicked.connect(self.perform_search)
+        self.search_button.clicked.connect(self._on_search_button)
         self.search_button.setShortcut("Ctrl+Return")
         search_layout.addWidget(self.search_button)
 
         search_box_layout.addWidget(search_group)
         main_splitter.addWidget(search_widget)
 
-        # ========= Ergebnisbereich =========
+        # Ergebnisbereich: Reiter statt des früheren Combo-Umschalters —
+        # GND-Schlagwörter, UB-Katalog (eingebettet, geteilte Eingabe) und das
+        # Pipeline-Mapping (versteckt bis Pipeline-Daten da sind). - Claude Generated
+        self.results_tabs = QTabWidget()
+
         results_container = QWidget()
         results_container_layout = QVBoxLayout(results_container)
         results_container_layout.setContentsMargins(0, 0, 0, 0)
-        results_container_layout.setSpacing(LAYOUT["spacing"])
-
-        # Obere Sektion: Ergebnistabelle und Details
-        results_group = QGroupBox("Suchergebnisse") # TODO -> Table doesn't show the correct field (Begriff -> N/A, GND-ID -> name of keyword ) examine why bevor solving
+        results_group = QGroupBox("Suchergebnisse")
         results_box_layout = QVBoxLayout(results_group)
         results_box_layout.setSpacing(LAYOUT["inner_spacing"])
         results_box_layout.setContentsMargins(10, 20, 10, 10)
 
         upper_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Ergebnistabelle
         table_frame = QWidget()
         table_layout = QVBoxLayout(table_frame)
         table_layout.setContentsMargins(0, 0, 0, 0)
-
         table_header = QLabel("Gefundene Schlagwörter:")
         table_header.setFont(get_scaled_font(bold=True))
         table_layout.addWidget(table_header)
 
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(5)
-        self.results_table.setHorizontalHeaderLabels(
-            ["Begriff", "GND-ID", "Häufigkeit", "Ähnlichkeit", "Status"]
-        )
+        self.results_table.setColumnCount(len(_COLS))
+        self.results_table.setHorizontalHeaderLabels(_COLS)
         self.results_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
         self.results_table.setAlternatingRowColors(True)
         self.results_table.verticalHeader().setVisible(False)
-
         table_layout.addWidget(self.results_table)
         upper_splitter.addWidget(table_frame)
 
-        # Details-Sektion
         details_widget = QWidget()
         details_layout = QVBoxLayout(details_widget)
         details_layout.setContentsMargins(0, 0, 0, 0)
-
         details_header = QLabel("GND-Details:")
         details_header.setFont(get_scaled_font(bold=True))
         details_layout.addWidget(details_header)
-
-        self.details_display = QTextEdit()
-        self.details_display.setReadOnly(True)
+        self.details_display = QTextBrowser()
+        self.details_display.setOpenExternalLinks(True)
         details_layout.addWidget(self.details_display)
 
-        self.update_button = QPushButton("Eintrag aktualisieren")
+        self.update_button = QPushButton("🔄 DNB-Sync Selected")
         self.update_button.setStyleSheet(btn_styles["secondary"])
+        self.update_button.setToolTip(
+            "Aktualisiert alle ausgewählten (✅) GND-Einträge mit aktuellen Daten von der DNB. "
+            "Holt DDC-Klassifikationen und GND-Systematiken."
+        )
         self.update_button.clicked.connect(self.update_selected_entry)
         details_layout.addWidget(self.update_button)
 
         upper_splitter.addWidget(details_widget)
         upper_splitter.setSizes([600, 400])
-
         results_box_layout.addWidget(upper_splitter)
 
-        # ========= Manual Search Panel (Collapsible) - Claude Generated =========
+        # Manuelle Nachsuche
         self.manual_search_group = QGroupBox("➕ Manuelle Nachsuche")
-        self.manual_search_group.setCheckable(False)
-        self.manual_search_group.setVisible(False)  # Hidden by default
+        self.manual_search_group.setVisible(False)
         manual_layout = QHBoxLayout(self.manual_search_group)
         manual_layout.setContentsMargins(10, 10, 10, 10)
-
         manual_layout.addWidget(QLabel("Zusätzlicher Suchbegriff:"))
         self.manual_search_input = QTextEdit()
         self.manual_search_input.setPlaceholderText("Begriff für manuelle Suche eingeben...")
         self.manual_search_input.setMaximumHeight(60)
         manual_layout.addWidget(self.manual_search_input)
-
         self.manual_search_button = QPushButton("Suchen")
         self.manual_search_button.setStyleSheet(btn_styles["primary"])
         self.manual_search_button.clicked.connect(self.perform_manual_search)
         manual_layout.addWidget(self.manual_search_button)
-
         results_box_layout.addWidget(self.manual_search_group)
 
-        # ========= Action Buttons - Claude Generated =========
+        # Aktionen
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(10)
-
         self.toggle_manual_button = QPushButton("🔧 Manuelle Nachsuche")
         self.toggle_manual_button.setCheckable(True)
         self.toggle_manual_button.setStyleSheet(btn_styles["secondary"])
@@ -323,16 +330,7 @@ class SearchTab(QWidget):
         )
         self.toggle_manual_button.toggled.connect(self.manual_search_group.setVisible)
         actions_layout.addWidget(self.toggle_manual_button)
-
         actions_layout.addStretch(1)
-
-        # Keep existing update button, renamed for clarity
-        self.update_button.setText("🔄 DNB-Sync Selected")
-        self.update_button.setToolTip(
-            "Aktualisiert alle ausgewählten (✅) GND-Einträge mit aktuellen Daten von der DNB. "
-            "Holt DDC-Klassifikationen und GND-Systematiken."
-        )
-        actions_layout.addWidget(self.update_button)
 
         self.save_changes_button = QPushButton("💾 Änderungen Speichern")
         self.save_changes_button.setStyleSheet(btn_styles["accent"])
@@ -343,26 +341,46 @@ class SearchTab(QWidget):
         )
         self.save_changes_button.clicked.connect(self.save_changes)
         actions_layout.addWidget(self.save_changes_button)
-
         results_box_layout.addLayout(actions_layout)
 
         results_container_layout.addWidget(results_group)
+        self.results_tabs.addTab(results_container, "🔑 GND-Schlagwörter")
 
-        main_splitter.addWidget(results_container)
+        # UB-Katalog als eingebetteter Ergebnis-Reiter (geteilte Sucheingabe)
+        self._ub_tab_idx = -1
+        if self.ub_catalog_tab is not None:
+            panel = getattr(self.ub_catalog_tab, "ub_search_panel", None)
+            if panel is not None and hasattr(panel, "set_embedded"):
+                panel.set_embedded(lambda: self.search_input.toPlainText())
+            self._ub_tab_idx = self.results_tabs.addTab(
+                self.ub_catalog_tab, "📚 UB-Katalog (DK/RVK)"
+            )
+
+        # Pipeline-Mapping: versteckter Reiter, nur im Pipeline-Modus sichtbar
+        self.transparency_text = QTextEdit()
+        self.transparency_text.setReadOnly(True)
+        self.transparency_text.setPlaceholderText(
+            "Mapping-Details werden nach Pipeline-Ausführung hier angezeigt..."
+        )
+        self._mapping_tab_idx = self.results_tabs.addTab(
+            self.transparency_text, "📋 Pipeline-Mapping"
+        )
+        self.results_tabs.setTabVisible(self._mapping_tab_idx, False)
+
+        main_splitter.addWidget(self.results_tabs)
         main_splitter.setSizes([300, 700])
-
         layout.addWidget(main_splitter)
 
-        # Verbinde Signals
         self.results_table.itemSelectionChanged.connect(self.show_details)
-        self.results_table.itemDoubleClicked.connect(self.on_result_double_clicked)  # Claude Generated
+        self.results_table.itemDoubleClicked.connect(self.on_result_double_clicked)
 
     def refresh_styles(self):
         """Re-apply styles after theme change — Claude Generated"""
-        from .styles import get_main_stylesheet, get_status_label_styles
         self.setStyleSheet(get_main_stylesheet())
-        if hasattr(self, 'status_label'):
+        if hasattr(self, "status_label"):
             self.status_label.setStyleSheet(get_status_label_styles()["info"])
+
+    # ── Quellen (Plugin-System, live) ────────────────────────────────────────
 
     def _gnd_source_ids(self):
         """Aktivierte + verfügbare GND-Quellen-Typen (Plugins-Tab-Gate) für die
@@ -381,638 +399,366 @@ class SearchTab(QWidget):
             self.logger.warning(f"Quellenliste nicht ladbar, Fallback lobid+swb: {e}")
             return ["lobid", "swb"]
 
-    def perform_search(self):
-        """Führt die Suche mit den ausgewählten Quellen durch - Claude Generated"""
-        self.logger.info("=== perform_search() called ===")
+    def refresh_sources(self):
+        """Quellen-Checkboxen aus dem Plugin-System neu bauen (WP-K5-Fix:
+        vorher nur einmalig in init_ui → Enable/Disable griff erst nach
+        Neustart). Angehakt-Zustand bekannter Quellen bleibt erhalten; neue
+        Quellen starten mit dem lobid/swb-Default. Wird nach jedem
+        Settings-Save aufgerufen (``_refresh_plugin_tools``). - Claude Generated"""
+        previous = {pid: cb.isChecked() for pid, cb in self.source_checkboxes.items()}
+        for cb in self.source_checkboxes.values():
+            self.sources_layout.removeWidget(cb)
+            cb.deleteLater()
+        self.source_checkboxes = {}
 
-        # UI-Updates vor der Suche
-        self.search_button.setEnabled(False)
-        self.status_label.setText("Suche wird durchgeführt...")
-        self.results_table.setRowCount(0)  # Tabelle leeren
-        self.result_list.clear()
-        self.gnd_ids.clear()
-        self.details_display.clear()
+        default_checked = {"lobid", "swb"}
+        # direkt nach dem Label einfügen — die UB-Katalog-Checkbox und der
+        # Stretch bleiben dahinter stehen
+        insert_at = 1
+        for provider_id in self._gnd_source_ids():
+            try:
+                from ..core.search.registry import get_provider
+
+                cls = get_provider(provider_id)
+                label = getattr(cls, "label", provider_id)
+                tooltip = cls.doc().description if hasattr(cls, "doc") else ""
+            except Exception:
+                label, tooltip = provider_id, ""
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(previous.get(provider_id, provider_id in default_checked))
+            if tooltip:
+                checkbox.setToolTip(tooltip)
+            self.sources_layout.insertWidget(insert_at, checkbox)
+            insert_at += 1
+            self.source_checkboxes[provider_id] = checkbox
+        self.logger.debug(f"Suchquellen aktualisiert: {sorted(self.source_checkboxes)}")
+
+    # ── Standalone-Suche (asynchron, abbrechbar) ─────────────────────────────
+
+    def _on_search_button(self):
+        """Start/Abbrechen-Umschalter des Such-Buttons - Claude Generated"""
+        if self._search_worker is not None and self._search_worker.isRunning():
+            self._cancel_search()
+        else:
+            self.perform_search()
+
+    def _cancel_search(self):
+        """Laufende Suche abbrechen: der Worker verwirft sein Ergebnis
+        (die HTTP-Anfrage selbst läuft im Hintergrund aus — StoppableWorker
+        prüft an den Signalpunkten, kann aber keinen Request unterbrechen).
+        - Claude Generated"""
+        if self._search_worker is not None:
+            self._search_worker.request_stop()
+        self._search_ui_idle()
+        self._set_status("Suche abgebrochen.", "info")
+
+    def _search_ui_idle(self):
+        self.search_button.setText("Suche starten")
+        self.search_button.setStyleSheet(self._btn_styles["primary"])
+        self.progressBar.setVisible(False)
+
+    def _search_ui_running(self):
+        self.search_button.setText("⏹ Abbrechen")
+        self.search_button.setStyleSheet(self._btn_styles["secondary"])
         self.progressBar.setVisible(True)
-        self.progressBar.setValue(0)
-        QApplication.processEvents()
 
-        try:
-            # Eingabetext verarbeiten
-            text = self.search_input.toPlainText().strip()
-            self.logger.info(f"Search input text: '{text}'")
-
-            # Keine Suchbegriffe vorhanden
-            if not text:
-                self.status_label.setText(
-                    "Bitte geben Sie mindestens einen Suchbegriff ein."
-                )
-                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
-                self.search_button.setEnabled(True)
-                self.progressBar.setVisible(False)
-                return
-
-            # Extrahiere Suchbegriffe
-            search_terms = self.extract_search_terms(text)
-
-            # Keine gültigen Suchbegriffe
-            if not search_terms:
-                self.status_label.setText("Keine gültigen Suchbegriffe gefunden.")
-                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
-                self.search_button.setEnabled(True)
-                self.progressBar.setVisible(False)
-                return
-
-            # Keine Quelle aktiv → nichts zu suchen. Eine Quelle zu erfinden würde
-            # gegen das Plugins-Tab-Gate suchen. - Claude Generated
-            if not self.source_checkboxes:
-                self.status_label.setText(
-                    "Keine GND-Quelle aktiv — im Plugins-Tab aktivieren."
-                )
-                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
-                self.search_button.setEnabled(True)
-                self.progressBar.setVisible(False)
-                return
-
-            # Bestimme die zu verwendenden Provider-Ids - Claude Generated
-            suggester_types = [
-                pid for pid, cb in self.source_checkboxes.items() if cb.isChecked()
-            ]
-
-            # Nichts angehakt → erste *aktive* Quelle als Standard (nie ein Literal)
-            if not suggester_types:
-                fallback = next(iter(self.source_checkboxes))
-                self.logger.warning(
-                    f"Keine Suchquelle ausgewählt, verwende {fallback} als Standard."
-                )
-                suggester_types.append(fallback)
-
-            self.logger.info(f"Selected suggester types: {suggester_types}")
-            self.logger.info(f"Search terms: {search_terms}")
-
-            # Direct suggester usage for standalone search - Claude Generated
-            # This is simpler and faster than using the full pipeline
-            self.progressBar.setMaximum(100)
-            self.progressBar.setValue(10)
-
-            # Standalone search now uses the unified provider service — the same
-            # path as the pipeline (mapping-first cache + WP2 raw cache), so it no
-            # longer bypasses the raw cache the way the old direct MetaSuggester
-            # did. All selected sources are searched + merged in one call. - Claude Generated
-            from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
-
-            instances = resolve_gnd_instances(suggester_types)
-            self.logger.info(f"Using providers: {[i.provider_id for i in instances]}")
-
-            self.status_label.setText(f"Suche nach {len(search_terms)} Begriff(en)...")
-            QApplication.processEvents()
-
-            self.progressBar.setValue(30)
-            self.logger.info("Starting search...")
-            combined_results, search_errors = search_gnd_keywords(
-                search_terms, instances, cache=True,
-            )
-            if search_errors:
-                self.logger.warning(f"Source failures: {sorted(search_errors)}")
-            self.logger.info(f"Search completed, got {len(combined_results)} results")
-
-            self.progressBar.setValue(80)
-
-            # Process and display results
-            self.process_search_results(combined_results)
-
-        except Exception as e:
-            self.logger.error(f"Search error: {str(e)}", exc_info=True)
-            import traceback
-            self.logger.error(f"Full traceback:\n{traceback.format_exc()}")
-            self.handle_error(str(e))
-        finally:
-            self.search_button.setEnabled(True)
-            self.progressBar.setVisible(False)
-
-    def on_search_completed(self, step: PipelineStep):
-        """Handle search completion with PipelineStep integration - Claude Generated"""
-        try:
-            # Extract search results from PipelineStep output_data
-            if step.output_data and hasattr(step.output_data, 'search_results'):
-                results = step.output_data.search_results
-            elif step.output_data and isinstance(step.output_data, dict):
-                results = step.output_data.get('search_results', step.output_data)
-            else:
-                self.logger.warning(f"No search results in step output: {step.output_data}")
-                results = {}
-
-            # Process results using existing method
-            self.process_search_results(results)
-
-        except Exception as e:
-            self.logger.error(f"Error processing search results: {e}")
-            self.handle_error(str(e))
-
-    def on_search_error(self, step: PipelineStep, error_message: str):
-        """Handle search error with PipelineStep integration - Claude Generated"""
-        error_details = f"Suchfehler bei Schritt {step.step_id}: {error_message}"
-        if step.error_message:
-            error_details += f"\nZusätzliche Informationen: {step.error_message}"
-
-        self.logger.error(error_details)
-        self.handle_error(error_details)
-
-    def process_search_results(self, results: dict):
-        """Processes the search results from the CLI and displays them."""
-        self.process_results(results)
-
-        # UI-Updates nach der Suche
-        self.search_button.setEnabled(True)
-        self.status_label.setText(
-            f"Suche abgeschlossen - {len(self.flat_results)} Ergebnisse gefunden"
+    def perform_search(self):
+        text = self.search_input.toPlainText().strip()
+        if not text:
+            self._set_status("Bitte geben Sie mindestens einen Suchbegriff ein.", "warning")
+            return
+        search_terms = extract_search_terms(text)
+        if not search_terms:
+            self._set_status("Keine gültigen Suchbegriffe gefunden.", "warning")
+            return
+        ub_wanted = bool(
+            self.ub_catalog_checkbox is not None and self.ub_catalog_checkbox.isChecked()
         )
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
-        self.progressBar.setVisible(False)
-        QApplication.processEvents()
+        if not self.source_checkboxes and not ub_wanted:
+            self._set_status("Keine GND-Quelle aktiv — im Plugins-Tab aktivieren.", "warning")
+            return
 
-    def handle_error(self, error_message: str):
-        """Handles errors from the search worker."""
-        self.logger.error(f"Search error: {error_message}")
-        self.status_label.setText(f"Fehler: {error_message}")
-        self.status_label.setStyleSheet(get_status_label_styles()["error"])
-        self.search_button.setEnabled(True)
-        self.progressBar.setVisible(False)
+        provider_ids = [pid for pid, cb in self.source_checkboxes.items() if cb.isChecked()]
+        if not provider_ids and not ub_wanted and self.source_checkboxes:
+            fallback = next(iter(self.source_checkboxes))
+            self.logger.warning(f"Keine Suchquelle ausgewählt, verwende {fallback}.")
+            provider_ids = [fallback]
 
-    def current_term_update(self, term):
-        """Aktualisiert die Fortschrittsanzeige bei Verarbeitung eines Terms"""
-        if not self.progressBar.isVisible():
-            self.progressBar.setVisible(True)
+        # Standalone-Suche verlässt den Pipeline-Modus: Mapping-Reiter aus,
+        # Doppelklick-Toggle deaktivieren (bezöge sich auf veralteten Zustand)
+        self.results_tabs.setTabVisible(self._mapping_tab_idx, False)
+        self.original_pipeline_state = None
 
-        self.progressBar.setValue(self.progressBar.value() + 1)
-        self.status_label.setText(f"Verarbeite: {term}")
-        QApplication.processEvents()  # UI aktualisieren
+        if provider_ids:
+            self.results_table.setRowCount(0)
+            self.details_display.clear()
+            self._entries_by_gnd = {}
+            self._search_ui_running()
+            self._set_status(
+                f"Suche nach {len(search_terms)} Begriff(en) in {', '.join(provider_ids)}...",
+                "info",
+            )
+            self._search_worker = GndSearchWorker(search_terms, provider_ids)
+            self._search_worker.finished_with_results.connect(self._on_search_finished)
+            self._search_worker.search_failed.connect(self._on_search_failed)
+            self._search_worker.start()
 
-    def extract_search_terms(self, text):
-        """Extrahiert Suchbegriffe aus dem eingegebenen Text"""
-        # Extrahiere Begriffe, die in Anführungszeichen stehen
-        quoted_pattern = r'"([^"]+)"'
-        quoted_matches = re.findall(quoted_pattern, text)
+        # UB-Katalog-Suche (eigener Worker im eingebetteten Panel, geteilte
+        # Eingabe) parallel bzw. allein auslösen - Claude Generated
+        if ub_wanted and self.ub_catalog_tab is not None:
+            panel = getattr(self.ub_catalog_tab, "ub_search_panel", None)
+            if panel is not None:
+                panel.start_search()
+            if not provider_ids:
+                self._set_status("UB-Katalog-Suche läuft...", "info")
 
-        # Entferne die extrahierten Begriffe aus dem ursprünglichen Text
-        remaining_text = re.sub(quoted_pattern, "", text)
+        # Auf den Reiter wechseln, der gleich Ergebnisse zeigt
+        if ub_wanted and not provider_ids and self._ub_tab_idx >= 0:
+            self.results_tabs.setCurrentIndex(self._ub_tab_idx)
+        elif provider_ids:
+            self.results_tabs.setCurrentIndex(0)
 
-        # Teile den verbleibenden Text nach Kommas auf
-        remaining_terms = [
-            term.strip() for term in remaining_text.split(",") if term.strip()
-        ]
+    def _on_search_finished(self, results: dict, errors):
+        self._search_ui_idle()
+        rows, skipped = self._rows_from_results(results)
+        self.display_results(rows)
+        msg = f"Suche abgeschlossen — {len(rows)} Ergebnisse"
+        if skipped:
+            msg += f" ({skipped} ohne GND-ID übersprungen)"
+        if errors:
+            msg += f" — Quellen fehlgeschlagen: {', '.join(sorted(errors))}"
+        self._set_status(msg, "warning" if errors else "success")
 
-        # Kombiniere beide Listen
-        search_terms = quoted_matches + remaining_terms
+    def _on_search_failed(self, message: str):
+        self._search_ui_idle()
+        self._set_status(f"Fehler: {message}", "error")
 
-        return search_terms
+    def _rows_from_results(self, results: dict):
+        """Kanonische Service-Ergebnisse → sortierte Anzeige-Zeilen.
 
-    def merge_results(self, combined_results, new_results):
-        """Führt neue Ergebnisse mit den bereits vorhandenen zusammen"""
-        for search_term, term_results in new_results.items():
-            # Initialisiere den Eintrag für diesen Suchterm, falls noch nicht vorhanden
-            if search_term not in combined_results:
-                combined_results[search_term] = {}
-
-            # Füge für jedes Schlagwort die Daten hinzu oder aktualisiere sie
-            for keyword, data in term_results.items():
-                if keyword not in combined_results[search_term]:
-                    # Neues Schlagwort hinzufügen
-                    combined_results[search_term][keyword] = data.copy()
-                else:
-                    # Bestehendes Schlagwort aktualisieren
-                    existing_data = combined_results[search_term][keyword]
-
-                    # Count aktualisieren (Maximum verwenden)
-                    existing_data["count"] = max(
-                        existing_data["count"], data.get("count", 0)
-                    )
-
-                    # Sets vereinigen (kanonisch: gnd_ids + classifications)
-                    merge_code_entry(
-                        existing_data, data, code_fields=("gnd_ids",),
-                        count_field="", classifications_field="classifications",
-                    )
-
-    def process_results(self, results):
-        """Verarbeitet die Suchergebnisse und stellt sie dar"""
-        self.logger.info(f"Verarbeite Ergebnisse: {len(results)} Suchbegriffe gefunden")
-
-        # Initialize flat_results if not exists
-        if not hasattr(self, "flat_results"):
-            self.flat_results = []
-        else:
-            self.flat_results.clear()
-
-        for search_term, term_results in results.items():
-            self.logger.info(f"Verarbeite Suchbegriff: {search_term}, Anzahl Ergebnisse: {len(term_results) if term_results else 0}")
-
-            # Handle case where term_results is a list instead of dict
-            if isinstance(term_results, list):
-                self.logger.info(
-                    f"term_results is a list with {len(term_results)} items"
+        Ein Eintrag ist ``{count, gnd_ids, classifications, display_count?}``
+        (Suggester-Vertrag v2); die frühere Legacy-List-Branch ist entfernt —
+        der Unified-Service liefert dieses Format nie. - Claude Generated
+        """
+        rows = []
+        skipped = 0
+        for search_term, term_results in (results or {}).items():
+            if not isinstance(term_results, dict):
+                self.logger.warning(
+                    f"Unerwartetes Ergebnisformat für '{search_term}': {type(term_results).__name__}"
                 )
-                for i, item in enumerate(term_results[:5]):  # Debug first 5 items
-                    self.logger.info(f"Item {i}: {item}")
-                    if isinstance(item, dict):
-                        # Extract keyword and data from the item
-                        keyword = item.get("label", item.get("title", ""))
-                        gnd_id = item.get("gnd_id", "")
-                        count = item.get("count", 1)
+                continue
+            for keyword, entry in term_results.items():
+                gnd_id = next(iter(entry.get("gnd_ids", [])), "")
+                if not gnd_id:
+                    skipped += 1
+                    continue
+                self._entries_by_gnd[gnd_id] = entry
+                rows.append({
+                    "gnd_id": gnd_id,
+                    "term": keyword,
+                    "count": preferred_display_count(entry),
+                    "relation": determine_relation(keyword, search_term),
+                    "search_term": search_term,
+                    "classifications": format_classifications_compact(
+                        entry.get("classifications")
+                    ),
+                })
+        rows.sort(key=lambda r: (r["relation"], -r["count"]))
+        return rows, skipped
 
-                        self.logger.info(
-                            f"Extracted: keyword='{keyword}', gnd_id='{gnd_id}', count={count}"
-                        )
-
-                        if keyword:
-                            self.logger.info(f"Verarbeite Schlagwort: {keyword}")
-                            # Bestimme die Beziehung zum Suchbegriff
-                            relation = self.determine_relation(keyword, search_term)
-
-                            # Speichere die GND-ID für spätere Verwendung
-                            if gnd_id:
-                                self.gnd_ids.append(gnd_id)
-                            else:
-                                self.logger.warning(f"No GND-ID found for keyword: {keyword}")
-                                self.unkown_terms.append(keyword)
-                                # Skip entries without GND-ID
-                                continue
-
-                            # Füge zur flachen Liste hinzu
-                            if gnd_id:
-                                self.flat_results.append(
-                                    (gnd_id, keyword, count, relation, search_term)
-                                )
-                            else:
-                                # Wenn keine GND-ID vorhanden ist, aber ein Schlagwort gefunden wurde
-                                # Füge es trotzdem zur Liste hinzu
-                                self.logger.debug(
-                                    f"Keine GND-ID gefunden für: {keyword}"
-                                )
-
-            else:
-                # Original dict handling code
-                for keyword, data in term_results.items():
-                    self.logger.debug(f"Verarbeite Schlagwort: {keyword}, Data: {data}")
-                    # Bestimme die Beziehung zum Suchbegriff
-                    relation = self.determine_relation(keyword, search_term)
-
-                    # Ermittle GND-ID (erste aus dem Set oder leer)
-                    gnd_id = next(iter(data.get("gnd_ids", [])), "")
-                    self.logger.debug(f"  Extracted GND-ID: {gnd_id}")
-
-                    # Anzahl der Treffer
-                    count = data.get("count", 1)
-
-                    # Speichere die GND-ID für spätere Verwendung
-                    if gnd_id:
-                        self.gnd_ids.append(gnd_id)
-                    else:
-                        self.logger.warning(f"No GND-ID found for keyword: {keyword}")
-                        self.unkown_terms.append(keyword)
-                        # Continue anyway, the code below will handle missing GND-ID
-
-                    # Füge zur flachen Liste hinzu
-                    if gnd_id:
-                        self.flat_results.append(
-                            (gnd_id, keyword, count, relation, search_term)
-                        )
-                    else:
-                        # Wenn keine GND-ID vorhanden ist, aber ein Schlagwort gefunden wurde
-                        # Füge es trotzdem zur Liste hinzu
-                        self.logger.debug(f"Keine GND-ID gefunden für: {keyword}")
-
-        # Sortiere Ergebnisse nach Relation und dann nach Count
-        sorted_results = sorted(self.flat_results, key=lambda x: (x[3], -x[2]))
-
-        self.logger.info(f"Gefundene GND-Einträge: {len(sorted_results)}")
-
-        # Zeige Ergebnisse in der Tabelle an
-        self.display_results(sorted_results)
-
-        # Generiere Initial-Prompt
-        self.generate_initial_prompt(sorted_results)
-
-    def determine_relation(self, keyword: str, search_term: str) -> int:
-        """Determine relationship between keyword and search term - Claude Generated
-
-        Returns:
-            0: Exact match
-            1: Similar/partial match
-            2: Different/no match
-        """
-        keyword_lower = keyword.lower()
-        search_lower = search_term.lower()
-
-        if keyword_lower == search_lower:
-            return 0  # Exakt
-        elif search_lower in keyword_lower or keyword_lower in search_lower:
-            return 1  # Ähnlich
-        else:
-            return 2  # Unterschiedlich
-
-    def generate_initial_prompt(self, sorted_results):
-        """Generate initial prompt from results - Stub for compatibility - Claude Generated
-        Pipeline now handles prompt generation.
-        """
-        pass
-
-    def update_database_entry(self, gnd_id, title, data):
-        """Aktualisiert oder erstellt einen Datenbankeintrag für eine GND-ID"""
-        if not self.cache_manager.gnd_entry_exists(gnd_id):
-            # Lege neuen Eintrag an
-            self.cache_manager.insert_gnd_entry(gnd_id, title=title)
-
-    def display_results(self, sorted_results):
-        """Zeigt die Suchergebnisse in der Tabelle an"""
-        self.results_table.setRowCount(0)  # Tabelle leeren
-
-        # Relation-Symbole
-        relation_symbols = ["=", "≈", "≠"]
-        relation_colors = [QColor("#4caf50"), QColor("#ff9800"), QColor("#9e9e9e")]
-
-        for gnd_id, term, count, relation, search_term in sorted_results:
+    def display_results(self, rows: List[Dict[str, Any]]):
+        """Zeigt Standalone-Suchzeilen in der Tabelle an. - Claude Generated"""
+        self.results_table.setRowCount(0)
+        self.cache_status = self._cache_status_for_ids([r["gnd_id"] for r in rows])
+        for r in rows:
             row = self.results_table.rowCount()
             self.results_table.insertRow(row)
 
-            # Füge Daten in die Tabelle ein
-            term_item = QTableWidgetItem(term)
-            gnd_item = QTableWidgetItem(gnd_id)
-            count_item = QTableWidgetItem(str(count))
-            rel_item = QTableWidgetItem(relation_symbols[relation])
+            term_item = QTableWidgetItem(r["term"])
+            term_item.setToolTip(f"Suchbegriff: {r['search_term']}")
+            self.results_table.setItem(row, _COL_TERM, term_item)
 
-            # Setze Farben basierend auf Relation
-            rel_item.setForeground(relation_colors[relation])
-            rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-
-            # Füge Tooltip für Kontextinformationen hinzu
-            term_item.setToolTip(f"Suchbegriff: {search_term}")
+            gnd_item = QTableWidgetItem(r["gnd_id"])
             gnd_item.setToolTip("Klicken für Details")
+            self.results_table.setItem(row, _COL_GND, gnd_item)
 
-            # Setze Items in die Tabelle
-            self.results_table.setItem(row, 0, term_item)
-            self.results_table.setItem(row, 1, gnd_item)
-            self.results_table.setItem(row, 2, count_item)
-            self.results_table.setItem(row, 3, rel_item)
+            count_item = QTableWidgetItem(str(r["count"]))
+            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.results_table.setItem(row, _COL_COUNT, count_item)
+
+            rel_item = QTableWidgetItem(_RELATION_SYMBOLS[r["relation"]])
+            rel_item.setForeground(_RELATION_COLORS[r["relation"]])
+            rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.results_table.setItem(row, _COL_REL, rel_item)
+
+            self.results_table.setItem(
+                row, _COL_CLS, QTableWidgetItem(r["classifications"])
+            )
+
+            status = self.cache_status.get(r["gnd_id"], "new")
+            status_item = QTableWidgetItem(_CACHE_STATUS_ICONS[status])
+            status_item.setToolTip(_CACHE_STATUS_TOOLTIPS[status])
+            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.results_table.setItem(row, _COL_STATUS, status_item)
+
+    # ── Cache-Status (geteilt von Standalone + Pipeline-Ansicht) ─────────────
+
+    def _cache_status_for_ids(self, gnd_ids) -> Dict[str, str]:
+        """Batch-Cache-Status je GND-ID: 'cache' (<90 Tage), 'outdated',
+        'new'. Eine SQL-Query statt N Einzel-Lookups. - Claude Generated"""
+        from datetime import datetime
+
+        all_ids = {gid for gid in gnd_ids if gid}
+        if not all_ids:
+            return {}
+        status: Dict[str, str] = {}
+        try:
+            db = getattr(self.cache_manager, "db_manager", None)
+            if db is None:
+                return {gid: "new" for gid in all_ids}
+            id_list = list(all_ids)
+            placeholders = ",".join(["?"] * len(id_list))
+            rows = db.fetch_all(
+                f"SELECT gnd_id, updated_at FROM gnd_entries WHERE gnd_id IN ({placeholders})",
+                id_list,
+            )
+            cached = {row.get("gnd_id"): row.get("updated_at") for row in rows if row.get("gnd_id")}
+            now = datetime.now()
+            for gid in all_ids:
+                updated_at = cached.get(gid)
+                if not updated_at:
+                    status[gid] = "new"
+                    continue
+                try:
+                    updated_str = str(updated_at)
+                    if "T" in updated_str:
+                        updated_dt = datetime.fromisoformat(updated_str.replace("Z", "+00:00"))
+                    else:
+                        updated_dt = datetime.strptime(updated_str, "%Y-%m-%d %H:%M:%S")
+                    age_days = (now - updated_dt.replace(tzinfo=None)).days
+                    status[gid] = "outdated" if age_days >= 90 else "cache"
+                except (ValueError, AttributeError):
+                    status[gid] = "cache"
+        except Exception as e:  # DB nicht erreichbar — Anzeige degradiert zu 'new'
+            self.logger.warning(f"Batch cache status query failed: {e}")
+            return {gid: "new" for gid in all_ids}
+        return status
+
+    # ── Details ──────────────────────────────────────────────────────────────
+
+    def show_details(self):
+        selected_items = self.results_table.selectedItems()
+        if not selected_items:
+            return
+        row = selected_items[0].row()
+        gnd_item = self.results_table.item(row, _COL_GND)
+        if gnd_item is None:
+            return
+        gnd_id = gnd_item.text()
+
+        parts = [f"<h3>Details für GND-ID: {gnd_id}</h3>"]
+        parts.append(
+            f'<p><a href="https://lobid.org/gnd/{gnd_id}">lobid.org/gnd/{gnd_id}</a></p>'
+        )
+
+        # Pool-Eintrag der aktuellen Suche (Klassifikationen aus den Quellen)
+        entry = self._entries_by_gnd.get(gnd_id)
+        if entry:
+            cls_line = format_classifications_compact(
+                entry.get("classifications"), max_per_system=10
+            )
+            if cls_line:
+                parts.append(f"<p><b>Klassifikationen (Suche):</b> {cls_line}</p>")
+            display_count = preferred_display_count(entry)
+            if display_count:
+                parts.append(f"<p><b>Häufigkeit:</b> {display_count}</p>")
+
+        if gnd_id and self.cache_manager.gnd_entry_exists(gnd_id):
+            gnd_entry = self.cache_manager.get_gnd_entry_by_id(gnd_id) or {}
+            parts.append(f"<p><b>Titel:</b> {gnd_entry.get('title', 'N/A')}</p>")
+            if gnd_entry.get("description"):
+                parts.append(f"<p><b>Beschreibung:</b> {gnd_entry.get('description')}</p>")
+            for field, label in (("ddcs", "DDC-Klassifikationen"), ("dks", "DK-Klassifikationen"), ("synonyms", "Synonyme")):
+                values = [v for v in (gnd_entry.get(field) or "").split(";") if v.strip()]
+                if values:
+                    items = "".join(f"<li>{v}</li>" for v in values)
+                    parts.append(f"<p><b>{label}:</b><ul>{items}</ul></p>")
+            parts.append(
+                "<p style='font-size: 0.9em; color: #666;'>"
+                f"<b>Erstellt am:</b> {gnd_entry.get('created_at', 'N/A')}<br>"
+                f"<b>Zuletzt aktualisiert:</b> {gnd_entry.get('updated_at', 'N/A')}</p>"
+            )
+        elif not entry:
+            parts.append("<p>Kein lokaler Datenbank-Eintrag vorhanden.</p>")
+
+        self.details_display.setHtml(
+            "<html><body style='font-family: Arial, sans-serif;'>"
+            + "".join(parts)
+            + "</body></html>"
+        )
+
+    # ── DNB-Sync (bestehender Worker-Pfad) ───────────────────────────────────
 
     def update_selected_entry(self):
         """Batch DNB sync for all selected/displayed entries - Claude Generated"""
-        from .workers import DNBSyncWorker
-
-        # Collect GND-IDs: either selected entries or all displayed entries with ✅
         selected_gnd_ids = []
-
         for row in range(self.results_table.rowCount()):
-            begriff_item = self.results_table.item(row, 0)
+            begriff_item = self.results_table.item(row, _COL_TERM)
             if begriff_item and begriff_item.text().startswith("✅"):
-                gnd_id = self.results_table.item(row, 1).text()
-                selected_gnd_ids.append(gnd_id)
+                selected_gnd_ids.append(self.results_table.item(row, _COL_GND).text())
 
         if not selected_gnd_ids:
-            self.status_label.setText("Keine ausgewählten Einträge zum Synchronisieren")
-            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+            self._set_status("Keine ausgewählten Einträge zum Synchronisieren", "warning")
             return
 
-        # Disable button and show progress
         self.update_button.setEnabled(False)
         self.update_button.setText(f"Synchronisiere {len(selected_gnd_ids)} Einträge...")
         self.progressBar.setVisible(True)
-        self.progressBar.setValue(0)
-        self.progressBar.setMaximum(100)
+        self._set_status(f"Starte DNB-Sync für {len(selected_gnd_ids)} Einträge...", "info")
 
-        self.status_label.setText(f"Starte DNB-Sync für {len(selected_gnd_ids)} Einträge...")
-        self.status_label.setStyleSheet(get_status_label_styles()["info"])
-        QApplication.processEvents()
-
-        # Start worker thread
         self.sync_worker = DNBSyncWorker(selected_gnd_ids, self.cache_manager)
-        self.sync_worker.progress.connect(self.progressBar.setValue)
         self.sync_worker.finished.connect(self.on_sync_finished)
         self.sync_worker.start()
 
     def on_sync_finished(self, success_count, error_count):
         """Handle DNB sync completion - Claude Generated"""
-        total = success_count + error_count
-
-        # Re-enable button
         self.update_button.setEnabled(True)
         self.update_button.setText("🔄 DNB-Sync Selected")
         self.progressBar.setVisible(False)
-
-        # Update status
         if error_count == 0:
-            self.status_label.setText(f"DNB-Sync erfolgreich: {success_count} Einträge aktualisiert")
-            self.status_label.setStyleSheet(get_status_label_styles()["success"])
+            self._set_status(f"DNB-Sync erfolgreich: {success_count} Einträge aktualisiert", "success")
         else:
-            self.status_label.setText(
-                f"DNB-Sync abgeschlossen: {success_count} erfolgreich, {error_count} Fehler"
+            self._set_status(
+                f"DNB-Sync abgeschlossen: {success_count} erfolgreich, {error_count} Fehler",
+                "warning",
             )
-            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
-
-        # Refresh details if an entry is currently selected
         if self.results_table.selectedItems():
             self.show_details()
 
-        self.logger.info(f"DNB sync completed: {success_count}/{total} successful")
-
-    def update_entry(self, gnd_id: str):
-        """Aktualisiert einen GND-Eintrag mit Daten aus der DNB"""
-        # Route DNB access through the lookup plugin (single DNB code path; the same
-        # plugin backs the agent-facing, cached `dnb_classification` tool). - Claude Generated
-        from ..utils.lookups.resolve import build_lookup
-
-        try:
-            # Status aktualisieren
-            self.status_label.setText(f"Aktualisiere GND-Eintrag: {gnd_id}")
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
-
-            # Fortschritt anzeigen
-            if self.progressBar.isVisible():
-                self.progressBar.setValue(20)
-
-            QApplication.processEvents()
-
-            # Hole DNB-Klassifikation (Plugin kann deaktiviert sein → None). - Claude Generated
-            _dnb = build_lookup(None, "dnb")
-            if _dnb is None:
-                self.status_label.setText("DNB-Lookup ist deaktiviert (Plugin-Tab).")
-                self.status_label.setStyleSheet(get_status_label_styles()["info"])
-                return
-            dnb_class = _dnb.classify(gnd_id)
-
-            # Fortschritt anzeigen
-            if self.progressBar.isVisible():
-                self.progressBar.setValue(60)
-
-            if dnb_class and dnb_class.get("status") == "success":
-                # Extrahiere Daten
-                term = dnb_class.get("preferred_name", "")
-
-                # DDCs extrahieren und formatieren
-                ddc_list = dnb_class.get("ddc", [])
-                ddc = ";".join(f"{d['code']}({d['determinancy']})" for d in ddc_list)
-
-                # GND-Kategorien extrahieren
-                gnd_category = dnb_class.get("gnd_subject_categories", [])
-                gnd_category = ";".join(gnd_category)
-
-                # Allgemeine Kategorie
-                category = dnb_class.get("category", "")
-
-                # Aktualisiere den Eintrag in der Datenbank
-                # NOTE: this used to call update_gnd_entry, which does not
-                # exist on UnifiedKnowledgeManager — the AttributeError was
-                # swallowed by the surrounding except, so the DNB sync silently
-                # stored nothing and gnd_entries stayed empty. gnd_systems /
-                # classification have no column in gnd_entries and are shown in
-                # the UI only. - Claude Generated
-                self.cache_manager.add_gnd_entry(
-                    gnd_id,
-                    title=term,
-                    ddcs=ddc,
-                )
-
-                # Status aktualisieren
-                self.status_label.setText(f"GND-Eintrag aktualisiert: {gnd_id}")
-                self.status_label.setStyleSheet(get_status_label_styles()["success"])
-
-            else:
-                # Fehlermeldung
-                error_msg = (
-                    dnb_class.get("error_message", "Keine Daten erhalten")
-                    if dnb_class
-                    else "Keine Daten erhalten"
-                )
-                self.logger.error(f"Fehler bei GND {gnd_id}: {error_msg}")
-                self.status_label.setText(f"Fehler bei GND {gnd_id}: {error_msg}")
-                self.status_label.setStyleSheet(get_status_label_styles()["error"])
-
-            # Fortschritt anzeigen
-            if self.progressBar.isVisible():
-                self.progressBar.setValue(100)
-
-        except Exception as e:
-            self.logger.error(f"Fehler bei Update von GND {gnd_id}: {str(e)}")
-            self.error_occurred.emit(f"Fehler bei Update von GND {gnd_id}: {str(e)}")
-
-    def show_details(self):
-        """Zeigt Details für den ausgewählten Eintrag in der Detailansicht"""
-        selected_items = self.results_table.selectedItems()
-        if not selected_items:
-            return
-
-        # Hole Daten aus der ausgewählten Zeile
-        row = selected_items[0].row()
-        gnd_id = self.results_table.item(row, 1).text()
-
-        # Speichere die aktuelle GND-ID für spätere Verwendung
-        self.current_gnd_id = gnd_id
-
-        if gnd_id and self.cache_manager.gnd_entry_exists(gnd_id):
-            # Hole Eintrag aus der Datenbank
-            gnd_entry = self.cache_manager.get_gnd_entry_by_id(gnd_id)
-
-            # Formatierter Text mit HTML-Styling
-            details = f"""<html>
-            <body style='font-family: Arial, sans-serif;'>
-            <h3>Details für GND-ID: {gnd_id}</h3>
-            <p><b>Titel:</b> {gnd_entry.get('title', 'N/A')}</p>
-            """
-
-            # Beschreibung hinzufügen, wenn vorhanden
-            if gnd_entry.get("description"):
-                details += f"<p><b>Beschreibung:</b> {gnd_entry.get('description')}</p>"
-
-            # DDC-Klassifikationen mit Formatierung anzeigen
-            if gnd_entry.get("ddcs"):
-                details += "<p><b>DDC-Klassifikationen:</b><ul>"
-                for ddc in gnd_entry.get("ddcs", "").split(";"):
-                    if ddc.strip():
-                        details += f"<li>{ddc}</li>"
-                details += "</ul></p>"
-            else:
-                details += "<p><b>DDC:</b> Keine Klassifikation verfügbar</p>"
-
-            # DK-Klassifikationen
-            if gnd_entry.get("dks"):
-                details += "<p><b>DK-Klassifikationen:</b><ul>"
-                for dk in gnd_entry.get("dks", "").split(";"):
-                    if dk.strip():
-                        details += f"<li>{dk}</li>"
-                details += "</ul></p>"
-
-            # Synonyme
-            if gnd_entry.get("synonyms"):
-                details += "<p><b>Synonyme:</b><ul>"
-                for syn in gnd_entry.get("synonyms", "").split(";"):
-                    if syn.strip():
-                        details += f"<li>{syn}</li>"
-                details += "</ul></p>"
-
-            # Metadaten für Datum
-            details += f"""
-            <p style='font-size: 0.9em; color: #666;'>
-            <b>Erstellt am:</b> {gnd_entry.get('created_at', 'N/A')}<br>
-            <b>Zuletzt aktualisiert:</b> {gnd_entry.get('updated_at', 'N/A')}
-            </p>
-            """
-
-            details += "</body></html>"
-
-            # Zeige Details in der Detailansicht
-            self.details_display.setHtml(details)
-        else:
-            self.details_display.setHtml(
-                f"<html><body><h3>Keine Details verfügbar für GND-ID: {gnd_id}</h3></body></html>"
-            )
+    # ── Pipeline-Nachbearbeitung ────────────────────────────────────────────
 
     def update_search_field(self, keywords):
         """Aktualisiert das Suchfeld mit den gegebenen Schlüsselwörtern"""
         self.search_input.setText(keywords)
 
     def display_search_results(self, results: Dict) -> None:
-        """
-        Display search results from pipeline - Claude Generated
-        This method allows the SearchTab to act as a viewer for pipeline results
-
-        Args:
-            results: Dictionary of search results from pipeline search step
-        """
+        """Viewer für Pipeline-Suchergebnisse im Roh-Dict-Format - Claude Generated"""
         self.logger.info(f"Displaying pipeline search results: {len(results)} terms")
-
-        # Clear existing results and UI state
-        self.results_table.setRowCount(0)
-        self.result_list.clear()
-        self.gnd_ids.clear()
         self.details_display.clear()
-
-        # Process and display the results using existing logic
-        self.process_results(results)
-
-        # Update status
-        self.status_label.setText(
-            f"Pipeline-Ergebnisse angezeigt - {len(getattr(self, 'flat_results', []))} Ergebnisse"
-        )
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
-
-        self.logger.info("Pipeline search results displayed successfully")
+        self._entries_by_gnd = {}
+        rows, skipped = self._rows_from_results(results)
+        self.display_results(rows)
+        msg = f"Pipeline-Ergebnisse angezeigt — {len(rows)} Ergebnisse"
+        if skipped:
+            msg += f" ({skipped} ohne GND-ID)"
+        self._set_status(msg, "success")
 
     @pyqtSlot(object)
     def update_data(self, analysis_state):
-        """Receive pipeline results and display with transparency - Claude Generated
-
-        This slot is called when the pipeline completes, transforming the SearchTab
-        into a post-processing view that shows:
-        1. Which init-keywords led to which GND entries (mapping transparency)
-        2. Which GND entries were selected in final_keywords (usage transparency)
-        3. Which entries came from cache vs. newly fetched (cache status)
-
-        Args:
-            analysis_state: KeywordAnalysisState object with pipeline results
-        """
+        """Pipeline-Ergebnisse mit Auswahl-/Cache-Transparenz anzeigen - Claude Generated"""
         if not analysis_state:
-            self.logger.warning("update_data called with empty analysis_state")
-            self.status_label.setText("Keine Pipeline-Ergebnisse verfügbar")
-            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+            self._set_status("Keine Pipeline-Ergebnisse verfügbar", "warning")
             self.transparency_text.setHtml(
                 "<p style='color: orange;'><b>Keine Pipeline-Daten geladen</b></p>"
                 "<p>Führen Sie die Pipeline aus, um GND-Suchergebnisse zu sehen.</p>"
@@ -1020,29 +766,26 @@ class SearchTab(QWidget):
             return
 
         try:
-            # Store original state for tracking modifications
             self.original_pipeline_state = analysis_state
-            self.current_display_state = analysis_state
             self.modified_selections = {}
             self.manual_additions = []
-            self.has_unsaved_changes = False
+            self.save_changes_button.setEnabled(False)
+            # Pipeline-Modus: Mapping-Reiter einblenden; finale Keywords in die
+            # geteilte Sucheingabe (Nachsuche in GND wie UB-Katalog) - Claude Generated
+            self.results_tabs.setTabVisible(self._mapping_tab_idx, True)
+            if analysis_state.final_llm_analysis:
+                final_kw = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
+                if final_kw:
+                    self.search_input.setText(", ".join(final_kw))
 
-            # Extract data from analysis_state
             initial_keywords = analysis_state.initial_keywords or []
             search_results = analysis_state.search_results or []
             final_keywords = []
             if analysis_state.final_llm_analysis:
                 final_keywords = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
 
-            self.logger.info(
-                f"Processing pipeline data: {len(initial_keywords)} init keywords, "
-                f"{len(search_results)} search results, {len(final_keywords)} final keywords"
-            )
-
-            # Handle empty search results
             if not search_results:
-                self.status_label.setText("Pipeline hat keine GND-Einträge gefunden")
-                self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+                self._set_status("Pipeline hat keine GND-Einträge gefunden", "warning")
                 self.transparency_text.setHtml(
                     "<p style='color: orange;'><b>Keine Suchergebnisse</b></p>"
                     "<p>Die Pipeline hat keine GND-Schlagwörter gefunden. "
@@ -1051,462 +794,270 @@ class SearchTab(QWidget):
                 self.results_table.setRowCount(0)
                 return
 
-            # Query cache status for all GND entries
-            self._query_cache_status(search_results)
-
-            # Build mapping table (init-keyword → GND entries)
+            all_ids = [
+                gnd_id
+                for sr in search_results
+                for gnd_id in sr.results.keys()
+            ]
+            self.cache_status = self._cache_status_for_ids(all_ids)
             self._build_mapping_table(initial_keywords, search_results, final_keywords)
-
-            # Display results with transparency overlays
             self._display_pipeline_results(search_results, final_keywords)
 
-            # Update status with helpful hint about double-click
             total_entries = sum(len(sr.results) for sr in search_results)
-            self.status_label.setText(
+            self._set_status(
                 f"✅ Pipeline-Ergebnisse: {total_entries} GND-Einträge "
-                f"({len(final_keywords)} ausgewählt) | 💡 Doppelklick zum Umschalten"
+                f"({len(final_keywords)} ausgewählt) | 💡 Doppelklick zum Umschalten",
+                "success",
             )
-            self.status_label.setStyleSheet(get_status_label_styles()["success"])
-
-            self.logger.info("Pipeline results successfully loaded in SearchTab")
-
         except Exception as e:
             self.logger.error(f"Error in update_data: {e}", exc_info=True)
-            self.status_label.setText(f"Fehler beim Laden der Pipeline-Ergebnisse: {str(e)}")
-            self.status_label.setStyleSheet(get_status_label_styles()["error"])
-
-    def _query_cache_status(self, search_results: List) -> None:
-        """Query cache status for each GND entry - Claude Generated
-
-        Populates self.cache_status with GND-ID → status mapping:
-        - 'cache': Entry exists in DB and is recent (< 90 days)
-        - 'outdated': Entry exists but is old (>= 90 days)
-        - 'new': Entry was newly fetched (not in cache or no timestamp)
-
-        Batched query: collects all unique IDs first, then fetches in a
-        single SQL query instead of N individual lookups.
-        """
-        from datetime import datetime
-
-        self.cache_status = {}
-
-        # Collect all unique GND IDs
-        all_ids = set()
-        for search_result in search_results:
-            for gnd_id in search_result.results.keys():
-                if gnd_id:
-                    all_ids.add(gnd_id)
-
-        if not all_ids:
-            return
-
-        # Batch fetch via db_manager (single query vs N individual lookups)
-        try:
-            db = getattr(self.cache_manager, "db_manager", None)
-            if db is None:
-                # Fallback: mark all as 'new' if no db access
-                for gid in all_ids:
-                    self.cache_status[gid] = 'new'
-                return
-
-            id_list = list(all_ids)
-            placeholders = ",".join(["?"] * len(id_list))
-            sql = f"SELECT gnd_id, updated_at FROM gnd_entries WHERE gnd_id IN ({placeholders})"
-            rows = db.fetch_all(sql, id_list)
-
-            # Build lookup from results
-            cached = {}
-            for row in rows:
-                gid = row.get("gnd_id")
-                updated_at = row.get("updated_at")
-                if gid:
-                    cached[gid] = updated_at
-
-            now = datetime.now()
-            for gid in all_ids:
-                updated_at = cached.get(gid)
-                if updated_at:
-                    try:
-                        updated_str = str(updated_at)
-                        if 'T' in updated_str:
-                            updated_dt = datetime.fromisoformat(updated_str.replace('Z', '+00:00'))
-                        else:
-                            updated_dt = datetime.strptime(updated_str, '%Y-%m-%d %H:%M:%S')
-                        age_days = (now - updated_dt.replace(tzinfo=None)).days
-                        self.cache_status[gid] = 'outdated' if age_days >= 90 else 'cache'
-                    except (ValueError, AttributeError):
-                        self.cache_status[gid] = 'cache'
-                else:
-                    self.cache_status[gid] = 'new'
-        except Exception as e:
-            self.logger.warning(f"Batch cache status query failed: {e}")
-            for gid in all_ids:
-                self.cache_status[gid] = 'new'
-
-        self.logger.info(f"Cache status queried for {len(self.cache_status)} entries")
+            self._set_status(f"Fehler beim Laden der Pipeline-Ergebnisse: {str(e)}", "error")
 
     def _build_mapping_table(self, initial_keywords: List[str], search_results: List,
                              final_keywords: List[str]) -> None:
-        """Build mapping from init-keywords to GND entries - Claude Generated
-
-        Creates HTML representation showing which pipeline keywords led to which
-        GND entries, and which were ultimately selected by the LLM.
-
-        Args:
-            initial_keywords: List of initial keywords from pipeline
-            search_results: List of SearchResult objects
-            final_keywords: List of GND-IDs selected in final analysis
-        """
+        """Init-Keyword → GND-Einträge Mapping als HTML - Claude Generated"""
         mapping_text = "<h3>Pipeline-Mapping (Initial Keywords → GND-Einträge)</h3>"
-        mapping_text += "<p style='color: gray; font-size: 0.9em;'>"
-        mapping_text += "Zeigt welche Pipeline-Keywords zu welchen GND-Einträgen führten:</p>"
-
+        mapping_text += (
+            "<p style='color: gray; font-size: 0.9em;'>"
+            "Zeigt welche Pipeline-Keywords zu welchen GND-Einträgen führten:</p>"
+        )
         if not initial_keywords:
             mapping_text += "<p style='color: orange;'><b>Keine Initial-Keywords gefunden</b></p>"
-            # Store for transparency section (to be added in Phase 4)
-            self.mapping_html = mapping_text
+            self.transparency_text.setHtml(mapping_text)
             return
 
         for init_kw in initial_keywords:
-            # Find search results for this keyword
-            matching_results = [sr for sr in search_results if sr.search_term == init_kw]
-
-            if not matching_results:
+            matching = [sr for sr in search_results if sr.search_term == init_kw]
+            if not matching:
                 continue
-
-            mapping_text += f"<p style='margin-top: 12px;'><b>🔍 \"{init_kw}\"</b>:</p><ul style='margin-left: 20px;'>"
-
-            for sr in matching_results:
+            mapping_text += (
+                f"<p style='margin-top: 12px;'><b>🔍 \"{init_kw}\"</b>:</p>"
+                "<ul style='margin-left: 20px;'>"
+            )
+            for sr in matching:
                 for gnd_id, entry_data in sr.results.items():
-                    label = entry_data.get('label', 'N/A')
-                    is_used = gnd_id in final_keywords
-
-                    if is_used:
+                    label = entry_data.get("label", "N/A")
+                    if gnd_id in final_keywords:
                         status = "✅ <span style='color: green; font-weight: bold;'>[Verwendet]</span>"
                     else:
                         status = "<span style='color: gray;'>[Nicht verwendet]</span>"
-
                     mapping_text += f"<li>{label} (GND:{gnd_id}) {status}</li>"
-
             mapping_text += "</ul>"
 
-        # Display in transparency section - Claude Generated
         self.transparency_text.setHtml(mapping_text)
-        self.logger.debug("Mapping table built and displayed successfully")
 
     def _display_pipeline_results(self, search_results: List, final_keywords: List[str]) -> None:
-        """Display search results with transparency indicators - Claude Generated
-
-        Shows results table with columns:
-        - Checkbox (✅ for selected, ☐ for available)
-        - Begriff (term name)
-        - GND-ID
-        - Init-Kw (which initial keyword found this)
-        - Status (cache indicator: 💾/🌐/⚠️)
-        - Häufigkeit (frequency count)
-
-        Selected entries get light green background highlighting.
-
-        Args:
-            search_results: List of SearchResult objects from pipeline
-            final_keywords: List of GND-IDs selected in final_keywords
-        """
+        """Pipeline-Ergebnistabelle mit Transparenz-Overlays - Claude Generated"""
         self.results_table.setRowCount(0)
-
-        # Status icons
-        status_icons = {
-            'cache': '💾',
-            'new': '🌐',
-            'outdated': '⚠️'
-        }
-
-        status_tooltips = {
-            'cache': 'Aus Datenbank-Cache',
-            'new': 'Neu geholt von Lobid/SWB',
-            'outdated': 'Cache älter als 90 Tage'
-        }
+        self._entries_by_gnd = {}
 
         for search_result in search_results:
             init_keyword = search_result.search_term
-
             for gnd_id, entry_data in search_result.results.items():
                 row = self.results_table.rowCount()
                 self.results_table.insertRow(row)
-
-                # Determine if selected in final_keywords
+                self._entries_by_gnd[gnd_id] = entry_data
                 is_selected = gnd_id in final_keywords
 
-                # Column 0: Begriff
-                begriff = entry_data.get('label', entry_data.get('title', 'N/A'))
+                begriff = entry_data.get("label", entry_data.get("title", "N/A"))
                 begriff_item = QTableWidgetItem(begriff)
                 if is_selected:
                     begriff_item.setFont(get_scaled_font(bold=True))
-                    begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
+                    begriff_item.setForeground(QColor("#2e7d32"))
                     begriff_item.setText(f"✅ {begriff}")
-                self.results_table.setItem(row, 0, begriff_item)
+                self.results_table.setItem(row, _COL_TERM, begriff_item)
 
-                # Column 1: GND-ID
-                gnd_item = QTableWidgetItem(gnd_id)
-                self.results_table.setItem(row, 1, gnd_item)
+                self.results_table.setItem(row, _COL_GND, QTableWidgetItem(gnd_id))
 
-                # Column 2: Häufigkeit
-                count = entry_data.get('count', 0)
-                count_item = QTableWidgetItem(str(count))
+                count_item = QTableWidgetItem(str(preferred_display_count(entry_data)))
                 count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.results_table.setItem(row, 2, count_item)
+                self.results_table.setItem(row, _COL_COUNT, count_item)
 
-                # Column 3: Ähnlichkeit (relation - keep existing column for compatibility)
-                relation = self.determine_relation(begriff, init_keyword)
-                relation_symbols = ["=", "≈", "≠"]
-                relation_colors = [QColor("#4caf50"), QColor("#ff9800"), QColor("#9e9e9e")]
-                rel_item = QTableWidgetItem(relation_symbols[relation])
-                rel_item.setForeground(relation_colors[relation])
+                relation = determine_relation(begriff, init_keyword)
+                rel_item = QTableWidgetItem(_RELATION_SYMBOLS[relation])
+                rel_item.setForeground(_RELATION_COLORS[relation])
                 rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                # Add init-keyword as tooltip for transparency
-                init_kw_display = init_keyword[:30] + "..." if len(init_keyword) > 30 else init_keyword
                 rel_item.setToolTip(f"Initial-Keyword: {init_keyword}")
-                self.results_table.setItem(row, 3, rel_item)
+                self.results_table.setItem(row, _COL_REL, rel_item)
 
-                # Column 4: Status (cache indicator - transparency feature)
-                status = self.cache_status.get(gnd_id, 'new')
-                status_item = QTableWidgetItem(status_icons[status])
-                status_item.setToolTip(status_tooltips[status])
+                self.results_table.setItem(
+                    row,
+                    _COL_CLS,
+                    QTableWidgetItem(
+                        format_classifications_compact(entry_data.get("classifications"))
+                    ),
+                )
+
+                status = self.cache_status.get(gnd_id, "new")
+                status_item = QTableWidgetItem(_CACHE_STATUS_ICONS[status])
+                status_item.setToolTip(_CACHE_STATUS_TOOLTIPS[status])
                 status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.results_table.setItem(row, 4, status_item)
+                self.results_table.setItem(row, _COL_STATUS, status_item)
 
-                # Row highlighting for selected entries
                 if is_selected:
-                    for col in range(5):
-                        item = self.results_table.item(row, col)
-                        if item:
-                            item.setBackground(QColor("#e8f5e9"))  # Light green
+                    self._highlight_row(row, QColor("#e8f5e9"))
 
         self.logger.info(f"Displayed {self.results_table.rowCount()} pipeline results")
 
-    def perform_manual_search(self):
-        """Perform manual GND search and add results to display - Claude Generated
+    def _highlight_row(self, row: int, color: QColor):
+        for col in range(len(_COLS)):
+            item = self.results_table.item(row, col)
+            if item:
+                item.setBackground(color)
 
-        Allows expert users to search for additional GND keywords that the pipeline
-        might have missed. Results are added with a special 🔧 indicator.
-        """
+    # ── Manuelle Nachsuche (asynchron, gleicher Worker) ──────────────────────
+
+    def perform_manual_search(self):
+        """Manuelle GND-Nachsuche; Treffer werden mit 🔧 markiert - Claude Generated"""
         search_term = self.manual_search_input.toPlainText().strip()
         if not search_term:
-            self.status_label.setText("Bitte einen Suchbegriff eingeben")
-            self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+            self._set_status("Bitte einen Suchbegriff eingeben", "warning")
             return
 
-        try:
-            self.status_label.setText(f"Manuelle Suche: {search_term}")
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
-            self.manual_search_button.setEnabled(False)
-            QApplication.processEvents()
+        # Bevorzugt lobid/swb (billig, keine DK-Lookups), sonst die erste aktive
+        # Quelle. Ohne aktive Quelle nicht suchen statt eine zu erfinden.
+        manual_ids = [
+            pid for pid in ("lobid", "swb") if pid in self.source_checkboxes
+        ] or list(self.source_checkboxes)[:1]
+        if not manual_ids:
+            self._set_status("Keine GND-Quelle aktiv — im Plugins-Tab aktivieren.", "warning")
+            return
 
-            # Direct suggester usage - simpler than pipeline
-            search_terms = self.extract_search_terms(search_term)
+        self.manual_search_button.setEnabled(False)
+        self.progressBar.setVisible(True)
+        self._set_status(f"Manuelle Suche: {search_term}", "info")
 
-            # Lobid + SWB via the unified provider service (not Catalog — avoids DK
-            # lookups), gefiltert auf die im Plugin-Tab aktivierten Quellen; one
-            # merged call that populates the shared caches. - Claude Generated
-            from src.core.search.service import resolve_gnd_instances, search_gnd_keywords
+        self._manual_worker = GndSearchWorker(extract_search_terms(search_term), manual_ids)
+        self._manual_worker.finished_with_results.connect(self._on_manual_finished)
+        self._manual_worker.search_failed.connect(self._on_manual_failed)
+        self._manual_worker.start()
 
-            # Bevorzugt lobid/swb (billig, keine DK-Lookups), sonst die erste aktive
-            # Quelle. Ohne aktive Quelle nicht suchen statt eine zu erfinden.
-            # - Claude Generated
-            manual_ids = [
-                pid for pid in ("lobid", "swb") if pid in self.source_checkboxes
-            ] or list(self.source_checkboxes)[:1]
-            if not manual_ids:
-                self.logger.warning("Keine GND-Quelle aktiv — Suche übersprungen.")
-                return
-            all_results, _errors = search_gnd_keywords(
-                search_terms, resolve_gnd_instances(manual_ids), cache=True,
-            )
+    def _on_manual_finished(self, all_results: dict, errors):
+        self.manual_search_button.setEnabled(True)
+        self.progressBar.setVisible(False)
 
-            added_count = 0
-            for term, results in all_results.items():
-                if results:
-                    # Add results to display with manual indicator
-                    for keyword, data in results.items():
-                        # Extract GND-ID
-                        gnd_ids = data.get('gnd_ids', set())
-                        gnd_id = next(iter(gnd_ids), None)
+        existing_ids = {
+            self.results_table.item(row, _COL_GND).text()
+            for row in range(self.results_table.rowCount())
+            if self.results_table.item(row, _COL_GND)
+        }
+        added_count = 0
+        for term, results in (all_results or {}).items():
+            if not isinstance(results, dict):
+                continue
+            for keyword, data in results.items():
+                gnd_id = next(iter(data.get("gnd_ids", set())), None)
+                if not gnd_id or gnd_id in existing_ids:
+                    continue
+                existing_ids.add(gnd_id)
+                self._entries_by_gnd[gnd_id] = data
 
-                        if not gnd_id:
-                            continue
+                row = self.results_table.rowCount()
+                self.results_table.insertRow(row)
+                begriff_item = QTableWidgetItem(f"🔧 {keyword}")
+                begriff_item.setForeground(QColor("#1976d2"))
+                self.results_table.setItem(row, _COL_TERM, begriff_item)
+                self.results_table.setItem(row, _COL_GND, QTableWidgetItem(gnd_id))
+                count_item = QTableWidgetItem(str(preferred_display_count(data)))
+                count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.results_table.setItem(row, _COL_COUNT, count_item)
+                rel_item = QTableWidgetItem("🔧")
+                rel_item.setToolTip("Manuell hinzugefügt")
+                rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.results_table.setItem(row, _COL_REL, rel_item)
+                self.results_table.setItem(
+                    row,
+                    _COL_CLS,
+                    QTableWidgetItem(format_classifications_compact(data.get("classifications"))),
+                )
+                status_item = QTableWidgetItem("🆕")
+                status_item.setToolTip("Manuelle Addition")
+                status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.results_table.setItem(row, _COL_STATUS, status_item)
+                self._highlight_row(row, QColor("#e3f2fd"))
 
-                        # Check if already in display
-                        already_exists = False
-                        for row in range(self.results_table.rowCount()):
-                            existing_id = self.results_table.item(row, 1).text()
-                            if existing_id == gnd_id:
-                                already_exists = True
-                                break
+                self.manual_additions.append(
+                    {"gnd_id": gnd_id, "label": keyword, "search_term": term}
+                )
+                added_count += 1
 
-                        if not already_exists:
-                            # Add to table with manual indicator
-                            row = self.results_table.rowCount()
-                            self.results_table.insertRow(row)
+        if added_count > 0:
+            self._set_status(f"Manuelle Suche: {added_count} neue Einträge hinzugefügt", "success")
+            self.save_changes_button.setEnabled(True)
+        else:
+            msg = "Manuelle Suche: Keine neuen Einträge gefunden"
+            if errors:
+                msg += f" — Quellen fehlgeschlagen: {', '.join(sorted(errors))}"
+            self._set_status(msg, "info")
+        self.manual_search_input.clear()
 
-                            begriff_item = QTableWidgetItem(f"🔧 {keyword}")
-                            begriff_item.setForeground(QColor("#1976d2"))  # Blue for manual
-                            self.results_table.setItem(row, 0, begriff_item)
+    def _on_manual_failed(self, message: str):
+        self.manual_search_button.setEnabled(True)
+        self.progressBar.setVisible(False)
+        self._set_status(f"Fehler bei manueller Suche: {message}", "error")
 
-                            gnd_item = QTableWidgetItem(gnd_id)
-                            self.results_table.setItem(row, 1, gnd_item)
-
-                            count_item = QTableWidgetItem(str(data.get('count', 0)))
-                            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                            self.results_table.setItem(row, 2, count_item)
-
-                            rel_item = QTableWidgetItem("🔧")
-                            rel_item.setToolTip("Manuell hinzugefügt")
-                            rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                            self.results_table.setItem(row, 3, rel_item)
-
-                            status_item = QTableWidgetItem("🆕")
-                            status_item.setToolTip("Manuelle Addition")
-                            status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                            self.results_table.setItem(row, 4, status_item)
-
-                            # Highlight row
-                            for col in range(5):
-                                item = self.results_table.item(row, col)
-                                if item:
-                                    item.setBackground(QColor("#e3f2fd"))  # Light blue
-
-                            # Track as manual addition
-                            self.manual_additions.append({
-                                'gnd_id': gnd_id,
-                                'label': keyword,
-                                'search_term': term
-                            })
-                            added_count += 1
-
-            if added_count > 0:
-                self.status_label.setText(f"Manuelle Suche: {added_count} neue Einträge hinzugefügt")
-                self.status_label.setStyleSheet(get_status_label_styles()["success"])
-                self.has_unsaved_changes = True
-                self.save_changes_button.setEnabled(True)
-            else:
-                self.status_label.setText("Manuelle Suche: Keine neuen Einträge gefunden")
-                self.status_label.setStyleSheet(get_status_label_styles()["info"])
-
-            self.manual_search_input.clear()
-
-        except Exception as e:
-            self.logger.error(f"Manual search error: {e}", exc_info=True)
-            self.status_label.setText(f"Fehler bei manueller Suche: {str(e)}")
-            self.status_label.setStyleSheet(get_status_label_styles()["error"])
-        finally:
-            self.manual_search_button.setEnabled(True)
+    # ── Auswahl-Änderungen ───────────────────────────────────────────────────
 
     def save_changes(self):
-        """Save modified selections back to analysis state - Claude Generated
-
-        Emits selection_changed signal with:
-        - modified: Dict of GND-IDs with 'selected'/'deselected' status changes
-        - manual: List of manually added entries
-        """
+        """Änderungen an der GND-Auswahl zurück in den Analyse-Status - Claude Generated"""
         if not (self.modified_selections or self.manual_additions):
             return
-
-        # Emit signal to MainWindow
-        self.selection_changed.emit({
-            'modified': self.modified_selections,
-            'manual': self.manual_additions
-        })
-
-        self.status_label.setText(
-            f"Änderungen gespeichert: {len(self.modified_selections)} geändert, "
-            f"{len(self.manual_additions)} manuell hinzugefügt"
+        self.selection_changed.emit(
+            {"modified": self.modified_selections, "manual": self.manual_additions}
         )
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
-        self.has_unsaved_changes = False
+        self._set_status(
+            f"Änderungen gespeichert: {len(self.modified_selections)} geändert, "
+            f"{len(self.manual_additions)} manuell hinzugefügt",
+            "success",
+        )
         self.save_changes_button.setEnabled(False)
 
-        self.logger.info(
-            f"GND selection changes saved: {len(self.modified_selections)} modified, "
-            f"{len(self.manual_additions)} manual additions"
-        )
-
     def on_result_double_clicked(self, item):
-        """Toggle selection status when row is double-clicked - Claude Generated
-
-        Allows users to manually adjust which GND entries should be included
-        in the final keywords. Tracks changes for saving back to analysis state.
-        """
+        """Doppelklick toggelt den Auswahl-Status (nur Pipeline-Modus) - Claude Generated"""
         if not self.original_pipeline_state:
-            # No pipeline data loaded, ignore
             return
 
         row = item.row()
-        gnd_id = self.results_table.item(row, 1).text()
-        begriff_item = self.results_table.item(row, 0)
+        gnd_id = self.results_table.item(row, _COL_GND).text()
+        begriff_item = self.results_table.item(row, _COL_TERM)
         begriff_text = begriff_item.text()
 
-        # Get original selection status
         final_keywords = []
         if self.original_pipeline_state.final_llm_analysis:
-            final_keywords = self.original_pipeline_state.final_llm_analysis.extracted_gnd_keywords or []
-
+            final_keywords = (
+                self.original_pipeline_state.final_llm_analysis.extracted_gnd_keywords or []
+            )
         was_originally_selected = gnd_id in final_keywords
-
-        # Determine current display status
         is_currently_selected = begriff_text.startswith("✅")
 
-        # Toggle selection
         if is_currently_selected:
-            # Deselect
-            new_text = begriff_text.replace("✅ ", "")
-            begriff_item.setText(new_text)
+            begriff_item.setText(begriff_text.replace("✅ ", ""))
             begriff_item.setFont(get_scaled_font())
-            begriff_item.setForeground(QColor("#000000"))  # Black
-
-            # Remove highlighting
-            for col in range(5):
+            begriff_item.setForeground(QColor("#000000"))
+            for col in range(len(_COLS)):
                 cell_item = self.results_table.item(row, col)
-                if cell_item:
-                    # Check if manual addition (light blue)
-                    if cell_item.background().color() == QColor("#e3f2fd"):
-                        continue  # Keep manual addition highlighting
-                    cell_item.setBackground(QColor("#ffffff"))  # White
-
-            # Track modification
+                if cell_item and cell_item.background().color() != QColor("#e3f2fd"):
+                    cell_item.setBackground(QColor("#ffffff"))
             if was_originally_selected:
-                self.modified_selections[gnd_id] = 'deselected'
+                self.modified_selections[gnd_id] = "deselected"
             else:
-                # Was not originally selected, and we're deselecting - remove from modifications
-                if gnd_id in self.modified_selections:
-                    del self.modified_selections[gnd_id]
-
+                self.modified_selections.pop(gnd_id, None)
         else:
-            # Select
-            if not begriff_text.startswith("✅"):
-                new_text = f"✅ {begriff_text.replace('🔧 ', '')}"  # Remove manual indicator if present
-                begriff_item.setText(new_text)
+            begriff_item.setText(f"✅ {begriff_text.replace('🔧 ', '')}")
             begriff_item.setFont(get_scaled_font(bold=True))
-            begriff_item.setForeground(QColor("#2e7d32"))  # Dark green
-
-            # Add highlighting
-            for col in range(5):
-                cell_item = self.results_table.item(row, col)
-                if cell_item:
-                    cell_item.setBackground(QColor("#e8f5e9"))  # Light green
-
-            # Track modification
+            begriff_item.setForeground(QColor("#2e7d32"))
+            self._highlight_row(row, QColor("#e8f5e9"))
             if not was_originally_selected:
-                self.modified_selections[gnd_id] = 'selected'
+                self.modified_selections[gnd_id] = "selected"
             else:
-                # Was originally selected, and we're selecting again - remove from modifications
-                if gnd_id in self.modified_selections:
-                    del self.modified_selections[gnd_id]
+                self.modified_selections.pop(gnd_id, None)
 
-        # Update save button state
-        if self.modified_selections or self.manual_additions:
-            self.has_unsaved_changes = True
-            self.save_changes_button.setEnabled(True)
-        else:
-            self.has_unsaved_changes = False
-            self.save_changes_button.setEnabled(False)
+        self.save_changes_button.setEnabled(
+            bool(self.modified_selections or self.manual_additions)
+        )
 
-        self.logger.debug(f"Toggled selection for {gnd_id}: {self.modified_selections.get(gnd_id, 'no change')}")
+    # ── Statuszeile ──────────────────────────────────────────────────────────
+
+    def _set_status(self, message: str, kind: str = "info"):
+        self.status_label.setText(message)
+        self.status_label.setStyleSheet(get_status_label_styles()[kind])

@@ -184,11 +184,15 @@ class MainWindow(
         self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         main_layout.addWidget(self.tabs)
 
-        # Tabs erstellen
+        # Tabs erstellen — UB-Katalog zuerst, er wird als Ergebnis-Reiter in
+        # den vereinheitlichten Such-Tab eingebettet (Aug 4; der frühere
+        # SearchTabUnified-Combo-Umschalter ist entfernt) - Claude Generated
+        self.ub_catalog_tab = UBCatalogTab(pipeline_manager=self.pipeline_manager, parent=self)
         self.search_tab = SearchTab(
             cache_manager=self.cache_manager,
             alima_manager=self.alima_manager,
-            pipeline_manager=self.pipeline_manager
+            pipeline_manager=self.pipeline_manager,
+            ub_catalog_tab=self.ub_catalog_tab,
         )
 
         # Pass alima_manager and llm_service to AbstractTab
@@ -240,9 +244,6 @@ class MainWindow(
             main_window=self,
         )
 
-        # UB Catalog Tab - standalone dk_search step - Claude Generated
-        self.ub_catalog_tab = UBCatalogTab(pipeline_manager=self.pipeline_manager, parent=self)
-
         # Backward compatibility aliases - Claude Generated
         self.dk_analysis_tab = self.dk_analysis_unified_tab
         self.dk_classification_tab = self.dk_analysis_unified_tab
@@ -290,8 +291,8 @@ class MainWindow(
         # Connect to dedicated DK classification tab
         self.pipeline_tab.pipeline_results_ready.connect(self.dk_classification_tab.update_data)
 
-        # Auto-fill UB-Katalog with GND keywords from pipeline - Claude Generated
-        self.pipeline_tab.pipeline_results_ready.connect(self.ub_catalog_tab.update_from_pipeline)
+        # (Auto-fill der UB-Keywords läuft jetzt über die GETEILTE Sucheingabe:
+        # SearchTab.update_data füllt sie aus den finalen Pipeline-Keywords.)
 
         # Forward UB catalog search results to DK-Analyse for LLM input - Claude Generated
         self.ub_catalog_tab.search_completed.connect(self.dk_analysis_unified_tab.receive_catalog_results)
@@ -313,16 +314,10 @@ class MainWindow(
         self.tabs.addTab(self.image_analysis_tab, "📷 Bild")
         self.tabs.addTab(self.abstract_tab, "📝 Manuelle Analyse")
 
-        # P-θ.3: GND-Suche + UB-Katalog merged behind a source-picker.
-        # MainWindow continues to reference self.search_tab + self.ub_catalog_tab
-        # directly — they live as panels inside SearchTabUnified.
-        from .search_tab_unified import SearchTabUnified
-        self.search_tab_unified = SearchTabUnified(
-            search_tab=self.search_tab,
-            ub_catalog_tab=self.ub_catalog_tab,
-            parent=self,
-        )
-        self.tabs.addTab(self.search_tab_unified, "🔍 Suche")
+        # Vereinheitlichter Such-Tab (Aug 4): GND + UB-Katalog teilen sich EIN
+        # Suchfeld; der UB-Katalog ist ein Ergebnis-Reiter im SearchTab.
+        # self.ub_catalog_tab bleibt als Referenz gültig (eingebettet).
+        self.tabs.addTab(self.search_tab, "🔍 Suche")
         self.tabs.addTab(self.dk_analysis_unified_tab, "📊 Klassifikationen")
         self.tabs.addTab(self.analysis_review_tab, "📊 Review")
 

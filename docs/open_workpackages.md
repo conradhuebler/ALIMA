@@ -142,16 +142,15 @@ lassen (Ranking-Landmine!), volles `record` *zusätzlich* durchreichen (Muster:
 lobid `transform_agent_view`). **Verifikation:** Transform-Golden-Tests bleiben
 byte-identisch; neuer agent_view-Test je Quelle.
 
-### WP-K5 · SearchTab (`find_keywords.py`) — refresh + Zweck
-**Problem (Operator-Eintrag `src/ui/CLAUDE.md` #0):** Quellen-Checkboxen
-werden einmalig in `init_ui()` gebaut → Plugin-Enable/Disable greift erst
-nach Neustart; `_refresh_plugin_tools` (`_main_window_settings.py:61`)
-aktualisiert nur die ToolRegistry.
-**Ansatz:** Minimalfix zuerst: `SearchTab.refresh_sources()` (Checkboxen aus
-`_gnd_source_ids()` neu bauen, Auswahl erhalten), in
-`_refresh_plugin_tools` einhängen. Die größere Überarbeitung erst nach
-Zweck-Entscheidung des Operators (Pipeline ist Haupteinstieg — Memory
-`tab_usage_reality`). **Größe:** Minimalfix klein.
+### WP-K5 · SearchTab (`find_keywords.py`) — ✅ DONE (August 4, 2026)
+Zweck-Entscheidung getroffen (Operator: „auf modernen Stand bringen") und
+komplette Überarbeitung ausgeführt: `refresh_sources()` (live aus dem
+Plugin-System, in `_refresh_plugin_tools` eingehängt), Suche asynchron
+(`GndSearchWorker` — vorher blockte `search_gnd_keywords` den Main-Thread),
+Häufigkeit = `display_count` (der „zeigt 1"-Bug lebte hier weiter),
+Klassifikations-Spalte + lobid-Link, Pipeline-Mapping-Ansicht tatsächlich im
+Layout, tote Signale/Methoden/Legacy-Zweige raus (1512→977 Z.).
+Details: `AIChangelog.md` (August 4).
 
 ---
 

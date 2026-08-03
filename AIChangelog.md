@@ -6,6 +6,73 @@
 
 ## 2026
 
+### WP-K5: SearchTab-Überarbeitung (August 4, 2026)
+
+Operator-Auftrag: „nur Altlasten, auf modernen Stand bringen." Kritische
+Analyse fand fünf echte Defekte, alle behoben (1512→977 Z., Außenvertrag
+unverändert: Konstruktor, `update_data`/`update_search_field`/
+`display_search_results`, Signal `selection_changed`):
+
+1. **Suche blockte den Qt-Main-Thread** — `search_gnd_keywords` (Netz) lief
+   synchron mit `processEvents()`-Streuung. Jetzt `GndSearchWorker`
+   (StoppableWorker, auch für die manuelle Nachsuche).
+2. **„Häufigkeit zeigt 1"** lebte hier weiter: die Tabelle las den
+   Pool-`count` (Ranking-Platzhalter, bei Cache-Hits 1) statt
+   `display_count`. Jetzt `preferred_display_count` überall (Standalone,
+   Pipeline-Ansicht, manuelle Nachsuche).
+3. **Checkbox-Staleness (der K5-Bug):** `refresh_sources()` baut die
+   Quellen-Checkboxen live aus dem Plugin-System neu (Auswahl bleibt
+   erhalten), eingehängt in `_refresh_plugin_tools` — Plugin-Enable/Disable
+   greift ohne Neustart.
+4. **Unsichtbares Feature:** die Pipeline-Mapping-Ansicht wurde befüllt, ihr
+   Widget war aber nie ins Layout gehängt. Jetzt sichtbar (einklappbar).
+5. **Präsentation:** 6 Spalten inkl. Klassifikation (kompakt aus dem
+   kanonischen Pool-Vokabular, `format_classifications_compact`) und
+   Cache-Status auch für die Standalone-Suche; Details-Pane mit
+   lobid.org-Link (QTextBrowser) + Pool-Klassifikationen; Quellen-Fehler
+   („Quellen fehlgeschlagen: …") landen in der Statuszeile.
+
+Entrümpelt: tote Imports (SearchCLI, PipelineManager/-Worker), 4 nie
+verbundene Signale, Stub-/Waisen-Methoden (`generate_initial_prompt`,
+`update_entry`, `merge_results`, `update_database_entry`,
+`current_term_update`, `on_search_completed/error`), Legacy-List-Branch in
+`process_results` (Format, das der Unified-Service nie liefert), toter
+`num_results`-Spinbox, ungenutzte Akkumulator-Listen.
+
+Verifikation: `LOAD_GLOBAL`-Scan 0, Offscreen-Construct+Display-Smoke
+(Checkbox-Rebuild, 6 Spalten, Häufigkeit 17 statt 1), 9 neue Helfer-Tests
+(Qt-frei), Suite 1652. GUI-Klick-Test: Operator on the fly.
+
+**Klick-Test-Feedback (gleicher Tag), eingearbeitet:**
+- Zwei „Quelle"-Beschriftungen nebeneinander (Wrapper-Combobox +
+  Plugin-Checkboxen) lasen sich als Duplikat → Combobox heißt jetzt
+  „Suchmodus" (sie wechselt das Panel GND↔UB-Katalog), Checkboxen
+  „GND-Quellen (Plugins)".
+- Pipeline-Mapping erschien auch bei der Standalone-Suche, wo es nutzlos
+  ist → nur noch im Pipeline-Modus sichtbar (`update_data` ein,
+  Standalone-Suche aus); Standalone-Suche verlässt den Pipeline-Modus jetzt
+  auch für den Doppelklick-Toggle (`original_pipeline_state = None`).
+- Stop-Button: der Such-Button wird während der Suche zu „⏹ Abbrechen"
+  (StoppableWorker verwirft sein Ergebnis; der laufende HTTP-Request läuft
+  im Hintergrund aus — mehr gibt der Request-Stack nicht her).
+- **Vereinheitlichung (2. Runde):** der `SearchTabUnified`-Combo-Umschalter
+  ist **gelöscht** — GND-Suche und UB-Katalog teilen sich jetzt EIN Suchfeld
+  im `SearchTab`. Der UB-Katalog ist ein Ergebnis-Reiter („📚 UB-Katalog
+  (DK/RVK)", eingebettetes `UBCatalogTab` mit `set_embedded`: eigenes
+  Keyword-Feld UND eigener Suchen-Button versteckt — Eingabe und Auslösung
+  laufen über das geteilte Feld + die Checkbox; Max-Spinner und Progress
+  bleiben als Einstellung/Feedback). In der
+  Quellen-Zeile eine eigene „UB-Katalog (DK/RVK)"-Checkbox (keine
+  GND-Quelle, von `refresh_sources` unberührt); der Haupt-Button löst dann
+  beide Suchen parallel aus und wechselt auf den passenden Reiter. Das
+  Pipeline-Mapping ist der dritte, bis zum Pipeline-Lauf versteckte Reiter.
+  `update_data` füllt die geteilte Eingabe mit den finalen
+  Pipeline-Keywords (ersetzt die frühere
+  `update_from_pipeline`-Direktverdrahtung). MainWindow-Referenzen
+  `search_tab`/`ub_catalog_tab`/`ub_search_tab` bleiben gültig.
+
+Offen (Polish): Zeilenfarben sind Light-Mode-Hexes (Dark-Theme).
+
 ### DOI/URL-Resolver: Schema-lose URLs + Blurb-Eskalation (August 4, 2026)
 
 Operator-Befund: `link.springer.com/book/10.1007/…` im GUI eingegeben lieferte

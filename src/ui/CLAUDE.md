@@ -10,7 +10,7 @@
 - `PipelineTab`: vertical pipeline UI (primary interface) orchestrating the full workflow via `PipelineManager`; integrated input tabs (DOI/Image/PDF/Text), per-step result + live streaming, Auto-Pipeline button
 - `GlobalStatusBar`: provider info + cache stats + pipeline progress (auto-refresh)
 - `AbstractTab`: text analysis with chunking workflow + real-time streaming; auto-sends results to `AnalysisReviewTab` (`analysis_completed` signal)
-- `SearchTab` (`find_keywords.py`): GND keyword search/browse
+- `SearchTab` (`find_keywords.py`): **the** unified search tab — GND keyword search + embedded UB catalog (DK/RVK) + pipeline post-processing, ONE shared search input. Reworked Aug 2026 (WP-K5): async + cancellable (`GndSearchWorker`), source checkboxes live from the plugin system (`refresh_sources`), Häufigkeit = `display_count` (count landmine), classification column. Results are tabs: GND-Schlagwörter / UB-Katalog (injected `UBCatalogTab`, `set_embedded` shares the input) / Pipeline-Mapping (hidden until pipeline data). `SearchTabUnified` (combo switcher) was deleted. External contract: ctor signature (+`ub_catalog_tab`), `update_data`/`update_search_field`/`display_search_results`/`refresh_styles`/`refresh_sources`, signal `selection_changed`.
 - `AnalysisReviewTab`: analysis review + result management (JSON import/export, auto-receive)
 - `DkAnalysisUnifiedTab`: unified DK-Zuordnung + DK-Statistik + UB-Suche (inherits `AbstractTab`)
 - `ImageAnalysisTab`: Vision-LLM image analysis
@@ -45,14 +45,10 @@ Detection note: the selector's default detection service wraps `LlmService.get_a
 ## [Instructions Block - Operator-Defined Tasks]
 
 ### Future Tasks
-0. **`SearchTab` (`find_keywords.py`) überarbeiten** (Operator, July 15): der Tab ist der
-   letzte Nicht-Pipeline-Sucheinstieg und hängt hinter dem Plugin-System zurück.
-   - **Bug**: Quellen-Checkboxen werden einmalig in `init_ui()` aus
-     `_gnd_source_ids()` gebaut → Plugin-Enable/Disable greift erst nach **Neustart**.
-     `_refresh_plugin_tools` (`_main_window_settings.py:61`) aktualisiert nur die
-     ToolRegistry; ein `SearchTab.refresh_sources()` fehlt und wäre dort einzuhängen.
-   - Umfang der Überarbeitung offen — vor Umbau Zweck klären (vgl. `MEMORY.md`:
-     Pipeline ist der Haupteinstieg).
+0. ✅ **`SearchTab` überarbeitet** (Aug 4, WP-K5) — async + abbrechbar, Plugin-live,
+   `display_count`, Klassifikations-Spalte; Klick-Test-Feedback eingearbeitet
+   (Suchmodus-Label, Mapping nur im Pipeline-Modus, Stop-Button). Offener
+   Polish-Punkt: Zeilenfarben sind Light-Mode-Hexes (Dark-Theme).
 1. **Pipeline Configuration UI**: graphical configuration for pipeline steps/models
 2. **Pipeline Templates**: save/load workflow configurations
 3. **Batch Review Table**: enhanced table view for batch results

@@ -80,11 +80,28 @@ class UBSearchPanel(QWidget):
         self.current_worker = None
         self._executor = None
         self._current_result = {}
+        self._keywords_provider = None
         self.setup_ui()
 
     def set_executor(self, executor):
         """Inject the PipelineStepExecutor - Claude Generated"""
         self._executor = executor
+
+    def set_embedded(self, keywords_provider):
+        """Eingebettet im vereinheitlichten Such-Tab (Aug 4): Keyword-Feld
+        UND eigener Suchen-Button verschwinden — Eingabe und Auslösung laufen
+        über das geteilte Suchfeld + die „UB-Katalog"-Checkbox (ein zweiter
+        Suchen-Button neben dem geteilten war verwirrendes Chrome,
+        Operator-Feedback). Max-Spinner und Progress bleiben als Einstellung
+        bzw. Feedback. - Claude Generated"""
+        self._keywords_provider = keywords_provider
+        self._keywords_label.setVisible(False)
+        self.keywords_input.setVisible(False)
+        self.search_button.setVisible(False)
+        self._input_group.setTitle("DK-Suche — Optionen")
+        # Der versteckte Button/Progress trug den Stretch der Zeile — ohne
+        # ihn blieben Label+Spinner allein und wurden auseinandergezogen
+        self._button_row.addStretch(1)
 
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())
@@ -95,12 +112,13 @@ class UBSearchPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Input Area
-        input_group = QGroupBox("Suche")
+        input_group = self._input_group = QGroupBox("Suche")
         input_layout = QVBoxLayout(input_group)
         input_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        # Keywords label
-        input_layout.addWidget(QLabel("Keywords (kommagetrennt):"))
+        # Keywords label (im Embedded-Modus versteckt, s. set_embedded)
+        self._keywords_label = QLabel("Keywords (kommagetrennt):")
+        input_layout.addWidget(self._keywords_label)
 
         self.keywords_input = QTextEdit()
         self.keywords_input.setPlaceholderText("Keywords eingeben...")
@@ -120,9 +138,11 @@ class UBSearchPanel(QWidget):
         self.num_results = QSpinBox()
         self.num_results.setRange(1, 60)
         self.num_results.setValue(40)
-        self.num_results.setMinimumWidth(60)
+        # Feste Breite: ohne sichtbaren Button/Progress (Embedded-Modus) würde
+        # der Spinner sonst die freie Zeilenbreite aufsaugen - Claude Generated
+        self.num_results.setFixedWidth(70)
 
-        button_row = QHBoxLayout()
+        button_row = self._button_row = QHBoxLayout()
         button_row.addWidget(self.search_button)
         button_row.addWidget(self.progress_bar, 1)
         button_row.addWidget(QLabel("Max.:"))
@@ -172,7 +192,12 @@ class UBSearchPanel(QWidget):
             QMessageBox.warning(self, "Fehler", "Kein Pipeline-Executor verfügbar.")
             return
 
-        keywords = [k.strip() for k in self.keywords_input.toPlainText().split(",") if k.strip()]
+        text = (
+            self._keywords_provider()
+            if self._keywords_provider is not None
+            else self.keywords_input.toPlainText()
+        )
+        keywords = [k.strip() for k in text.split(",") if k.strip()]
         if not keywords:
             QMessageBox.warning(self, "Eingabe", "Bitte mindestens ein Stichwort eingeben.")
             return
