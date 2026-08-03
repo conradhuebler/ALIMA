@@ -78,6 +78,30 @@ class BibRecord:
                 return self.urls[role]
         return ""
 
+    def to_analysis_text(self, *, max_subjects: int = 10) -> str:
+        """Format this record as pipeline analysis input (WP-D1 P1).
+
+        Title + abstract + subjects, degrading gracefully when a catalog record
+        carries no abstract (then title + subjects still make a usable input).
+        The labels follow the format the batch ISBN/PPN path established — this
+        method replaces its two hand-rolled copies. ``classifications`` are
+        deliberately NOT included: they feed the classification step as priors
+        (P2), not the keyword-extraction text. - Claude Generated
+        """
+        parts: List[str] = []
+        if self.title:
+            parts.append(f"Titel: {self.title}")
+        if self.authors:
+            parts.append(f"Autor: {'; '.join(self.authors)}")
+        published = self.publisher or self.year
+        if published:
+            parts.append(f"Erschienen: {published}")
+        if self.abstract:
+            parts.append(f"Abstract:\n{self.abstract}")
+        if self.subjects:
+            parts.append(f"Schlagwörter: {'; '.join(self.subjects[:max_subjects])}")
+        return "\n\n".join(parts)
+
     def to_dict(self, *, include_raw: bool = False) -> Dict[str, Any]:
         """Serialise, omitting empty fields.
 
@@ -223,7 +247,14 @@ def _from_sru(rec: Dict[str, Any]) -> BibRecord:
         authors=_clean_strings(rec.get("author") or rec.get("authors")),
         year=str(rec.get("year") or ""),
         abstract=str(rec.get("abstract") or ""),
-        subjects=_clean_strings([rec.get("subjects"), rec.get("gnd_subjects")]),
+        # gnd_subjects entries are {term, gnd_id} dicts (marcxml_client.py:484);
+        # a bare _clean_strings would stringify the dicts. String entries (older
+        # shapes, hand-built fixtures) pass through unchanged.
+        subjects=_clean_strings([
+            rec.get("subjects"),
+            [s.get("term") if isinstance(s, dict) else s
+             for s in (rec.get("gnd_subjects") or [])],
+        ]),
         classifications=_classifications(
             _from_prefixed(rec.get("classifications"))
             + [("RVK", rec.get("rvk_classifications"))]

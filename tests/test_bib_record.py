@@ -68,7 +68,9 @@ SRU_RECORD = {
     "decimal_classifications": ["556.55", "551.48"],  # lossy: system stripped
     "rvk_classifications": ["WI 5000"],
     "subjects": ["Seenkunde"],
-    "gnd_subjects": ["Limnologie"],
+    # Real MarcXmlClient shape: dict entries {term, gnd_id} (marcxml_client.py:484).
+    # The original string-only fixture hid that _from_sru stringified these dicts.
+    "gnd_subjects": [{"term": "Limnologie", "gnd_id": "4074296-3"}],
     "abstract": "Studien zur Seenkunde im Alpenraum.",
 }
 
@@ -180,9 +182,55 @@ class TestSruNormalizer(unittest.TestCase):
         """The only producer with a native abstract — this is what unlocks P1."""
         self.assertTrue(to_bibrecord(SRU_RECORD, "sru").abstract)
 
+    def test_gnd_subject_dicts_yield_terms_not_stringified_dicts(self):
+        """gnd_subjects entries are {term, gnd_id} dicts in the real client;
+        they must contribute the TERM, never str(dict)."""
+        rec = to_bibrecord(SRU_RECORD, "sru")
+        self.assertEqual(rec.subjects, ["Seenkunde", "Limnologie"])
+
     def test_unprefixed_classification_is_dropped_not_guessed(self):
         rec = to_bibrecord({"classifications": ["530.145"]}, "sru")
         self.assertEqual(rec.classifications, {})
+
+
+class TestToAnalysisText(unittest.TestCase):
+    """The one Record→analysis-text formatter (WP-D1 P1) — replaces the two
+    hand-rolled copies the batch ISBN/PPN path carried."""
+
+    def test_full_record_keeps_the_batch_format(self):
+        rec = to_bibrecord(SRU_RECORD, "sru")
+        self.assertEqual(
+            rec.to_analysis_text(),
+            "Titel: Limnologie der Alpenseen\n\n"
+            "Autor: Müller, Anna\n\n"
+            "Erschienen: Verlag X\n\n"
+            "Abstract:\nStudien zur Seenkunde im Alpenraum.\n\n"
+            "Schlagwörter: Seenkunde; Limnologie",
+        )
+
+    def test_degrades_to_title_plus_subjects_without_abstract(self):
+        """P1 requirement: not every catalog record carries an abstract."""
+        rec = to_bibrecord(dict(SRU_RECORD, abstract=""), "sru")
+        text = rec.to_analysis_text()
+        self.assertNotIn("Abstract", text)
+        self.assertIn("Titel: Limnologie der Alpenseen", text)
+        self.assertIn("Schlagwörter: Seenkunde; Limnologie", text)
+
+    def test_subjects_are_capped(self):
+        rec = to_bibrecord(
+            dict(SRU_RECORD, subjects=[f"S{i}" for i in range(15)], gnd_subjects=[]),
+            "sru",
+        )
+        text = rec.to_analysis_text()
+        self.assertIn("S9", text)
+        self.assertNotIn("S10", text)
+
+    def test_empty_record_yields_empty_text(self):
+        self.assertEqual(BibRecord().to_analysis_text(), "")
+
+    def test_year_stands_in_for_missing_publisher(self):
+        rec = BibRecord(title="T", year="2020")
+        self.assertIn("Erschienen: 2020", rec.to_analysis_text())
 
 
 class TestK10PlusNormalizer(unittest.TestCase):
