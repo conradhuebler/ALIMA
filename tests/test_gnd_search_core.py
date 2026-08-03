@@ -248,5 +248,62 @@ class TestMergeAuthorityDdc(unittest.TestCase):
         self.assertEqual(merge_authority_ddc(entries, self.ddcs), 2)
 
 
+class TestMergeRecordGndSubjects(unittest.TestCase):
+    """WP-D1 P3: the input record's GND-linked subjects join the pool as
+    verified candidates in their own bucket, count=1 (count landmine)."""
+
+    def _subjects(self):
+        return [
+            {"term": "Limnologie", "gnd_id": "4074296-3"},
+            {"term": "Alpen", "gnd_id": "4001328-5"},
+        ]
+
+    def test_injects_own_bucket_with_canonical_entries(self):
+        from src.core.gnd_search_core import merge_record_gnd_subjects
+
+        search = {"Seenkunde": {"Seenkunde": {"count": 4, "gnd_ids": {"x"}, "classifications": {}}}}
+        injected = merge_record_gnd_subjects(search, self._subjects())
+        self.assertEqual(injected, 2)
+        bucket = search["input_record"]
+        self.assertEqual(
+            bucket["Limnologie"],
+            {"count": 1, "gnd_ids": {"4074296-3"}, "classifications": {}},
+        )
+        # existing search buckets untouched
+        self.assertEqual(search["Seenkunde"]["Seenkunde"]["count"], 4)
+
+    def test_same_term_twice_merges_ids(self):
+        from src.core.gnd_search_core import merge_record_gnd_subjects
+
+        search = {}
+        merge_record_gnd_subjects(search, [
+            {"term": "Limnologie", "gnd_id": "4074296-3"},
+            {"term": "Limnologie", "gnd_id": "9999999-9"},
+        ])
+        self.assertEqual(
+            search["input_record"]["Limnologie"]["gnd_ids"],
+            {"4074296-3", "9999999-9"},
+        )
+        self.assertEqual(search["input_record"]["Limnologie"]["count"], 1)
+
+    def test_malformed_and_empty_entries_are_skipped(self):
+        from src.core.gnd_search_core import merge_record_gnd_subjects
+
+        search = {}
+        injected = merge_record_gnd_subjects(search, [
+            "nur ein String", {"term": "", "gnd_id": "1"}, {"term": "X", "gnd_id": ""}, None,
+        ])
+        self.assertEqual(injected, 0)
+        self.assertNotIn("input_record", search)
+
+    def test_none_and_empty_lists_are_noops(self):
+        from src.core.gnd_search_core import merge_record_gnd_subjects
+
+        search = {"a": {}}
+        self.assertEqual(merge_record_gnd_subjects(search, None), 0)
+        self.assertEqual(merge_record_gnd_subjects(search, []), 0)
+        self.assertEqual(search, {"a": {}})
+
+
 if __name__ == "__main__":
     unittest.main()

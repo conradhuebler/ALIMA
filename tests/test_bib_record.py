@@ -188,6 +188,16 @@ class TestSruNormalizer(unittest.TestCase):
         rec = to_bibrecord(SRU_RECORD, "sru")
         self.assertEqual(rec.subjects, ["Seenkunde", "Limnologie"])
 
+    def test_gnd_subjects_carry_term_and_id(self):
+        """WP-D1 P3: the GND link itself is preserved (not only the term);
+        string entries (no id) stay out of gnd_subjects."""
+        rec = to_bibrecord(dict(SRU_RECORD, gnd_subjects=[
+            {"term": "Limnologie", "gnd_id": "4074296-3"},
+            "Nur-Term-Altform",
+        ]), "sru")
+        self.assertEqual(rec.gnd_subjects, [{"term": "Limnologie", "gnd_id": "4074296-3"}])
+        self.assertIn("Nur-Term-Altform", rec.subjects)
+
     def test_unprefixed_classification_is_dropped_not_guessed(self):
         rec = to_bibrecord({"classifications": ["530.145"]}, "sru")
         self.assertEqual(rec.classifications, {})

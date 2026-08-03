@@ -113,6 +113,10 @@ class KeywordAnalysisState:
     # bibliographic record (ISBN/PPN lookup). Fed into dk_classification as
     # priors — they inform the LLM step, never override it. - Claude Generated
     input_record_classifications: Dict[str, Any] = field(default_factory=dict)
+    # WP-D1 P3: the input record's GND-linked subjects ({term, gnd_id} dicts) —
+    # verified keyword candidates injected into the search pool under the
+    # "input_record" bucket (merge_record_gnd_subjects). - Claude Generated
+    input_record_gnd_subjects: List[Dict[str, str]] = field(default_factory=list)
     report_markdown: str = ""  # Generic workflow-report Markdown (e.g. title_list_search's duplicate table), rendered as an HTML block in the GUI - Claude Generated
 
     # Iterative refinement support - Claude Generated

@@ -65,6 +65,11 @@ class BibRecord:
     language: str = ""
     abstract: str = ""
     subjects: List[str] = field(default_factory=list)
+    # WP-D1 P3: subjects that carry a GND id, as ``{term, gnd_id}`` dicts —
+    # these are verified keyword candidates (the catalog links them), so they
+    # can seed the GND pool without a live search. The plain terms are ALSO in
+    # ``subjects`` (P1 analysis text); this field only adds the ids.
+    gnd_subjects: List[Dict[str, str]] = field(default_factory=list)
     classifications: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     urls: Dict[str, str] = field(default_factory=dict)
     publisher: str = ""
@@ -255,6 +260,11 @@ def _from_sru(rec: Dict[str, Any]) -> BibRecord:
             [s.get("term") if isinstance(s, dict) else s
              for s in (rec.get("gnd_subjects") or [])],
         ]),
+        gnd_subjects=[
+            {"term": str(s.get("term") or "").strip(), "gnd_id": str(s.get("gnd_id") or "").strip()}
+            for s in (rec.get("gnd_subjects") or [])
+            if isinstance(s, dict) and str(s.get("term") or "").strip() and str(s.get("gnd_id") or "").strip()
+        ],
         classifications=_classifications(
             _from_prefixed(rec.get("classifications"))
             + [("RVK", rec.get("rvk_classifications"))]

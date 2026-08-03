@@ -79,10 +79,13 @@ class ClassicStepExecutorMixin:
 
                 self.current_analysis_state.original_abstract = extracted_text
 
-                # WP-D1 P2: input record's own classifications become priors - Claude Generated
+                # WP-D1 P2/P3: input record's own classifications become priors,
+                # its GND-linked subjects become pool candidates - Claude Generated
                 record = record_sink.get("record")
                 if record is not None and getattr(record, "classifications", None):
                     self.current_analysis_state.input_record_classifications = record.classifications
+                if record is not None and getattr(record, "gnd_subjects", None):
+                    self.current_analysis_state.input_record_gnd_subjects = record.gnd_subjects
 
                 # Store extraction info
                 if not hasattr(self.current_analysis_state, 'extraction_info'):
@@ -316,6 +319,18 @@ class ClassicStepExecutorMixin:
                 suggesters=self.config.search_suggesters,
                 stream_callback=stream_callback,
             )
+
+            # WP-D1 P3: GND-linked subjects of the input record join the pool
+            # as verified candidates (own bucket, count=1) - Claude Generated
+            record_subjects = getattr(self.current_analysis_state, "input_record_gnd_subjects", None)
+            if record_subjects:
+                from .gnd_search_core import merge_record_gnd_subjects
+
+                injected = merge_record_gnd_subjects(search_results, record_subjects)
+                if injected:
+                    self.logger.info(
+                        f"Injected {injected} GND-linked record subjects into the search pool"
+                    )
 
             # Update analysis state - Convert Dict to List[SearchResult] for data model consistency
             self.current_analysis_state.search_results = self._convert_search_results_to_objects(search_results)

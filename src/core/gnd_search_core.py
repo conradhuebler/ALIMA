@@ -288,3 +288,49 @@ def rank_pool(
         key=lambda e: (e.get("source_count", 0), e.get("count", 0)),
         reverse=True,
     )
+
+
+def merge_record_gnd_subjects(
+    search_dict: Dict[str, Dict[str, Any]],
+    gnd_subjects: List[Dict[str, str]],
+    *,
+    source_term: str = "input_record",
+) -> int:
+    """Inject the input record's GND-linked subjects as pool entries (WP-D1 P3).
+
+    A catalog record that names its subjects WITH GND ids has already done the
+    lookup — those terms enter the pool directly under the ``source_term``
+    bucket instead of requiring a live GND search. Entries follow the canonical
+    vocabulary: ``count=1`` (the count landmine — an injected prior must not
+    outrank searched evidence), ``gnd_ids`` as a set (nested per-term view
+    convention), empty ``classifications`` (the record's own classifications
+    travel separately as P2 priors).
+
+    Existing entries for the same term (from a real search) are left untouched;
+    the injected bucket only fills gaps. Returns the number of injected terms.
+    - Claude Generated
+    """
+    if not gnd_subjects:
+        return 0
+    bucket = search_dict.setdefault(source_term, {})
+    injected = 0
+    for subject in gnd_subjects:
+        if not isinstance(subject, dict):
+            continue
+        term = str(subject.get("term") or "").strip()
+        gnd_id = str(subject.get("gnd_id") or "").strip()
+        if not term or not gnd_id:
+            continue
+        entry = bucket.get(term)
+        if entry is None:
+            bucket[term] = {"count": 1, "gnd_ids": {gnd_id}, "classifications": {}}
+            injected += 1
+        else:
+            ids = entry.setdefault("gnd_ids", set())
+            if isinstance(ids, set):
+                ids.add(gnd_id)
+            elif gnd_id not in ids:
+                ids.append(gnd_id)
+    if not bucket:
+        search_dict.pop(source_term, None)
+    return injected

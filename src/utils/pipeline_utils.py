@@ -1947,6 +1947,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         pipeline_config=None,
         stream_callback: Optional[callable] = None,
         input_record_classifications: Optional[Dict[str, Any]] = None,
+        input_record_gnd_subjects: Optional[List[Dict[str, str]]] = None,
     ) -> "KeywordAnalysisState":
         """
         Execute a complete ALIMA pipeline synchronously without Qt dependencies.
@@ -1960,6 +1961,10 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
         classifications (canonical ``{SYSTEM: [{code, origin}]}``) when the
         input came from a bibliographic record — stored on the state and fed
         into dk_classification as priors.
+
+        ``input_record_gnd_subjects`` (WP-D1 P3): the record's GND-linked
+        subjects (``{term, gnd_id}``) — injected into the search pool as
+        verified candidates before the keywords step.
 
         Claude Generated
         """
@@ -2010,6 +2015,18 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
             stream_callback=_cb("search"),
         )
 
+        # WP-D1 P3: GND-linked subjects of the input record join the pool as
+        # verified candidates before the keywords step sees it - Claude Generated
+        if input_record_gnd_subjects:
+            from ..core.gnd_search_core import merge_record_gnd_subjects
+
+            injected = merge_record_gnd_subjects(search_results, input_record_gnd_subjects)
+            if injected and stream_callback:
+                stream_callback(
+                    f"📚 {injected} GND-verknüpfte Schlagwörter des Eingabe-Datensatzes in den Pool übernommen\n",
+                    "search",
+                )
+
         # ── Step 3: keywords (final analysis) ────────────────────────────────
         kw_cfg = _step("keywords")
         if stream_callback:
@@ -2041,6 +2058,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
             working_title=llm_title,
             pipeline_mode="classic",
             input_record_classifications=input_record_classifications or {},
+            input_record_gnd_subjects=input_record_gnd_subjects or [],
         )
 
         # ── Step 4: DK classification (optional) ─────────────────────────────

@@ -143,6 +143,7 @@ class TestClassificationEntriesSurviveRoundTrip(unittest.TestCase):
         state.input_record_classifications = {
             "DK": [{"code": "556.55", "origin": "authority"}]
         }
+        state.input_record_gnd_subjects = [{"term": "Limnologie", "gnd_id": "4074296-3"}]
         path = os.path.join(tempfile.mkdtemp(), "state.json")
         PipelineJsonManager.save_analysis_state(state, path)
         reloaded = PipelineJsonManager.load_analysis_state(path)
@@ -150,16 +151,21 @@ class TestClassificationEntriesSurviveRoundTrip(unittest.TestCase):
             reloaded.input_record_classifications,
             {"DK": [{"code": "556.55", "origin": "authority"}]},
         )
+        self.assertEqual(
+            reloaded.input_record_gnd_subjects,
+            [{"term": "Limnologie", "gnd_id": "4074296-3"}],
+        )
 
         # legacy save without the field
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         del data["input_record_classifications"]
+        del data["input_record_gnd_subjects"]
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(data, fh)
-        self.assertEqual(
-            PipelineJsonManager.load_analysis_state(path).input_record_classifications, {}
-        )
+        legacy = PipelineJsonManager.load_analysis_state(path)
+        self.assertEqual(legacy.input_record_classifications, {})
+        self.assertEqual(legacy.input_record_gnd_subjects, [])
 
     def test_missing_concepts_still_becomes_a_set(self):
         """The one remaining set field must not have been lost in the change."""
