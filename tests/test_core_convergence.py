@@ -3,7 +3,7 @@
 Covers the WP-K1..K4 changes:
   * gnd_batch_search: source_count ranking + source-error propagation
   * verify_final_keywords: GND-pool verification of selection output
-  * prepare_dk_classification_context: shared DK filtering/formatting
+  * prepare_notation_classification_context: shared DK filtering/formatting
 """
 
 import json
@@ -229,7 +229,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
             {"dk": "999.9", "classification_type": "DK", "count": 0,
              "titles": ["x"], "matched_keywords": []},   # unter Schwellwert → raus
         ]
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             classifications, "Abstract", dk_frequency_threshold=1
         )
         codes = [r["dk"] for r in prep["results_with_titles"]]
@@ -244,7 +244,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
              "source": "rvk_api", "label": "Biochemie",
              "rvk_validation_status": "standard"},
         ]
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             classifications, "Abstract", dk_frequency_threshold=5
         )
         self.assertEqual(len(prep["results_with_titles"]), 1)
@@ -252,7 +252,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
         self.assertTrue(prep["catalog_text"].startswith("WICHTIG FÜR RVK:"))
 
     def test_empty_input_yields_empty_context(self):
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             [], "Abstract", dk_frequency_threshold=1
         )
         self.assertEqual(prep["results_with_titles"], [])
@@ -272,18 +272,18 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
     }
 
     def test_no_priors_is_byte_identical(self):
-        base = self.executor.prepare_dk_classification_context(
+        base = self.executor.prepare_notation_classification_context(
             self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1
         )
         for empty in (None, {}):
-            prep = self.executor.prepare_dk_classification_context(
+            prep = self.executor.prepare_notation_classification_context(
                 self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
                 record_priors=empty,
             )
             self.assertEqual(prep, base)
 
     def test_priors_render_authority_block_and_allow_rvk(self):
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
             record_priors=self._PRIORS,
         )
@@ -307,7 +307,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
              "titles": ["Titel"], "matched_keywords": [], "source": "catalog",
              "rvk_validation_status": "non_standard"},
         ]
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             catalog, "Abstract", dk_frequency_threshold=1,
             record_priors={"RVK": [{"code": "WI 5000", "origin": "authority"}]},
         )
@@ -317,7 +317,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
         self.assertEqual(prep["rvk_source_map"]["WI 5000"]["source"], "catalog")
 
     def test_include_rvk_false_drops_rvk_prior_but_keeps_dk(self):
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
             include_rvk=False, record_priors=self._PRIORS,
         )
@@ -327,7 +327,7 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
 
     def test_bare_code_priors_are_tolerated(self):
         """Plugins emit bare codes; the choke-point normalisation applies."""
-        prep = self.executor.prepare_dk_classification_context(
+        prep = self.executor.prepare_notation_classification_context(
             self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
             record_priors={"DK": ["546.43"]},
         )
@@ -358,7 +358,7 @@ class TestDkDisplayFormatTolerance(unittest.TestCase):
 
     def test_get_titles_accepts_keyword_centric(self):
         from src.utils.pipeline_utils import PipelineResultFormatter
-        titles, count = PipelineResultFormatter.get_titles_for_dk_code(
+        titles, count = PipelineResultFormatter.get_titles_for_notation_code(
             "DK 546.824", self.KW_CENTRIC
         )
         self.assertEqual(count, 3)
@@ -440,7 +440,7 @@ class TestDkClassificationTitleFallback(unittest.TestCase):
         # thin has 1 title → score 1 > 0 → chosen.
         self.assertIs(chosen, thin)
         # The classifier code can now find a title
-        titles, count = PipelineResultFormatter.get_titles_for_dk_code("666.76", chosen)
+        titles, count = PipelineResultFormatter.get_titles_for_notation_code("666.76", chosen)
         self.assertIn("Halbleitertechnologie", titles)
         self.assertEqual(count, 1)
 

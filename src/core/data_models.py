@@ -90,6 +90,11 @@ class KeywordAnalysisState:
     working_title: Optional[str] = None  # LLM-generated work title for identification - Claude Generated
     input_type: Optional[str] = None    # 'text', 'doi', 'pdf', 'img', 'url' - Claude Generated
     source_value: Optional[str] = None  # Original DOI, file path, URL, or None for plain text - Claude Generated
+    # ⚠️ Trägt ZWEI Vokabulare, bewusst belassen (Operator-Entscheidung Aug 4):
+    # klassisch = GND-Systematik-Klassen aus dem LLM-<class>-Tag, agentisch =
+    # geernteter DDC-Hinweis (seit 47a7077 gedeckelt). Semantik: unscharfer
+    # thematischer HINWEIS für Folge-Schritte, kein exaktes Codefeld —
+    # Konsumenten dürfen keine System-Zugehörigkeit ableiten. - Claude Generated
     initial_gnd_classes: List[str] = field(default_factory=list)
     search_results: List[SearchResult] = field(default_factory=list)
     initial_llm_call_details: Optional[LlmKeywordAnalysis] = None

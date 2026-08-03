@@ -116,13 +116,14 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **➡️ Offene WPs: [`docs/open_workpackages.md`](docs/open_workpackages.md)** (July 19,
-  ausführungsreifes Register): Daten-Achse **D1 Rest** (Vergleichslauf, dann P1–P4 +
-  `to_bibrecord()`) + **D2 Logik-Generalisierung**; Konsolidierungen **K1**
-  BusRenderBridge, **K2** Lobid-Label aus gnd_local, **K3** DOI-Mirror-Abbau (P8),
-  **K4** Tool-Passthrough swb/catalog, **K5** SearchTab-Refresh; T-Reihe
-  anlassbezogen (Gemini+LlmService-Split, Session-Persistenz, Keyring,
-  i18n-Ausbau); V1 Agentic Hauptagent.
+- **➡️ Offene WPs: [`docs/open_workpackages.md`](docs/open_workpackages.md)**
+  (Stand Aug 4): **Daten-Achse D1+D2 ✅ ABGESCHLOSSEN** (P0–P4, Ernte,
+  Title-Records kanonisch, `dk_*`-Sweep; Rest = Adoption: GUI/CLI-Eingabetypen
+  `isbn`/`ppn`, DOI→Crosswalk-Anreicherung, Agentik-Priors, Vergleichslauf).
+  Konsolidierungen offen: **K1** BusRenderBridge, **K2** Lobid-Label aus
+  gnd_local, **K3** DOI-Mirror-Abbau, **K4** Tool-Passthrough swb/catalog
+  (**K5 ✅** Aug 4); T-Reihe anlassbezogen (Gemini+LlmService-Split,
+  Session-Persistenz, Keyring, i18n); V1 Agentic Hauptagent.
 - **WP-D1 P0 ✅ DONE+VERIFIZIERT, `to_bibrecord()`+F-2 ✅ DONE (July 19+20, 11
   Commits ab `6991d57`):** EIN GND-Pool-Vokabular `{count, gnd_ids,
   classifications{system}, display_count?}` end-to-end; System-Keys **GROSS**

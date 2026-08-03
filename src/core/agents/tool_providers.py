@@ -280,7 +280,7 @@ class DKDataProvider:
 
         Uses ``search_catalog_titles`` (keyword/subject search mode) to fetch
         actual bibliographic records, then extracts DK/RVK codes per title.
-        This mirrors the classic pipeline's ``execute_dk_search`` approach:
+        This mirrors the classic pipeline's ``execute_notation_search`` approach:
         real title records with DK notations, not just aggregated keyword codes.
 
         Search term priority:

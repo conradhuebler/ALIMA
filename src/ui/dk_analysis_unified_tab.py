@@ -70,7 +70,7 @@ class DkAnalysisUnifiedTab(AbstractTab):
         """Enhanced keywords setter: formats list-of-dicts DK results for display."""
         self._original_keywords_input = keywords
         if isinstance(keywords, list) and keywords and isinstance(keywords[0], dict):
-            formatted_text = PipelineResultFormatter.format_dk_results_for_prompt(keywords)
+            formatted_text = PipelineResultFormatter.format_notation_results_for_prompt(keywords)
             super().set_keywords(formatted_text)
         else:
             super().set_keywords(str(keywords))

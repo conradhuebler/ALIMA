@@ -2,7 +2,7 @@
 
 The *single* place that turns a configured instance into a runtime provider. It
 replaces the three hand-wired config→provider sites (``MetaSuggester.__init__``,
-``ToolRegistry._init_suggesters``, ``pipeline_utils.execute_dk_search`` — Debt
+``ToolRegistry._init_suggesters``, ``pipeline_utils.execute_notation_search`` — Debt
 D-1/D-2/D-4): each now asks the factory for providers built from
 :class:`PluginInstanceConfig`s.
 

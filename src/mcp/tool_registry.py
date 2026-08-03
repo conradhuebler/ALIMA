@@ -1036,13 +1036,13 @@ class ToolRegistry(ToolGenerationMixin):
             # subject terms (no "(GND-ID: …)" suffix). Strict mode would drop
             # all of them → empty search → no RVK. Plain terms are searched
             # directly; the RVK-API fallback still validates the results. - Claude Generated
-            dk_result = executor.execute_dk_search(
+            dk_result = executor.execute_notation_search(
                 keywords=clean_keywords,
                 rvk_anchor_keywords=anchors,
                 rvk_enabled=True,
                 strict_gnd_validation=False,
             )
-            prep = executor.prepare_dk_classification_context(
+            prep = executor.prepare_notation_classification_context(
                 dk_result.get("classifications", []),
                 original_abstract=abstract or "",
                 rvk_anchor_keywords=anchors,

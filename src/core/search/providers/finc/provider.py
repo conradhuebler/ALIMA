@@ -299,7 +299,7 @@ class FincProvider(SuggesterBackedProvider):
         """Return the finc DK/RVK extractor backing the ``CLASSIFICATION`` capability.
 
         Implements the shared ``extract_dk_classifications_for_keywords`` contract
-        that the classic DK step (``execute_dk_search``) consumes, built from this
+        that the classic DK step (``execute_notation_search``) consumes, built from this
         provider's own config — so a copied-out finc plugin supplies DK/RVK with
         no core wiring. The ``FincCatalogClient`` lives inside this plugin dir
         (self-contained). - Claude Generated

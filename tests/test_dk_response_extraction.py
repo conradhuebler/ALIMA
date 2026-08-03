@@ -1,6 +1,6 @@
 """Characterisation tests for DK/RVK extraction from LLM responses - Claude Generated.
 
-``_pipeline_dk_steps.py`` (1186 lines) had NO test referencing it. This function
+``_pipeline_notation_steps.py`` (1186 lines) had NO test referencing it. This function
 is the sharpest edge in it: it turns an LLM's free text into the classifications
 the pipeline reports. A miss here does not crash — it silently drops a
 classification, or invents one from a number that happened to look like a code.
@@ -15,10 +15,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import Mock
 
-from src.utils._pipeline_dk_steps import DkStepsMixin
+from src.utils._pipeline_notation_steps import NotationStepsMixin
 
 
-class _Host(DkStepsMixin):
+class _Host(NotationStepsMixin):
     """Minimal carrier: the mixin only needs a logger."""
 
     def __init__(self):

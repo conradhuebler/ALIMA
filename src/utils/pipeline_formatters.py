@@ -65,7 +65,7 @@ class PipelineResultFormatter:
         return filtered
 
     @staticmethod
-    def format_dk_results_for_prompt(dk_results: List[Dict[str, Any]], max_results: int = 60) -> str:
+    def format_notation_results_for_prompt(dk_results: List[Dict[str, Any]], max_results: int = 60) -> str:
         """Format DK/RVK results for LLM prompt or UI display - Claude Generated
         max_results caps total entries to prevent context-length overflow."""
         catalog_results = []
@@ -209,7 +209,7 @@ class PipelineResultFormatter:
         return _split(classification)
 
     @staticmethod
-    def get_titles_for_dk_code(
+    def get_titles_for_notation_code(
         dk_code: str, dk_search_results: List[Dict[str, Any]]
     ) -> Tuple[List[str], int]:
         """Return ``(titles[:50], total_count)`` for a classification code - Claude Generated
@@ -472,7 +472,7 @@ class PipelineResultFormatter:
 
         html_parts: List[str] = []
         for idx, dk_code in enumerate(dk_classifications, 1):
-            titles, total_count = PipelineResultFormatter.get_titles_for_dk_code(
+            titles, total_count = PipelineResultFormatter.get_titles_for_notation_code(
                 dk_code, dk_search_results
             )
 
@@ -598,7 +598,7 @@ class PipelineResultFormatter:
             prefix_system, _code = PipelineResultFormatter.split_classification_code(display)
             if not system:
                 system = prefix_system or PipelineResultFormatter._infer_classification_system(display)
-            titles, total_count = PipelineResultFormatter.get_titles_for_dk_code(
+            titles, total_count = PipelineResultFormatter.get_titles_for_notation_code(
                 display, dk_search_results or []
             )
             entries.append({
@@ -897,7 +897,7 @@ class PipelineResultFormatter:
         return html, " | ".join(plain_parts)
 
     @staticmethod
-    def parse_dk_results_from_text(text: str) -> List[Dict[str, Any]]:
+    def parse_notation_results_from_text(text: str) -> List[Dict[str, Any]]:
         """Parse DK/RVK results back from formatted text into dictionary format - Claude Generated"""
         import re
         import logging

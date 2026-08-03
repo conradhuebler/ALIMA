@@ -615,7 +615,7 @@ class ClassicStepExecutorMixin:
                 search_results=self.current_analysis_state.search_results if self.current_analysis_state else None,
                 stream_callback=self._stream_callback_adapter,
             )
-            dk_search_result = self.pipeline_executor.execute_dk_search(
+            dk_search_result = self.pipeline_executor.execute_notation_search(
                 keywords=final_keywords,
                 rvk_anchor_keywords=rvk_anchor_keywords,
                 stream_callback=self._stream_callback_adapter,
@@ -729,7 +729,7 @@ class ClassicStepExecutorMixin:
             if self.repetition_detected_callback:
                 dk_kwargs["on_repetition_detected"] = self.repetition_detected_callback
 
-            dk_classifications, llm_analysis = self.pipeline_executor.execute_dk_classification(**dk_kwargs)
+            dk_classifications, llm_analysis = self.pipeline_executor.execute_notation_classification(**dk_kwargs)
 
             # Prepare search summary for display
             search_summary_lines = []

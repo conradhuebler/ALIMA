@@ -56,10 +56,16 @@ und traf nie — jetzt `pica.ppn`, live bewiesen. Details: `AIChangelog.md`.
 `isbn`/`ppn` noch nicht; DOI läuft in CLI/GUI bewusst über
 `resolve_input_to_text` — natürlicher nächster Schritt: DOI-Input reichert
 sich via `k10plus_resolve` um Subjects+DDC an; Agentik erhält keine
-Record-Priors; `execute_dk_classification` bricht ohne Katalog-Kandidaten
-weiter ab, auch mit Priors. Die drei `ResultItem`-Nähte sind unberührt.
+Record-Priors; `execute_notation_classification` bricht ohne
+Katalog-Kandidaten weiter ab, auch mit Priors. Die drei `ResultItem`-Nähte
+sind unberührt.
 
-### WP-D2 · Notation-Generalisierung — Logik auf (system, notation)
+### WP-D2 · Notation-Generalisierung — ✅ ABGESCHLOSSEN (August 4, 2026)
+
+> Datenform (D1-P0) + Ernte (July 20–21) + Title-Record-Keys + Sweep der
+> internen `dk_*`-Namen (Schnitt 1+2, Aug 4) — Details unten und in
+> `AIChangelog.md`. Strukturell offen bleibt nur die swb-Grenze (keine
+> Notationen in der Antwort). Historie des WPs:
 > ✅ **Ernte erledigt (July 20–21, 4 Commits `2f34e8c`…`8670d6c`, Suite 1405).**
 > Der Pool trug in der Praxis **gar keine** Klassifikationen (0 von 5128 / 2364 /
 > 1134 in drei echten Läufen), weil lobid und swb hart `{}` schrieben. lobid
@@ -85,14 +91,14 @@ dabei fiel die DK-Frequenz-Asymmetrie (DDC-Kandidaten starben an Threshold > 1).
 Details: `AIChangelog.md` (August 4).
 
 **Rest (Entscheidungen, keine Mechanik):**
-- **`dk_*`-Renames (WS2):** KAS hat `notation_*`-Aliasse, `dk_*` bleibt der
-  persistierte Name; Row-Vokabel `"dk"` bewusst nicht angefasst
-  (Blanket-Rename-Warnung). Offen ist nur die *Politik*-Bestätigung: Sweep
-  oder „neue Code-Stellen nutzen `notation_*`, Rest bei Berührung"?
-- **`initial_gnd_classes`-Kollision:** klassisch = GND-Systematik-Klassen aus
-  dem LLM-`<class>`-Tag, agentisch = geernteter DDC-Hinweis — zwei Vokabulare
-  in einem Feld; Operator-Entscheidung (belassen+dokumentieren vs. Feld
-  splitten).
+- **`dk_*`-Renames (WS2): Sweep entschieden** (Operator, Aug 4) — interne
+  Python-Namen auf notation-agnostisch; **NICHT** angefasst werden die
+  persistierten/Protokoll-Vokabulare: KAS-Feldnamen (Aliasse existieren),
+  Config-Felder (`dk_frequency_threshold`), Step-/Task-IDs (`dk_search`,
+  `dk_classification`), Tool-Namen/-Parameter, Row-Vokabel `"dk"`.
+- ✅ **`initial_gnd_classes`-Kollision entschieden** (Operator, Aug 4):
+  belassen + dokumentiert (data_models) — das Feld ist ein unscharfer
+  thematischer Hinweis, kein exaktes Codefeld.
 - swb liefert strukturell keine Notationen (keine in der Antwort).
 
 ---

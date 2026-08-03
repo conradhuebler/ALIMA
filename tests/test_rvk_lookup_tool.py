@@ -25,12 +25,12 @@ def _mock_executor() -> MagicMock:
     """Executor whose RVK helpers return canned, deterministic data."""
     ex = MagicMock()
     ex._derive_rvk_anchor_keywords.return_value = ["Marketing (GND-ID: 123)"]
-    ex.execute_dk_search.return_value = {
+    ex.execute_notation_search.return_value = {
         "classifications": [{"dk": "QP 340", "classification_type": "RVK"}],
         "keyword_results": [],
         "statistics": {},
     }
-    ex.prepare_dk_classification_context.return_value = {
+    ex.prepare_notation_classification_context.return_value = {
         "results_with_titles": [{"dk": "QP 340", "classification_type": "RVK"}],
         "catalog_text": "...",
         "allowed_standard_rvk_map": {"QP 340": "RVK QP 340"},
@@ -89,10 +89,10 @@ class TestRvkLookupHandler(unittest.TestCase):
         # rvk_enabled must be True for the tool's own catalog pass;
         # strict_gnd_validation must be False so plain LLM-supplied terms
         # (no "(GND-ID: …)") are not all filtered out.
-        _, kwargs = ex.execute_dk_search.call_args
+        _, kwargs = ex.execute_notation_search.call_args
         self.assertTrue(kwargs["rvk_enabled"])
         self.assertFalse(kwargs["strict_gnd_validation"])
-        _, prep_kwargs = ex.prepare_dk_classification_context.call_args
+        _, prep_kwargs = ex.prepare_notation_classification_context.call_args
         self.assertTrue(prep_kwargs["include_rvk"])
 
     def test_empty_keywords_short_circuits(self):
@@ -136,12 +136,12 @@ class TestDkSearchAgenticRvkInline(unittest.TestCase):
         from src.core.agents import deterministic_functions as df
 
         ex = _mock_executor()
-        ex.execute_dk_search.return_value = {
+        ex.execute_notation_search.return_value = {
             "classifications": [{"dk": "650", "classification_type": "DK"}],
             "keyword_results": [],
             "statistics": {},
         }
-        ex.prepare_dk_classification_context.return_value = {
+        ex.prepare_notation_classification_context.return_value = {
             "results_with_titles": [{"dk": "650"}],
             "catalog_text": "DK 650",
             "allowed_standard_rvk_map": {},
@@ -163,17 +163,17 @@ class TestDkSearchAgenticRvkInline(unittest.TestCase):
     def test_rvk_inline_false_disables_rvk(self):
         ex = self._run({"rvk_inline": False})
         ex._derive_rvk_anchor_keywords.assert_not_called()
-        _, dk_kwargs = ex.execute_dk_search.call_args
+        _, dk_kwargs = ex.execute_notation_search.call_args
         self.assertFalse(dk_kwargs["rvk_enabled"])
-        _, prep_kwargs = ex.prepare_dk_classification_context.call_args
+        _, prep_kwargs = ex.prepare_notation_classification_context.call_args
         self.assertFalse(prep_kwargs["include_rvk"])
 
     def test_default_keeps_rvk_inline(self):
         ex = self._run({})
         ex._derive_rvk_anchor_keywords.assert_called_once()
-        _, dk_kwargs = ex.execute_dk_search.call_args
+        _, dk_kwargs = ex.execute_notation_search.call_args
         self.assertTrue(dk_kwargs["rvk_enabled"])
-        _, prep_kwargs = ex.prepare_dk_classification_context.call_args
+        _, prep_kwargs = ex.prepare_notation_classification_context.call_args
         self.assertTrue(prep_kwargs["include_rvk"])
 
 
@@ -212,7 +212,7 @@ class TestRealRvkGating(unittest.TestCase):
         self.assertEqual(types, ["DK"])
 
     def test_prepare_include_rvk_true_keeps_rvk(self):
-        prep = self._executor().prepare_dk_classification_context(
+        prep = self._executor().prepare_notation_classification_context(
             self._sample_results(), original_abstract="Marketing", include_rvk=True
         )
         self.assertEqual(len(prep["allowed_standard_rvk_map"]), 1)
@@ -239,7 +239,7 @@ class TestRealRvkGating(unittest.TestCase):
         self.assertNotIn("QP 340", profile)
 
     def test_prepare_include_rvk_false_drops_rvk(self):
-        prep = self._executor().prepare_dk_classification_context(
+        prep = self._executor().prepare_notation_classification_context(
             self._sample_results(), original_abstract="Marketing", include_rvk=False
         )
         self.assertEqual(prep["allowed_standard_rvk_map"], {})

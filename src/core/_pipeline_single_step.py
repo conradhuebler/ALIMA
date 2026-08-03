@@ -105,11 +105,11 @@ class SingleStepExecutorMixin:
                         elif step_id == "dk_classification":
                             # Parse DK results from formatted text - Claude Generated
                             self.logger.info(f"Attempting to parse DK results from context area...")
-                            parsed_dk_results = PipelineResultFormatter.parse_dk_results_from_text(keywords_part)
+                            parsed_dk_results = PipelineResultFormatter.parse_notation_results_from_text(keywords_part)
 
                             # Validate parser always returns list - Claude Generated
                             if not isinstance(parsed_dk_results, list):
-                                self.logger.warning(f"⚠️ parse_dk_results_from_text returned {type(parsed_dk_results).__name__} instead of list, using empty list")
+                                self.logger.warning(f"⚠️ parse_notation_results_from_text returned {type(parsed_dk_results).__name__} instead of list, using empty list")
                                 parsed_dk_results = []
 
                             if parsed_dk_results:

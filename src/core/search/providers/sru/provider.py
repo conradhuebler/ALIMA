@@ -3,7 +3,7 @@
 Brings the SRU/MARC-XML backend (DNB, LoC, GBV, SWB, K10plus, or a custom SRU
 endpoint) into the provider standard as a first-class *type* ``sru``. Historically
 this lived only as ``CatalogConfig.catalog_type == 'marcxml_sru'`` and was wired by
-hand in ``pipeline_utils.execute_dk_search``; as a provider its endpoint/preset live
+hand in ``pipeline_utils.execute_notation_search``; as a provider its endpoint/preset live
 in its own instance settings.
 
 .. warning::

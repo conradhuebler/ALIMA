@@ -243,7 +243,7 @@ def format_dk_statistics(stats: Dict[str, Any]):
     """Format and display DK deduplication statistics.
 
     Args:
-        stats: Statistics dictionary from _calculate_dk_statistics()
+        stats: Statistics dictionary from _calculate_notation_statistics()
     """
     if not stats:
         return

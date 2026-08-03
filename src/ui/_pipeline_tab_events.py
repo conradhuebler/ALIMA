@@ -488,7 +488,7 @@ class PipelineTabEventsMixin:
                 # classification step produces dk_classifications BEFORE
                 # dk_postprocess — at this point context.dk_search_results
                 # still holds the keyword-centric list from dk_collect, which
-                # has no top-level ``dk`` keys. ``get_titles_for_dk_code``
+                # has no top-level ``dk`` keys. ``get_titles_for_notation_code``
                 # would return empty for every code, producing a "notations
                 # without title assignments" view that is then immediately
                 # overwritten by the dk_postprocess per-step. Skip the

@@ -724,11 +724,4 @@ class PipelineTabUiMixin:
         """Split a prefixed classification string into (system, code)."""
         return PipelineResultFormatter.split_classification_code(classification)
 
-    def _get_titles_for_dk_code(
-        self,
-        dk_code: str,
-        dk_search_results: List[Dict[str, Any]]
-    ) -> tuple[list, int]:
-        """Extract titles for a specific classification code - Claude Generated"""
-        return PipelineResultFormatter.get_titles_for_dk_code(dk_code, dk_search_results)
 

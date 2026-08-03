@@ -4,7 +4,7 @@
 derivation, scoring and final selection — extracted verbatim from
 ``pipeline_utils.PipelineStepExecutor`` (July 19, 2026; zero call-site
 changes, methods reachable via MRO). DK steps live in the sibling
-``_pipeline_dk_steps``; cross-calls go through ``self``.
+``_pipeline_notation_steps``; cross-calls go through ``self``.
 """
 
 import logging
@@ -1370,7 +1370,7 @@ class RvkScoringMixin:
         from ..core.data_models import AbstractData
         from ..core.json_response_parser import parse_json_response
 
-        shortlist_text = PipelineResultFormatter.format_dk_results_for_prompt(
+        shortlist_text = PipelineResultFormatter.format_notation_results_for_prompt(
             shortlist,
             max_results=len(shortlist),
         )

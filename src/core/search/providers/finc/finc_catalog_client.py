@@ -1,6 +1,6 @@
 """finc_catalog_client.py - finc-backed DK/RVK extractor (BiblioClient-compatible).
 
-Drop-in extractor for ``PipelineStepExecutor.execute_dk_search``: implements
+Drop-in extractor for ``PipelineStepExecutor.execute_notation_search``: implements
 ``extract_dk_classifications_for_keywords`` with the SAME keyword-centric return
 shape as ``BiblioClient`` / ``MarcXmlClient``, but sources titles + per-title
 DK/RVK from a finc / VuFind-JSON instance instead of Libero SOAP / web-scrape.
@@ -17,7 +17,7 @@ Titel mit udk_raw analysieren"):
 The per-title result is built into the same ``{rsn, title, classifications}``
 title-list shape Libero produces, then funnelled through
 ``UnifiedKnowledgeManager.extract_classifications_from_titles`` — so the rest of
-``execute_dk_search`` (RVK validation, flattening, statistics, GUI) is unchanged.
+``execute_notation_search`` (RVK validation, flattening, statistics, GUI) is unchanged.
 
 Claude Generated (finc DK unification, June 2026).
 """

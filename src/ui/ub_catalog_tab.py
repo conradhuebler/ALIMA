@@ -30,8 +30,8 @@ from .styles import (
 # Worker Class
 # ============================================================================
 
-class DkSearchWorker(QThread):
-    """Thin worker that delegates to PipelineStepExecutor.execute_dk_search - Claude Generated"""
+class NotationSearchWorker(QThread):
+    """Thin worker that delegates to PipelineStepExecutor.execute_notation_search - Claude Generated"""
 
     result_ready   = pyqtSignal(dict)   # full pipeline result dict
     error_occurred = pyqtSignal(str)
@@ -51,7 +51,7 @@ class DkSearchWorker(QThread):
 
             # No catalog endpoints/token are passed: the DK extractor builds itself
             # from the catalog instance (resolve_dk_extractor, WP P4). - Claude Generated
-            result = self.executor.execute_dk_search(
+            result = self.executor.execute_notation_search(
                 keywords=self.keywords,
                 stream_callback=_cb,
                 max_results=self.max_results,
@@ -61,7 +61,7 @@ class DkSearchWorker(QThread):
                 result = {"classifications": result, "statistics": {}, "keyword_results": []}
             self.result_ready.emit(result)
         except Exception as e:
-            self.logger.error(f"DkSearchWorker failed: {e}", exc_info=True)
+            self.logger.error(f"NotationSearchWorker failed: {e}", exc_info=True)
             self.error_occurred.emit(str(e))
 
 
@@ -206,7 +206,7 @@ class UBSearchPanel(QWidget):
         self.progress_bar.setVisible(True)
         self.detail_view.setHtml("<p><b>Suche läuft…</b></p>")
 
-        self.current_worker = DkSearchWorker(
+        self.current_worker = NotationSearchWorker(
             keywords=list(dict.fromkeys(keywords)),
             executor=self._executor,
             max_results=self.num_results.value(),

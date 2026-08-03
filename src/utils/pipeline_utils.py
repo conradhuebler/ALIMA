@@ -81,7 +81,7 @@ from .pipeline_persistence import (
     export_analysis_state_to_file,
 )
 # DK/RVK classification methods extracted into behavioral mixins (July 19)
-from ._pipeline_dk_steps import DkStepsMixin
+from ._pipeline_notation_steps import NotationStepsMixin
 from ._pipeline_rvk_scoring import RvkScoringMixin
 
 
@@ -150,7 +150,7 @@ def _run_classic_step(
     return result
 
 
-class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
+class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
     """Shared pipeline step execution logic - Claude Generated"""
 
     def __init__(
@@ -2078,7 +2078,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                 dk_search = _run_classic_step(
                     "dk_search",
                     {"keywords_count": len(final_keywords)},
-                    self.execute_dk_search,
+                    self.execute_notation_search,
                     keywords=final_keywords,
                     rvk_anchor_keywords=rvk_anchor_keywords,
                     stream_callback=_cb("dk_classification"),
@@ -2092,7 +2092,7 @@ class PipelineStepExecutor(DkStepsMixin, RvkScoringMixin):
                         "provider": dk_cfg.provider if dk_cfg else None,
                         "model": dk_cfg.model if dk_cfg else None,
                     },
-                    self.execute_dk_classification,
+                    self.execute_notation_classification,
                     original_abstract=input_text,
                     dk_search_results=dk_search.get("classifications", []),
                     provider=dk_cfg.provider if dk_cfg else None,

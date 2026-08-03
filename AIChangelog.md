@@ -39,6 +39,40 @@ Schnitt, alle Konsumenten migriert:
 Suite 1655 (+3: Aggregations-Tests pinnen den DDC-Count-Fix und die
 System-Gleichrangigkeit).
 
+### WP-D2, Schnitt 2: dk_*-Sweep + Entscheidungen (August 4, 2026)
+
+**Sweep entschieden und ausgeführt** (Operator): interne Python-Namen der
+generischen Logik sind notation-agnostisch —
+`_pipeline_dk_steps`/`DkStepsMixin` → `_pipeline_notation_steps`/
+`NotationStepsMixin`, `execute_dk_search` → `execute_notation_search`,
+`execute_dk_classification` → `execute_notation_classification`,
+`prepare_dk_classification_context` → `prepare_notation_classification_context`,
+dazu Formatter/Parser/Statistik (`format_notation_results_for_prompt`,
+`parse_notation_results_from_text`, `get_titles_for_notation_code`,
+`_calculate_notation_statistics`) und `DkSearchWorker` →
+`NotationSearchWorker`.
+
+**Die Trennlinie** (im Register festgeschrieben): Protokoll-Vokabular behält
+`dk` — Step-/Task-IDs (`dk_search`, `dk_classification`) samt ihrer
+spiegelnden `_execute_*_step`-Handler, Config-Felder
+(`dk_frequency_threshold`), persistierte KAS-Feldnamen (Aliasse
+`notation_*` existieren), Tool-Namen/-Parameter, Row-Vokabel `"dk"`.
+Wortgrenzen-sed schützte die Handler automatisch.
+
+**Nebenbei:** toter GUI-Wrapper `_get_titles_for_dk_code` (null Aufrufer)
+gelöscht; stale WIP-Doku-Sektion „DK Classification Splitting" entfernt
+(die beschriebene Funktion `execute_dk_classification_split` existiert
+nicht mehr im Code).
+
+**`initial_gnd_classes` entschieden** (Operator): belassen + dokumentiert
+(data_models) — das Feld ist ein unscharfer thematischer Hinweis mit zwei
+Herkünften (klassisch LLM-`<class>`, agentisch DDC-Ernte), kein exaktes
+Codefeld; Konsumenten dürfen keine System-Zugehörigkeit ableiten.
+
+Damit ist **WP-D2 abgeschlossen** (Datenform, Ernte, Title-Records,
+Logik-Asymmetrie, Renames, Feld-Entscheidung); strukturell offen bleibt nur
+die swb-Grenze (keine Notationen in der Antwort).
+
 ### WP-K5: SearchTab-Überarbeitung (August 4, 2026)
 
 Operator-Auftrag: „nur Altlasten, auf modernen Stand bringen." Kritische

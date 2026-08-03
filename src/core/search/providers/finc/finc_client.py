@@ -11,7 +11,7 @@ BiblioClient (title, authors, subjects, formats, languages, series, urls).
 
 Sits alongside BiblioClient (Libero SOAP) and MarcXmlClient (SRU). The
 finc client is the **preferred** catalog source when configured — see
-pipeline_utils.execute_dk_search for the DK-priority wiring.
+pipeline_utils.execute_notation_search for the DK-priority wiring.
 
 Claude Generated (finc integration, June 2026).
 """

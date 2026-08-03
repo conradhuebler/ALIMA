@@ -693,14 +693,14 @@ def verify_final_keywords(
 
 
 # ============================================================
-# dk_search_agentic — classic execute_dk_search wrapper
+# dk_search_agentic — classic execute_notation_search wrapper
 # ============================================================
 
 def _build_dk_keywords(context: Any, max_keywords: int) -> List[str]:
-    """Build keyword strings for execute_dk_search from SharedContext.
+    """Build keyword strings for execute_notation_search from SharedContext.
 
     Priority: extra.final_keywords → selected_keywords → extracted_keywords.
-    Formats dicts as "Term (GND-ID: id)" so execute_dk_search GND-validation
+    Formats dicts as "Term (GND-ID: id)" so execute_notation_search GND-validation
     recognises them.
     """
     keywords: List[str] = []
@@ -749,11 +749,11 @@ def dk_search_agentic(
 ) -> Dict[str, Any]:
     """Classic per-keyword catalog DK search for the agentic pipeline.
 
-    Wraps ``PipelineStepExecutor.execute_dk_search`` so the agentic pipeline
+    Wraps ``PipelineStepExecutor.execute_notation_search`` so the agentic pipeline
     uses identical catalog search logic (per-keyword BiblioClient/MarcXmlClient,
     RVK validation, deduplication) as the classic rigid pipeline. The
     classification prompt text is built via the shared
-    ``prepare_dk_classification_context`` (frequency filter, title filter,
+    ``prepare_notation_classification_context`` (frequency filter, title filter,
     RVK guardrail) and RVK anchors are derived like in the classic pipeline
     (heuristic path — no LLM available here) - Claude Generated
 
@@ -794,7 +794,7 @@ def dk_search_agentic(
             f"   {preview}{more}\n"
         )
 
-    # execute_dk_search expects (msg, step_id) callback — adapt single-arg agentic callback
+    # execute_notation_search expects (msg, step_id) callback — adapt single-arg agentic callback
     def _dk_cb(msg: str, step_id: str = None) -> None:
         if stream_callback:
             stream_callback(msg)
@@ -824,7 +824,7 @@ def dk_search_agentic(
             except Exception as exc:
                 logger.warning(f"dk_search_agentic: RVK anchor derivation failed: {exc}")
                 rvk_anchor_keywords = None
-        dk_result = executor.execute_dk_search(
+        dk_result = executor.execute_notation_search(
             keywords=keywords,
             rvk_anchor_keywords=rvk_anchor_keywords,
             rvk_enabled=rvk_inline,
@@ -832,7 +832,7 @@ def dk_search_agentic(
             strict_gnd_validation=True,  # keywords formatted as "Term (GND-ID: id)" — validated
         )
     except Exception as exc:
-        logger.error(f"dk_search_agentic: execute_dk_search failed: {exc}")
+        logger.error(f"dk_search_agentic: execute_notation_search failed: {exc}")
         if stream_callback:
             stream_callback(f"❌ DK-Katalogsuche fehlgeschlagen: {exc}\n")
         return {
@@ -885,7 +885,7 @@ def dk_search_agentic(
             if dk_frequency_threshold is not None
             else DEFAULT_DK_FREQUENCY_THRESHOLD
         )
-        prep = executor.prepare_dk_classification_context(
+        prep = executor.prepare_notation_classification_context(
             classifications,
             original_abstract=getattr(context, "abstract", "") or "",
             dk_frequency_threshold=threshold,
@@ -899,7 +899,7 @@ def dk_search_agentic(
             context.extra["rvk_allowed_standard"] = prep["allowed_standard_rvk_map"]
             context.extra["rvk_allowed_nonstandard"] = prep["allowed_nonstandard_rvk_map"]
     except Exception as exc:
-        logger.warning(f"dk_search_agentic: prepare_dk_classification_context failed: {exc}")
+        logger.warning(f"dk_search_agentic: prepare_notation_classification_context failed: {exc}")
         formatted_prompt = ""
 
     if stream_callback:
@@ -1011,7 +1011,7 @@ def catalog_multi_search(
     and gated by the finc instance's settings:
       - keyword step: ``finc_subject_harvest`` (harvest_enabled) reconciles
         finc record subjects against the local GND cache into the pool;
-      - DK step: ``PipelineStepExecutor.execute_dk_search`` (dk_enabled)
+      - DK step: ``PipelineStepExecutor.execute_notation_search`` (dk_enabled)
         reads per-title ``udk_raw_de105``/``rvk_facet`` via ``FincCatalogClient``.
     ``catalog_multi_search`` stays swb/lobid/catalog. - Claude Generated
 

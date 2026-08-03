@@ -298,13 +298,13 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # Survivor pool is independent of the (mocked) final consolidation result.
         self.assertEqual(final_keywords, ["KW1 (GND-ID: 1)"])
 
-    # execute_dk_search resolves the DK extractor via resolve_dk_extractor →
+    # execute_notation_search resolves the DK extractor via resolve_dk_extractor →
     # CatalogProvider → BiblioSuggester, so BiblioClient is constructed in the
     # suggester — patch it there. Since WP P4 the token + SOAP URLs come from the
     # catalog *instance* (not method args), so patch load_config. - Claude Generated
     @patch('src.core.search.providers.catalog.suggester.BiblioClient')
     @patch('src.utils.config_manager.ConfigManager.load_config')
-    def test_execute_dk_search(self, mock_load_config, MockBiblioClient):
+    def test_execute_notation_search(self, mock_load_config, MockBiblioClient):
         """Test the DK search step of the pipeline (Libero/BiblioClient path)."""
         # Pin a Libero-only catalog instance so this test exercises the BiblioClient
         # path deterministically, independent of the operator's real config (which
@@ -333,7 +333,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         MockBiblioClient.return_value = mock_biblio_client_instance
 
         # 2. Act: Call the method we are testing
-        dk_search_results = self.executor.execute_dk_search(keywords=keywords)
+        dk_search_results = self.executor.execute_notation_search(keywords=keywords)
 
         # 3. Assert: BiblioClient is built from the catalog instance's settings —
         # token + SOAP URLs forwarded (WP P4: no longer from method args).
@@ -349,7 +349,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.assertIn("classifications", dk_search_results)
         self.assertIn("keyword_results", dk_search_results)
 
-    def test_execute_dk_classification(self):
+    def test_execute_notation_classification(self):
         """Test the DK classification step of the pipeline."""
         # 1. Arrange: Define inputs and configure mock responses
         original_abstract = "Abstract about environmental science."
@@ -381,7 +381,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         self.mock_alima_manager.analyze_abstract.return_value = mock_task_state
 
         # 2. Act: Call the method we are testing
-        dk_classifications, llm_analysis = self.executor.execute_dk_classification(
+        dk_classifications, llm_analysis = self.executor.execute_notation_classification(
             original_abstract=original_abstract,
             dk_search_results=dk_search_results,
             model=model,
@@ -389,7 +389,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         )
 
         # 3. Assert: Check if the results are correct
-        # WIP: execute_dk_classification now runs in two passes (DK then
+        # WIP: execute_notation_classification now runs in two passes (DK then
         # RVK), so analyze_abstract is called twice. Assert both calls
         # used the configured model/provider.
         self.assertGreaterEqual(self.mock_alima_manager.analyze_abstract.call_count, 1)
@@ -405,7 +405,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # dropped by _filter_final_rvk_classifications. Without configuring
         # an RVK anchor or catalog result set, the test fixtures can
         # legitimately yield an empty classification list — assert that
-        # execute_dk_classification completes without raising and that
+        # execute_notation_classification completes without raising and that
         # llm_analysis (if returned) has the right shape.
         if llm_analysis is not None:
             self.assertEqual(llm_analysis.task_name, "dk_classification")
@@ -489,19 +489,19 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
     def test_split_no_prefix(self):
         self.assertEqual(self.fmt.split_classification_code("614.7"), ("", "614.7"))
 
-    # --- get_titles_for_dk_code ----------------------------------------
+    # --- get_titles_for_notation_code ----------------------------------------
     def test_titles_lookup_matches_type(self):
-        titles, total = self.fmt.get_titles_for_dk_code("DK 614.7", self.flattened)
+        titles, total = self.fmt.get_titles_for_notation_code("DK 614.7", self.flattened)
         self.assertEqual(total, 8)
         self.assertEqual(titles[0], "Titel 1")
 
     def test_titles_lookup_type_mismatch_returns_empty(self):
         # RVK prefix must not pick up the DK entry with the same notation
-        titles, total = self.fmt.get_titles_for_dk_code("RVK 614.7", self.flattened)
+        titles, total = self.fmt.get_titles_for_notation_code("RVK 614.7", self.flattened)
         self.assertEqual((titles, total), ([], 0))
 
     def test_titles_lookup_empty_results(self):
-        self.assertEqual(self.fmt.get_titles_for_dk_code("DK 1", []), ([], 0))
+        self.assertEqual(self.fmt.get_titles_for_notation_code("DK 1", []), ([], 0))
 
     # --- flatten_gnd_hits ----------------------------------------------
     def test_flatten_gnd_hits_dict_form(self):

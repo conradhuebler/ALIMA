@@ -1,6 +1,6 @@
 """DK classification steps of ``PipelineStepExecutor`` - Claude Generated.
 
-``DkStepsMixin`` carries the DK (Dezimalklassifikation) step logic — context
+``NotationStepsMixin`` carries the DK (Dezimalklassifikation) step logic — context
 preparation, LLM classification, catalog DK search and result statistics —
 extracted verbatim from ``pipeline_utils.PipelineStepExecutor`` (July 19, 2026;
 zero call-site changes, methods reachable via MRO). RVK scoring lives in the
@@ -20,10 +20,10 @@ from .pipeline_formatters import PipelineResultFormatter
 logger = logging.getLogger(__name__)
 
 
-class DkStepsMixin:
+class NotationStepsMixin:
     """DK classification step methods (mixed into PipelineStepExecutor)."""
 
-    def prepare_dk_classification_context(
+    def prepare_notation_classification_context(
         self,
         dk_search_results: List[Dict[str, Any]],
         original_abstract: str,
@@ -35,7 +35,7 @@ class DkStepsMixin:
     ) -> Dict[str, Any]:
         """Filter and format DK search results for the classification prompt - Claude Generated
 
-        Shared by the classic pipeline (execute_dk_classification) and the
+        Shared by the classic pipeline (execute_notation_classification) and the
         agentic pipeline (dk_search_agentic) so both build the classification
         context identically: frequency threshold (DK only, RVK exempt),
         institution-library RVK filter, title filter, RVK candidate maps and
@@ -252,7 +252,7 @@ class DkStepsMixin:
                     )
 
         # Format catalog results for LLM prompt with aggregated data - Claude Generated
-        catalog_text = PipelineResultFormatter.format_dk_results_for_prompt(results_with_titles)
+        catalog_text = PipelineResultFormatter.format_notation_results_for_prompt(results_with_titles)
         catalog_text = prior_block + catalog_text
 
         if allowed_standard_rvk_map or allowed_nonstandard_rvk_map:
@@ -284,7 +284,7 @@ class DkStepsMixin:
             "selected_rvk_meta": selected_rvk_meta,
         }
 
-    def execute_dk_classification(
+    def execute_notation_classification(
         self,
         original_abstract: str,
         dk_search_results: List[Dict[str, Any]],
@@ -342,7 +342,7 @@ class DkStepsMixin:
             stream_callback(f"Starte DK-Klassifikation mit {len(dk_search_results)} Katalog-Einträgen\n", "dk_classification")
 
         # Shared filtering/formatting with the agentic pipeline - Claude Generated
-        prep = self.prepare_dk_classification_context(
+        prep = self.prepare_notation_classification_context(
             dk_search_results,
             original_abstract,
             dk_frequency_threshold=dk_frequency_threshold,
@@ -657,7 +657,7 @@ class DkStepsMixin:
         """Thin wrapper — logic lives module-level for reuse by formatters - Claude Generated"""
         return flatten_keyword_centric_results(keyword_results)
 
-    def _calculate_dk_statistics(
+    def _calculate_notation_statistics(
         self,
         deduplicated_results: List[Dict[str, Any]],
         keyword_results: List[Dict[str, Any]]
@@ -751,7 +751,7 @@ class DkStepsMixin:
                 cleaned.append(entry)
         return cleaned
 
-    def execute_dk_search(
+    def execute_notation_search(
         self,
         keywords: List[str],
         stream_callback: Optional[callable] = None,
@@ -1178,7 +1178,7 @@ class DkStepsMixin:
             dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
 
             # Calculate comprehensive statistics - Claude Generated Step 3
-            dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)
+            dk_statistics = self._calculate_notation_statistics(dk_search_results_flattened, dk_search_results)
 
             # Return results in new format with statistics and transparency
             return {
@@ -1223,7 +1223,7 @@ class DkStepsMixin:
                     dk_search_results = self._strip_rvk_from_keyword_results(dk_search_results)
                 # Process partial results
                 dk_search_results_flattened = self._flatten_keyword_centric_results(dk_search_results)
-                dk_statistics = self._calculate_dk_statistics(dk_search_results_flattened, dk_search_results)
+                dk_statistics = self._calculate_notation_statistics(dk_search_results_flattened, dk_search_results)
                 dk_statistics["error"] = error_msg
                 dk_statistics["partial_results"] = True
                 return {

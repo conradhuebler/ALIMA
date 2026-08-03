@@ -2,7 +2,7 @@
 
 ``resolve_dk_extractor`` (src/core/search/factory.py) replaced the hand-wired
 FincCatalogClient/MarcXmlClient/BiblioClient if-elif in the classic DK step
-(``execute_dk_search``). Since WP P4 every backend is built through the factory
+(``execute_notation_search``). Since WP P4 every backend is built through the factory
 from its own instance settings (no more CatalogConfig kwargs). These tests pin:
 
 1. **Built-in parity** — each config selects the same backend the old if-elif did
