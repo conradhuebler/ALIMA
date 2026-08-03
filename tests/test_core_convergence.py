@@ -258,6 +258,81 @@ class TestPrepareDkClassificationContext(unittest.TestCase):
         self.assertEqual(prep["results_with_titles"], [])
         self.assertEqual(prep["catalog_text"], "")
 
+    # ── record_priors (WP-D1 P2) ──────────────────────────────────────────
+
+    _DK_CANDIDATE = [
+        {"dk": "541.14", "classification_type": "DK", "count": 5,
+         "titles": ["Photochemie Grundlagen"], "matched_keywords": ["Photochemie"]},
+    ]
+
+    _PRIORS = {
+        "DK": [{"code": "546.43", "origin": "authority"}],
+        "DDC": [{"code": "551.48", "origin": "authority"}],
+        "RVK": [{"code": "WI 5000", "origin": "authority"}],
+    }
+
+    def test_no_priors_is_byte_identical(self):
+        base = self.executor.prepare_dk_classification_context(
+            self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1
+        )
+        for empty in (None, {}):
+            prep = self.executor.prepare_dk_classification_context(
+                self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
+                record_priors=empty,
+            )
+            self.assertEqual(prep, base)
+
+    def test_priors_render_authority_block_and_allow_rvk(self):
+        prep = self.executor.prepare_dk_classification_context(
+            self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
+            record_priors=self._PRIORS,
+        )
+        text = prep["catalog_text"]
+        self.assertIn("Eingabe-Datensatz", text)
+        self.assertIn("- DK: 546.43", text)
+        self.assertIn("- DDC: 551.48", text)
+        self.assertIn("- RVK: WI 5000", text)
+        # informs, never replaces: the catalog candidates are still there
+        self.assertIn("541.14", text)
+        # the prior RVK is selectable (guardrails gate on this map)
+        self.assertIn("WI 5000", prep["allowed_standard_rvk_map"])
+        self.assertEqual(prep["rvk_source_map"]["WI 5000"]["source"], "input_record")
+        # guardrail appears because an allowed standard RVK now exists
+        self.assertTrue(text.startswith("WICHTIG FÜR RVK:"))
+
+    def test_prior_does_not_promote_known_nonstandard_rvk(self):
+        """Status describes the notation, not document relevance."""
+        catalog = self._DK_CANDIDATE + [
+            {"dk": "WI 5000", "classification_type": "RVK", "count": 1,
+             "titles": ["Titel"], "matched_keywords": [], "source": "catalog",
+             "rvk_validation_status": "non_standard"},
+        ]
+        prep = self.executor.prepare_dk_classification_context(
+            catalog, "Abstract", dk_frequency_threshold=1,
+            record_priors={"RVK": [{"code": "WI 5000", "origin": "authority"}]},
+        )
+        self.assertIn("WI 5000", prep["allowed_nonstandard_rvk_map"])
+        self.assertNotIn("WI 5000", prep["allowed_standard_rvk_map"])
+        # the catalog's source entry is kept, not overwritten by the prior
+        self.assertEqual(prep["rvk_source_map"]["WI 5000"]["source"], "catalog")
+
+    def test_include_rvk_false_drops_rvk_prior_but_keeps_dk(self):
+        prep = self.executor.prepare_dk_classification_context(
+            self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
+            include_rvk=False, record_priors=self._PRIORS,
+        )
+        self.assertIn("- DK: 546.43", prep["catalog_text"])
+        self.assertNotIn("WI 5000", prep["catalog_text"])
+        self.assertEqual(prep["allowed_standard_rvk_map"], {})
+
+    def test_bare_code_priors_are_tolerated(self):
+        """Plugins emit bare codes; the choke-point normalisation applies."""
+        prep = self.executor.prepare_dk_classification_context(
+            self._DK_CANDIDATE, "Abstract", dk_frequency_threshold=1,
+            record_priors={"DK": ["546.43"]},
+        )
+        self.assertIn("- DK: 546.43", prep["catalog_text"])
+
 
 class TestDkDisplayFormatTolerance(unittest.TestCase):
     """Katalog-Recherche display: keyword-centric input must not vanish."""

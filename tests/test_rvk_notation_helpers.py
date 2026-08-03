@@ -105,8 +105,15 @@ class TestRankHelpers(unittest.TestCase):
 
     def test_source_precedence(self):
         self.assertEqual(
-            [_source_rank(s) for s in ("rvk_gnd_index", "rvk_api", "catalog")], [3, 2, 1]
+            [_source_rank(s) for s in ("input_record", "rvk_gnd_index", "rvk_api", "catalog")],
+            [4, 3, 2, 1],
         )
+
+    def test_input_record_outranks_every_derived_source(self):
+        """WP-D1 P2: the record's own classification is the catalog's statement
+        about THIS document — no derived source may beat it."""
+        for derived in ("rvk_gnd_index", "rvk_api", "catalog"):
+            self.assertGreater(_source_rank("input_record"), _source_rank(derived))
 
     def test_unknown_source_ranks_last(self):
         self.assertEqual(_source_rank("etwas anderes"), 0)

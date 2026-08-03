@@ -48,6 +48,9 @@ def _is_parent_like(parent_code: str, child_code: str) -> bool:
 
 def _source_rank(source: str) -> int:
     return {
+        # WP-D1 P2: the input record's own classification outranks every
+        # derived source — the catalog states it about THIS document.
+        "input_record": 4,
         "rvk_gnd_index": 3,
         "rvk_api": 2,
         "catalog": 1,

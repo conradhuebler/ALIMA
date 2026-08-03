@@ -31,6 +31,7 @@ class DkStepsMixin:
         rvk_anchor_keywords: Optional[List[str]] = None,
         stream_callback=None,
         include_rvk: bool = True,
+        record_priors: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Filter and format DK search results for the classification prompt - Claude Generated
 
@@ -44,6 +45,14 @@ class DkStepsMixin:
         formatted prompt and the candidate maps stay DK/DDC only. Used by
         workflows that surface RVK out-of-band via the ``rvk_lookup`` tool
         instead of inline in ``dk_collect`` - Claude Generated.
+
+        ``record_priors`` (WP-D1 P2) are the input record's OWN classifications
+        in the canonical shape ``{SYSTEM: [{code, origin}]}``: they are surfaced
+        to the LLM as a marked authority block prepended to the catalog excerpt
+        (inform, never override), and prior RVK codes additionally join
+        ``allowed_standard_rvk_map`` (source ``input_record``) so the guardrails
+        permit selecting them. With ``record_priors`` falsy the output is
+        byte-identical to before.
 
         Returns:
             Dict with results_with_titles, catalog_text, allowed_standard_rvk_map,
@@ -185,8 +194,66 @@ class DkStepsMixin:
             else:
                 allowed_standard_rvk_map[normalized] = f"RVK {normalized}"
 
+        # WP-D1 P2: the input record's own classifications as priors. RVK prior
+        # codes join the allowed-standard map (the guardrails are a hard gate —
+        # a code the map does not carry cannot survive post-validation), marked
+        # source "input_record" so ranking can prefer them. Existing catalog
+        # entries for the same code are kept, not overwritten. - Claude Generated
+        prior_block = ""
+        if record_priors:
+            from .classification_systems import KNOWN_SYSTEMS, codes_for_system
+
+            prior_lines = []
+            for system in KNOWN_SYSTEMS:
+                codes = codes_for_system(record_priors, system)
+                if not codes:
+                    continue
+                if system == "RVK":
+                    if not include_rvk:
+                        continue
+                    kept = []
+                    for code in codes:
+                        normalized = canonicalize_rvk_notation(code)
+                        if not normalized:
+                            continue
+                        kept.append(normalized)
+                        if normalized not in rvk_source_map:
+                            rvk_source_map[normalized] = {
+                                "source": "input_record",
+                                "status": "standard",
+                            }
+                            selected_rvk_meta[normalized] = {
+                                "branch": "",
+                                "depth": 0,
+                                "anchor_hit_count": 0,
+                                "source": "input_record",
+                            }
+                        # Status describes the NOTATION (is it official RVK?),
+                        # not document relevance — a prior must not promote a
+                        # known non-standard code to standard. - Claude Generated
+                        if normalized not in allowed_nonstandard_rvk_map:
+                            allowed_standard_rvk_map.setdefault(normalized, f"RVK {normalized}")
+                    codes = kept
+                if codes:
+                    prior_lines.append(f"- {system}: {'; '.join(codes)}")
+            if prior_lines:
+                prior_block = (
+                    "Der Eingabe-Datensatz trägt bereits eigene Katalog-Klassifikationen "
+                    "(Autoritätsangabe des Katalogs — bevorzugt berücksichtigen, sofern "
+                    "sie zum Inhalt passen; sie ersetzen die eigene Analyse nicht):\n"
+                    + "\n".join(prior_lines)
+                    + "\n\n"
+                )
+                if stream_callback:
+                    stream_callback(
+                        f"📚 Eingabe-Datensatz liefert eigene Klassifikationen als Prior: "
+                        f"{'; '.join(prior_lines)}\n",
+                        "dk_classification",
+                    )
+
         # Format catalog results for LLM prompt with aggregated data - Claude Generated
         catalog_text = PipelineResultFormatter.format_dk_results_for_prompt(results_with_titles)
+        catalog_text = prior_block + catalog_text
 
         if allowed_standard_rvk_map or allowed_nonstandard_rvk_map:
             rvk_guardrail = (
@@ -227,6 +294,7 @@ class DkStepsMixin:
         dk_frequency_threshold: int = DEFAULT_DK_FREQUENCY_THRESHOLD,  # Claude Generated - Only pass classifications with >= N occurrences
         rvk_anchor_keywords: Optional[List[str]] = None,
         mode=None,  # <--- NEUER PARAMETER: Pipeline mode for PromptService
+        record_priors: Optional[Dict[str, Any]] = None,  # WP-D1 P2: input record's own classifications - Claude Generated
         **kwargs,
     ) -> Tuple[List[str], Optional["LlmKeywordAnalysis"]]:
         """
@@ -280,6 +348,7 @@ class DkStepsMixin:
             dk_frequency_threshold=dk_frequency_threshold,
             rvk_anchor_keywords=rvk_anchor_keywords,
             stream_callback=stream_callback,
+            record_priors=record_priors,
         )
         results_with_titles = prep["results_with_titles"]
         catalog_text = prep["catalog_text"]
