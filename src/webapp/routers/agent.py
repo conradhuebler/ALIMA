@@ -242,6 +242,7 @@ async def agent_run(req: AgentRunRequest):
             temperature=req.temperature,
             on_token=lambda t: _q.put(("token", t)),
             on_status=lambda s: _q.put(("status", s)),
+            on_thinking=lambda t: _q.put(("thinking", t)),
             on_tool_call=lambda tc: _q.put(("tool_call", {"name": tc.name, "arguments": tc.arguments})),
             on_tool_result=lambda name, res: _q.put(("tool_result", {"name": name, "result": res[:500]})),
             should_stop=should_stop,
@@ -411,7 +412,9 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
 
     session_renderer.render_user_bubble(message)
     session_renderer.show_typing(f"{provider} | {model}")
-    session_renderer.open_assistant_bubble(f"{provider} | {model}")
+    # Bubble opens lazily on the first token (GUI parity): the renderer closes
+    # it per iteration around tool blocks, so an eager open would leave an
+    # empty bubble above the whole run. - Claude Generated
 
     # Keep the WebSocket alive while the chat agent is streaming. The WS loop
     # terminates as soon as the session leaves running/idle, so after a pipeline
@@ -445,6 +448,16 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
 
     def run_chat_turn(should_stop):
         try:
+            # Lazy bubble open + duplicate guard: without tokens streamed, the
+            # final content is rendered once via the fallback below. - Claude Generated
+            _streamed_any = [False]
+
+            def _on_token(tok):
+                _streamed_any[0] = True
+                if not session_renderer._assistant_block_open:
+                    session_renderer.open_assistant_bubble(f"{provider} | {model}")
+                session_renderer.append_assistant_token(tok)
+
             def _on_tool_call(tc):
                 tool_id = session_renderer.render_tool_call(
                     tc.name, tc.arguments or {}
@@ -503,16 +516,26 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
                 think=_parse_think_override(req.think),
                 language=(req.language or "de"),
                 history_truncated=history_truncated,
-                on_token=lambda t: session_renderer.append_assistant_token(t),
+                on_token=_on_token,
                 on_status=lambda s: session_renderer.render_pipeline_log(s, "debug"),
                 on_tool_call=_on_tool_call,
                 on_tool_result=_on_tool_result,
+                on_thinking=session_renderer.append_thinking,
                 should_stop=should_stop,
             )
             # Persist assistant turn and tool log in session history.
             content = getattr(result, "content", "") or ""
             if content:
                 session.chat_history.append({"role": "assistant", "content": content})
+            # Fallback for a token-less turn (GUI parity). _streamed_any guards
+            # against duplicating already-streamed prose after cancel/timeout. - Claude Generated
+            if (
+                content
+                and not _streamed_any[0]
+                and not session_renderer._assistant_block_open
+            ):
+                session_renderer.open_assistant_bubble(f"{provider} | {model}")
+                session_renderer.append_assistant_token(content)
             session_renderer.finalize_assistant_bubble()
 
             # Config-only chat-session DB logging (no UI). Pass the full

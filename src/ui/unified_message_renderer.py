@@ -110,6 +110,13 @@ class UnifiedMessageRenderer:
         self._tool_call_id = 0
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
 
+        # Thinking block state: one collapsed 💭 collapsible per reasoning
+        # segment; closed when the answer (or a tool block) follows. Updates
+        # are throttled — a per-token collapsible_update would resend the
+        # whole accumulated body each time. - Claude Generated
+        self._thinking_block_id: Optional[str] = None
+        self._thinking_last_update = 0.0
+
         # Phase E: bus id → renderer tool_id bridge (for subscribe/unsubscribe).
         self._bus_id_to_tool_id: Dict[str, str] = {}
 
@@ -303,6 +310,7 @@ class UnifiedMessageRenderer:
 
     def open_assistant_bubble(self, model_label: str) -> None:
         """Open a left-aligned grey assistant bubble with model label."""
+        self._close_thinking_block()
         self._current_assistant_text = ""
         header = f'🤖 {self._escape_html(model_label or t("render.assistant.model_fallback"))}'
         self.transport.send(ev.assistant_open(header))
@@ -312,6 +320,7 @@ class UnifiedMessageRenderer:
 
     def append_assistant_token(self, token: str) -> None:
         """Stream a token into the open assistant bubble."""
+        self._close_thinking_block()
         if not self._assistant_block_open:
             return
         self._current_assistant_text += token
@@ -319,7 +328,14 @@ class UnifiedMessageRenderer:
         self._touch_scroll()
 
     def finalize_assistant_bubble(self) -> None:
-        """Post-render Markdown and close the assistant bubble."""
+        """Post-render Markdown and close the assistant bubble.
+
+        Idempotent: without an open bubble this is a no-op (no event, no
+        empty history entry) — drivers may call it defensively. - Claude Generated
+        """
+        self._close_thinking_block()
+        if not self._assistant_block_open:
+            return
         md_html = ""
         if self._current_assistant_text:
             try:
@@ -462,6 +478,100 @@ class UnifiedMessageRenderer:
         return re.sub(r'<a href="([^"]*)"([^>]*)>', _sub, html)
 
     # ------------------------------------------------------------------
+    # Segmentation + thinking block
+    # ------------------------------------------------------------------
+
+    def _segment_break(self) -> None:
+        """Close an open thinking block and assistant bubble - Claude Generated
+
+        Called before appending a collapsible/tool/error block so it lands
+        *below* the already-streamed prose in the DOM. Without this, later
+        tokens keep flowing into a bubble that sits visually above blocks
+        which chronologically followed it.
+        """
+        self._close_thinking_block()
+        if self._assistant_block_open:
+            self.finalize_assistant_bubble()
+
+    def append_thinking(self, text: str) -> None:
+        """Stream thinking/reasoning text into a collapsed 💭 block - Claude Generated
+
+        Opens the block on first call (finalizing an open assistant bubble
+        first — a thinking segment must not append below an open bubble).
+        The block closes on the next answer token, segment break, or
+        finalize. Body updates are throttled to ~0.7s.
+        """
+        if not text:
+            return
+        if self._thinking_block_id is None:
+            if self._assistant_block_open:
+                self.finalize_assistant_bubble()
+            self._tool_call_id += 1
+            tool_id = f"tc_{self._tool_call_id}"
+            self._thinking_block_id = tool_id
+            self._tool_calls[tool_id] = {
+                "name": t("render.thinking"),
+                "args": None,
+                "args_preview": "",
+                "duration_s": None,
+                "result": "",
+                "expanded": False,
+                "status": "success",
+                "kind": "collapsible",
+                "icon": "💭",
+                "meta": "",
+            }
+            self.transport.send(
+                ev.collapsible(
+                    tool_id,
+                    self._tool_summary_html(tool_id),
+                    "",
+                    False,
+                    kind="thinking",
+                )
+            )
+            self._thinking_last_update = 0.0
+        tc = self._tool_calls[self._thinking_block_id]
+        tc["result"] = (tc.get("result") or "") + text
+        now = time.monotonic()
+        if now - self._thinking_last_update >= 0.7:
+            self._thinking_last_update = now
+            self._send_thinking_update()
+        self._touch_scroll()
+
+    def _send_thinking_update(self) -> None:
+        """Push the accumulated thinking body to the frontend - Claude Generated"""
+        tool_id = self._thinking_block_id
+        if not tool_id:
+            return
+        self.transport.send(
+            ev.collapsible_update(
+                tool_id,
+                self._tool_summary_html(tool_id),
+                self._tool_body_html(tool_id),
+                kind="thinking",
+            )
+        )
+
+    def _close_thinking_block(self) -> None:
+        """Final body update + history entry, then reset state - Claude Generated"""
+        if not self._thinking_block_id:
+            return
+        tool_id = self._thinking_block_id
+        tc = self._tool_calls.get(tool_id, {})
+        body = tc.get("result") or ""
+        tc["meta"] = t("render.summary.chars", n=len(body))
+        self._send_thinking_update()
+        self._thinking_block_id = None
+        self.history.append(
+            MessageEntry(
+                role=MessageRole.TOOL_MARKER,
+                content=f"💭 {tc.get('name', '')}",
+                metadata={"kind": "thinking"},
+            )
+        )
+
+    # ------------------------------------------------------------------
     # Collapsible tool calls (native <details>)
     # ------------------------------------------------------------------
 
@@ -472,6 +582,7 @@ class UnifiedMessageRenderer:
         duration_s: Optional[float] = None,
     ) -> str:
         """Render a collapsible tool-call block. Returns the tool_call_id."""
+        self._segment_break()
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
         args_preview = self._format_tool_args(args)
@@ -542,6 +653,7 @@ class UnifiedMessageRenderer:
         can be updated later via :meth:`update_collapsible_meta`. Returns the
         block id. - Claude Generated
         """
+        self._segment_break()
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
         self._tool_calls[tool_id] = {
@@ -578,6 +690,7 @@ class UnifiedMessageRenderer:
         """Open (uncollapsed) red error block — the shared error chrome for
         failed chat turns and step failures (WP12 §9.3). Returns the block
         id. - Claude Generated"""
+        self._segment_break()
         self._tool_call_id += 1
         tool_id = f"tc_{self._tool_call_id}"
         summary = (

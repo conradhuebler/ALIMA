@@ -22,6 +22,8 @@ from src.utils.doi_resolver import (
     format_doi_metadata,
     resolve_input_to_text,
 )
+from src.utils.error_visibility import log_caught
+from src.utils.pipeline_formatters import render_pipeline_result
 from src.utils.pipeline_utils import PipelineResultFormatter
 from src.webapp.render_bridge import _SessionBusSubscriber, _build_session_renderer
 from src.webapp.result_serialization import (
@@ -379,32 +381,14 @@ async def run_analysis(
             # Sync analysis state reference so autosave has access - Claude Generated
             session.current_analysis_state = analysis_state
 
-            # WP12: emit the final DK-classifications card as a render event
-            # (buffered before status flips to "completed", so the WS picks it
-            # up in the final message).
+            # Shared result emission (GUI parity): completion line, final GND
+            # keywords, Schlagwortketten, DK/Auswertung cards, workflow
+            # report_markdown — buffered before status flips to "completed",
+            # so the WS picks it up in the final message. - Claude Generated
             try:
-                html, plain = PipelineResultFormatter.format_dk_classifications_card_html(
-                    analysis_state
-                )
-                if html:
-                    session_renderer.render_html_block(
-                        html, kind="dk_classifications", plain_text=plain
-                    )
-            except Exception:
-                logger.exception("WP12: dk_classifications card emission failed")
-
-            # Reintroduced RVK-Analytik: frequency Auswertung + RVK provenance
-            # tables as a shared render card (classic pipeline only). - Claude Generated
-            try:
-                html, plain = PipelineResultFormatter.format_dk_auswertung_card_html(
-                    analysis_state
-                )
-                if html:
-                    session_renderer.render_html_block(
-                        html, kind="dk_statistics", plain_text=plain
-                    )
-            except Exception:
-                logger.exception("WP12: dk_auswertung card emission failed")
+                render_pipeline_result(session_renderer, analysis_state)
+            except Exception as e:
+                log_caught(logger, e, "pipeline result emission (render events)")
 
             # Use shared extraction helper (DRY principle) - Claude Generated
             session.results = _prepare_results_for_export(

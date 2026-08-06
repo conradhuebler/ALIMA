@@ -20,6 +20,7 @@ from PyQt6.QtCore import pyqtSlot
 
 from ..core.pipeline_manager import PipelineStep
 from ..utils.pipeline_utils import PipelineResultFormatter
+from ..utils.pipeline_formatters import render_pipeline_result
 
 
 class PipelineLogMixin:
@@ -192,80 +193,16 @@ class PipelineLogMixin:
 
     @pyqtSlot(object)
     def on_pipeline_completed(self, analysis_state):
-        total_duration = "unbekannt"
+        total_duration = None
         if hasattr(self, "pipeline_start_time"):
             total_seconds = (
                 datetime.now() - self.pipeline_start_time
             ).total_seconds()
             total_duration = f"{total_seconds:.1f}s"
-        self.add_pipeline_message(
-            f"\U0001f389 Pipeline vollständig abgeschlossen in {total_duration}!",
-            "success",
-        )
-
-        if (
-            analysis_state
-            and hasattr(analysis_state, "final_llm_analysis")
-            and analysis_state.final_llm_analysis
-        ):
-            kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
-            if kw_list:
-                kw_display = ", ".join(kw_list)
-                self.add_pipeline_message(
-                    f"\U0001f4cc {len(kw_list)} GND-Schlagworte ausgewählt:\n{kw_display}",
-                    "success",
-                )
-            response_text = (
-                analysis_state.final_llm_analysis.response_full_text or ""
-            )
-            if (
-                "Schlagwortketten" in response_text
-                or "schlagwortketten" in response_text.lower()
-            ):
-                chain_lines = [
-                    line
-                    for line in response_text.split("\n")
-                    if "→" in line or "->" in line
-                ]
-                if chain_lines:
-                    self.add_pipeline_message(
-                        "\U0001f517 Schlagwortketten:\n" + "\n".join(chain_lines[:10]),
-                        "success",
-                    )
-
-        if analysis_state and getattr(analysis_state, "dk_classifications", None):
-            # WP12: the rich colour-coded card (confidence + per-code titles) is
-            # built by the shared formatter so the GUI and webapp render the
-            # identical chrome from one source.
-            card_html, dk_codes_text = (
-                PipelineResultFormatter.format_dk_classifications_card_html(analysis_state)
-            )
-            if card_html:
-                self.add_pipeline_message("\U0001f3f7 DK-Klassifikationen:", "success")
-                self._renderer.render_html_block(
-                    card_html, kind="dk_classifications", plain_text=dk_codes_text
-                )
-
-        # Reintroduced RVK-Analytik: frequency Auswertung + RVK provenance tables
-        # via the shared formatter (replaces the old plain-text provenance line so
-        # GUI and webapp render the identical chrome). - Claude Generated
-        if analysis_state:
-            ausw_html, ausw_plain = (
-                PipelineResultFormatter.format_dk_auswertung_card_html(analysis_state)
-            )
-            if ausw_html:
-                self._renderer.render_html_block(
-                    ausw_html, kind="dk_statistics", plain_text=ausw_plain
-                )
-
-        # Generic convention: any workflow that populates extra.report_markdown
-        # (e.g. title_list_search's render_report step) gets it rendered as an
-        # actual HTML table here, instead of the unrendered pipe-table text
-        # that streams into the log during execution. Keyed off the field's
-        # presence, not the workflow name. - Claude Generated
-        report_markdown = getattr(analysis_state, "report_markdown", "") if analysis_state else ""
-        if report_markdown:
-            self._renderer.render_markdown_block(report_markdown, kind="workflow_report")
+        # Shared result emission (completion line, GND keywords, Schlagwort-
+        # ketten, DK/Auswertung cards, report_markdown) — one source for GUI
+        # and webapp. - Claude Generated
+        render_pipeline_result(self._renderer, analysis_state, total_duration)
 
         # Auto-load chat context for the just-finished pipeline.
         try:

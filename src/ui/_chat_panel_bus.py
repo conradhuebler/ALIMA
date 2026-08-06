@@ -34,6 +34,21 @@ class BusEventMixin:
     def _on_state_changed(self, _diff: dict) -> None:
         self._refresh_shared_context()
 
+    def _on_bus_notice(self, payload: dict) -> None:
+        """Operational notice (e.g. an LLM rate-limit wait) as a log line.
+
+        Lockstep counterpart of ``_SessionBusSubscriber._handle_notice``
+        (webapp). - Claude Generated
+        """
+        try:
+            text = (payload or {}).get("text") or ""
+            if not text:
+                return
+            level = (payload or {}).get("level") or "warning"
+            self._renderer.render_pipeline_log(text, level)
+        except Exception:
+            self.logger.exception("PipelineChatPanel: bus notice rendering failed")
+
     def _on_bus_tool_called(self, payload: dict) -> None:
         try:
             name = payload.get("name", "") or "tool"

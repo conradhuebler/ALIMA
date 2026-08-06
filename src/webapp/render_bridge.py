@@ -126,6 +126,7 @@ class _SessionBusSubscriber:
         self._on_pipeline_prompt_done = self._handle_pipeline_prompt_done
         self._on_pipeline_completed = self._handle_pipeline_completed
         self._on_pipeline_started = self._handle_pipeline_started
+        self._on_notice = self._handle_notice
 
     def subscribe(self) -> None:
         from src.core.state_bus import AlimaStateBus
@@ -141,6 +142,7 @@ class _SessionBusSubscriber:
         )
         self._bus.subscribe("state.pipeline_completed", self._on_pipeline_completed)
         self._bus.subscribe("state.pipeline_started", self._on_pipeline_started)
+        self._bus.subscribe("state.notice", self._on_notice)
 
     def unsubscribe(self) -> None:
         if self._bus is None:
@@ -158,6 +160,7 @@ class _SessionBusSubscriber:
                 "state.pipeline_completed", self._on_pipeline_completed
             )
             self._bus.unsubscribe("state.pipeline_started", self._on_pipeline_started)
+            self._bus.unsubscribe("state.notice", self._on_notice)
         except Exception:
             logger.exception("SessionBusSubscriber unsubscribe failed")
         finally:
@@ -304,6 +307,18 @@ class _SessionBusSubscriber:
         if workflow:
             label += f" ({workflow})"
         self._renderer.render_system_message(label)
+
+    def _handle_notice(self, payload: Dict[str, Any]) -> None:
+        """Operational notice (e.g. an LLM rate-limit wait) as a log line.
+
+        Broadcast channel so a notice reaches the log no matter which callbacks
+        the running path wired — the agentic pipeline has none. - Claude Generated
+        """
+        text = (payload or {}).get("text") or ""
+        if not text:
+            return
+        level = (payload or {}).get("level") or "warning"
+        self._renderer.render_pipeline_log(text, level)
 
     def _handle_pipeline_started(self, payload: Dict[str, Any]) -> None:
         pid = (payload or {}).get("pipeline_id", "") or ""

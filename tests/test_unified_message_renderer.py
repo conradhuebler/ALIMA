@@ -941,5 +941,134 @@ class TestLinkClassification(RendererTestBase):
         self.assertIn("cat-link", html)
 
 
+class EventOrderTestBase(unittest.TestCase):
+    """Renderer over a MockTransport for event-order assertions. Claude Generated."""
+
+    def setUp(self):
+        from src.core.render_events import MockTransport
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        self.transport = MockTransport()
+        self.renderer = UnifiedMessageRenderer(self.transport, _MockCheckBox())
+
+
+class TestBubbleSegmentation(EventOrderTestBase):
+    """Per-iteration bubbles: blocks land below already-streamed prose. Claude Generated."""
+
+    def test_tool_call_finalizes_open_bubble_first(self):
+        r = self.renderer
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Ich suche.")
+        r.render_tool_call("search", {"q": "x"})
+        types = self.transport.types()
+        self.assertIn("assistant_finalize", types)
+        self.assertLess(
+            types.index("assistant_finalize"), types.index("collapsible")
+        )
+        self.assertFalse(r._assistant_block_open)
+
+    def test_generic_collapsible_finalizes_open_bubble_first(self):
+        r = self.renderer
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Text.")
+        r.render_collapsible("Prompt", "body")
+        types = self.transport.types()
+        self.assertLess(
+            types.index("assistant_finalize"), types.index("collapsible")
+        )
+
+    def test_error_block_finalizes_open_bubble_first(self):
+        r = self.renderer
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Text.")
+        r.render_error_block("Fehler", "kaputt")
+        types = self.transport.types()
+        self.assertLess(
+            types.index("assistant_finalize"), types.index("collapsible")
+        )
+
+    def test_finalize_without_open_bubble_is_noop(self):
+        r = self.renderer
+        n_events = len(self.transport.events)
+        n_history = len(r.history)
+        r.finalize_assistant_bubble()
+        self.assertEqual(len(self.transport.events), n_events)
+        self.assertEqual(len(r.history), n_history)
+
+    def test_multi_iteration_event_order(self):
+        """tokens → tool block → tokens ⇒ open/token/finalize, collapsible,
+        open/token/finalize — the DOM order matches chronology."""
+        r = self.renderer
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Erst.")
+        r.render_tool_call("search", {})
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Dann.")
+        r.finalize_assistant_bubble()
+        self.assertEqual(
+            self.transport.types(),
+            [
+                "assistant_open", "assistant_token", "assistant_finalize",
+                "collapsible",
+                "assistant_open", "assistant_token", "assistant_finalize",
+            ],
+        )
+
+
+class TestThinkingBlock(EventOrderTestBase):
+    """kind="thinking" collapsible lifecycle. Claude Generated."""
+
+    def test_append_thinking_opens_collapsed_thinking_block(self):
+        self.renderer.append_thinking("Ich überlege.")
+        colls = self.transport.of_type("collapsible")
+        self.assertEqual(len(colls), 1)
+        self.assertEqual(colls[0].get("kind"), "thinking")
+        self.assertFalse(colls[0]["open"])
+
+    def test_thinking_closes_on_answer_token_with_full_body(self):
+        r = self.renderer
+        r.append_thinking("Teil eins. ")
+        r.append_thinking("Teil zwei.")
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Antwort")
+        self.assertIsNone(r._thinking_block_id)
+        updates = self.transport.of_type("collapsible_update")
+        self.assertTrue(updates)
+        self.assertIn("Teil eins. Teil zwei.", updates[-1]["body"])
+
+    def test_thinking_finalizes_open_bubble_first(self):
+        r = self.renderer
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Zwischenstand.")
+        r.append_thinking("Grübel.")
+        types = self.transport.types()
+        self.assertLess(
+            types.index("assistant_finalize"), types.index("collapsible")
+        )
+
+    def test_thinking_updates_throttled(self):
+        r = self.renderer
+        for _ in range(50):
+            r.append_thinking("x")
+        live_updates = len(self.transport.of_type("collapsible_update"))
+        # 50 rapid appends must not emit 50 updates (throttle ~0.7s).
+        self.assertLessEqual(live_updates, 2)
+        r._close_thinking_block()
+        # The close emits the final full-body update.
+        self.assertEqual(
+            len(self.transport.of_type("collapsible_update")), live_updates + 1
+        )
+
+    def test_segment_break_closes_thinking_before_tool_block(self):
+        r = self.renderer
+        r.append_thinking("Denken.")
+        r.render_tool_call("search", {})
+        self.assertIsNone(r._thinking_block_id)
+        colls = self.transport.of_type("collapsible")
+        # thinking block first, then the tool block.
+        self.assertEqual(colls[0].get("kind"), "thinking")
+        self.assertEqual(len(colls), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

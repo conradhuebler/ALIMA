@@ -27,6 +27,7 @@ from ..core.chat_prompts import (
     resolve_prompt_compact,
 )
 from ..core.headless_agent import resolve_provider_model
+from ..utils.error_visibility import log_caught
 from ..utils.i18n import t
 from .chat_agent_worker import ChatAgentWorker
 from .chat_tools import build_chat_toolset
@@ -358,7 +359,9 @@ class ChatAgentMixin:
             history=history,
             think=self._get_chat_think_override(),
         )
+        self._chat_tokens_seen = False  # duplicate guard for _on_finished - Claude Generated
         self.current_worker.token_received.connect(self._on_token)
+        self.current_worker.thinking_received.connect(self._on_thinking_token)
         self.current_worker.status_message.connect(self._on_status_message)
         # NB (Phase D): tool calls ride AlimaStateBus, not direct signals.
         self.current_worker.generation_finished.connect(self._on_finished)
@@ -385,11 +388,21 @@ class ChatAgentMixin:
 
     @pyqtSlot(str)
     def _on_token(self, token: str):
+        self._chat_tokens_seen = True
         if not self._renderer._assistant_block_open:
             self._hide_typing()
             self._open_assistant_message(self._current_render_model)
             self._renderer._assistant_block_open = True
         self._append_assistant_token(token)
+
+    @pyqtSlot(str)
+    def _on_thinking_token(self, text: str):
+        """Route thinking/reasoning content into the 💭 collapsible - Claude Generated"""
+        try:
+            self._hide_typing()  # thinking arriving means the model is alive
+            self._renderer.append_thinking(text)
+        except Exception as e:
+            log_caught(self.logger, e, "chat thinking render")
 
     @pyqtSlot(str)
     def _on_status_message(self, line: str):
@@ -413,7 +426,14 @@ class ChatAgentMixin:
             for msg in getattr(result, "messages", []) or []:
                 self.session.messages.append(dict(msg))
             final = getattr(result, "content", "") or ""
-            if final and not self._renderer._assistant_block_open:
+            # _chat_tokens_seen: with per-iteration bubbles the last bubble is
+            # already finalized here — re-rendering `final` after a streamed
+            # run would duplicate the prose (e.g. after cancel). - Claude Generated
+            if (
+                final
+                and not self._renderer._assistant_block_open
+                and not getattr(self, "_chat_tokens_seen", False)
+            ):
                 self._hide_typing()
                 self._open_assistant_message(self._current_render_model)
                 self._renderer._assistant_block_open = True

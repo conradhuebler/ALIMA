@@ -534,6 +534,10 @@ class TestOnPipelineCompletedReportMarkdown(unittest.TestCase):
                 markdown_calls.append((markdown_text, kind))
             def render_html_block(self, html, *, kind=None, plain_text=""):
                 pass
+            def render_pipeline_log(self, message, level="info", step_id=None):
+                # render_pipeline_result emits the completion/keyword lines
+                # through the renderer, no longer via add_pipeline_message.
+                pass
 
         stub = SimpleNamespace(
             logger=MagicMock(),

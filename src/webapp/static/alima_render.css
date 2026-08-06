@@ -73,6 +73,16 @@
   padding-left: 8px;
 }
 #log .system-message--error { color: var(--alima-error); }
+/* Thinking chrome (kind="thinking" collapsibles): muted, italic — reasoning,
+   not answer text. */
+#log details.rc-thinking > summary,
+#log details.rc-thinking > summary span { color: var(--alima-muted); font-style: italic; }
+#log details.rc-thinking > .tc-body {
+  color: var(--alima-muted);
+  font-style: italic;
+  border-left: 2px solid var(--alima-border-soft);
+  padding-left: 8px;
+}
 #log .tc-body {
   margin: 2px 0 6px 14px; font-family: monospace; font-size: 9pt;
   color: var(--alima-muted); white-space: pre-wrap; word-wrap: break-word;

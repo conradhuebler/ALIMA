@@ -7,6 +7,7 @@
   "render.summary.hits": "{n} hits",
   "render.summary.error": "Error",
   "render.summary.fields": "{n} fields",
+  "render.thinking": "Thinking",
   "chat.error_title": "Chat error",
   "chat.state.on": "on",
   "chat.state.off": "off",

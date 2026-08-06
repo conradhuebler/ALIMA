@@ -100,9 +100,16 @@ class _AlimaStateBus(QObject):
         # If the bus's owning thread has no running event loop, the signal
         # would be silently lost. Fall back to direct dispatch in that case
         # so headless / webapp consumers still receive the event.
+        #
+        # The dispatcher probe alone is not sufficient: a QCoreApplication may
+        # exist without anyone calling exec() — DatabaseManager creates one for
+        # QtSql, so the webapp process has a dispatcher on its main thread but
+        # never runs a Qt loop. Queued events would then pile up undelivered.
+        # Hosts without a Qt loop declare that via set_direct_dispatch(True).
+        # - Claude Generated
         from PyQt6.QtCore import QAbstractEventDispatcher
 
-        if QAbstractEventDispatcher.instance(bus_thread) is None:
+        if _force_direct_dispatch or QAbstractEventDispatcher.instance(bus_thread) is None:
             for event_filter, handler, _slot in self._subscriptions:
                 if event_filter != event_type:
                     continue
@@ -177,6 +184,23 @@ class _AlimaStateBus(QObject):
 
 _lock = threading.Lock()
 _instance: _AlimaStateBus | None = None
+# Hosts without a running Qt event loop (webapp, headless runners) set this so
+# cross-thread events are delivered synchronously on the emitting thread
+# instead of being queued for a loop that never spins. - Claude Generated
+_force_direct_dispatch: bool = False
+
+
+def set_direct_dispatch(enabled: bool) -> None:
+    """Deliver cross-thread events synchronously instead of via Qt queue.
+
+    For processes that import Qt but never run ``exec()`` (the webapp, CLI
+    runners). Subscribers then run on the *emitting* thread, so their handlers
+    must be thread-safe — true for the webapp render bridge, which only appends
+    to a lock-protected buffer. The GUI must NOT enable this: its subscribers
+    touch widgets and need the GUI-thread hop. - Claude Generated
+    """
+    global _force_direct_dispatch
+    _force_direct_dispatch = bool(enabled)
 
 
 def AlimaStateBus() -> _AlimaStateBus:

@@ -168,11 +168,24 @@ def _retry_on_rate_limit(
                 f"{label}: rate limit (429) — attempt {attempt}/{_RL_MAX_RETRIES}, "
                 f"waiting {delay:.1f}s ({'Retry-After' if suggested is not None else 'backoff'})"
             )
+            notice = (
+                f"⏳ Rate-Limit erreicht ({label}) – warte {delay:.0f}s "
+                f"(Versuch {attempt}/{_RL_MAX_RETRIES})…"
+            )
             if status_cb:
-                status_cb(
-                    f"\n⏳ Rate-Limit erreicht – warte {delay:.0f}s "
-                    f"(Versuch {attempt}/{_RL_MAX_RETRIES})…\n"
+                status_cb(f"\n{notice}\n")
+            # Broadcast so every log surface shows the wait, independent of
+            # which callbacks a caller wired: the agentic pipeline has no
+            # status channel at all, and the webapp drops its token buffer.
+            # - Claude Generated
+            try:
+                from src.core.state_bus import AlimaStateBus
+
+                AlimaStateBus().emit_event(
+                    "state.notice", {"text": notice, "level": "warning"}
                 )
+            except Exception as exc:  # noqa: BLE001
+                _rl_logger.debug(f"rate-limit notice bus emit failed: {exc}")
 
             waited = 0.0
             while waited < delay:
@@ -2347,8 +2360,9 @@ class LlmService(QObject):
         provider_type = getattr(provider_config, 'provider_type', '') if provider_config else ''
 
         # Provider call, wrapped so a transient HTTP 429 waits + retries instead
-        # of aborting the whole workflow. Status flows to stream_callback so the
-        # GUI/CLI log shows the wait. - Claude Generated
+        # of aborting the whole workflow. The wait notice goes on the state bus
+        # (see _retry_on_rate_limit), NOT into stream_callback — as a token it
+        # would be rendered as part of the model's answer. - Claude Generated
         def _dispatch() -> "AgentResponse":
             if provider_type == "ollama":
                 return self._generate_ollama_native_with_tools(
@@ -2381,7 +2395,6 @@ class LlmService(QObject):
         return _retry_on_rate_limit(
             _dispatch,
             label=f"{provider}/{model}",
-            status_cb=stream_callback,
             should_stop=should_stop,
         )
 

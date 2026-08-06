@@ -7,6 +7,7 @@
   "render.summary.hits": "{n} Treffer",
   "render.summary.error": "Fehler",
   "render.summary.fields": "{n} Felder",
+  "render.thinking": "Überlegung",
   "chat.error_title": "Chat-Fehler",
   "chat.state.on": "aktiv",
   "chat.state.off": "aus",

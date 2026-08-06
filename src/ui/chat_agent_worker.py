@@ -33,6 +33,7 @@ class ChatAgentWorker(QThread):
     # Signals
     token_received = pyqtSignal(str)          # real LLM token (final answer stream)
     status_message = pyqtSignal(str)          # AgentLoop progress line (🔄/✅/⚠️/…)
+    thinking_received = pyqtSignal(str)       # <think>/reasoning content - Claude Generated
     # NB (Phase D): tool_called / tool_result Qt signals removed.
     # Tool-call events are emitted on AlimaStateBus ("tool.called" / "tool.result")
     # using the unified id schema. PipelineChatPanel subscribes to the bus.
@@ -106,6 +107,12 @@ class ChatAgentWorker(QThread):
         logger.debug("AgentLoop status: %s", line.strip())
         self.status_message.emit(line)
 
+    def _on_thinking(self, text: str) -> None:
+        """Forward thinking/reasoning content to the UI thread - Claude Generated"""
+        if not text:
+            return
+        self.thinking_received.emit(text)
+
     def _on_tool_call(self, tc: Any) -> None:
         try:
             from src.core.state_bus import AlimaStateBus
@@ -145,6 +152,7 @@ class ChatAgentWorker(QThread):
                 status_callback=self._on_status,
                 on_tool_call=self._on_tool_call,
                 on_tool_result=self._on_tool_result,
+                on_thinking=self._on_thinking,
                 should_stop=self._stop_event.is_set,
             )
             result = loop.run(

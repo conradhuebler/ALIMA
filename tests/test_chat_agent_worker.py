@@ -142,6 +142,21 @@ class TestChatAgentWorker(unittest.TestCase):
         # _last_tool_call_id cleared so the next pair starts fresh.
         self.assertEqual(worker._last_tool_call_id, "")
 
+    def test_thinking_received_signal_emitted(self):
+        """on_thinking wiring: AgentLoop thinking content reaches the
+        thinking_received Qt signal. Claude Generated."""
+        worker = self._make_worker()
+        received: list[str] = []
+        worker.thinking_received.connect(received.append)
+
+        def behavior(loop: _FakeAgentLoop) -> AgentResult:
+            loop.kwargs["on_thinking"]("Ich überlege.")
+            loop.stream_callback("Antwort")
+            return AgentResult(content="Antwort")
+
+        self._drive_with_behavior(worker, behavior)
+        self.assertEqual(received, ["Ich überlege."])
+
     def test_emits_with_unified_id_when_tc_id_empty(self):
         """Phase A contract: when ToolCall.id is empty, worker fills via
         ``make_tool_call_id`` and the result event reuses the same id."""

@@ -4,15 +4,78 @@ Drives multi-turn LLM conversations with tool use, supporting any provider
 that implements generate_with_tools() in LlmService.
 """
 import logging
+import re
 import time
 import json
 from typing import List, Dict, Any, Optional, Callable
 from collections import Counter
 
 from src.core.data_models import AgentResponse, AgentResult, ToolCall, ToolResult, StopReason
+from src.core.processing_utils import strip_think_tags
 from src.mcp.tool_registry import ToolRegistry
+from src.utils.error_visibility import log_caught
 
 logger = logging.getLogger(__name__)
+
+
+class ThinkStreamFilter:
+    """Split a token stream into answer text and <think>…</think> content - Claude Generated
+
+    Feeds text outside think tags to ``on_text`` and text inside to
+    ``on_thinking``. Tags may arrive split across arbitrary token boundaries:
+    the filter holds back the longest buffer suffix that is a prefix of the
+    tag it is currently waiting for. ``flush()`` emits any held-back text to
+    the current mode's sink (an unclosed ``<think>`` therefore stays thinking).
+    """
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(
+        self,
+        on_text: Optional[Callable[[str], None]],
+        on_thinking: Optional[Callable[[str], None]],
+    ):
+        self.on_text = on_text
+        self.on_thinking = on_thinking
+        self._buf = ""
+        self._in_think = False
+
+    def feed(self, token: str) -> None:
+        if not token:
+            return
+        self._buf += token
+        while True:
+            tag = self._CLOSE if self._in_think else self._OPEN
+            idx = self._buf.find(tag)
+            if idx != -1:
+                self._emit(self._buf[:idx])
+                self._buf = self._buf[idx + len(tag):]
+                self._in_think = not self._in_think
+                continue
+            held = self._partial_tag_suffix(self._buf, tag)
+            if len(self._buf) > held:
+                self._emit(self._buf[: len(self._buf) - held])
+                self._buf = self._buf[len(self._buf) - held:]
+            return
+
+    def flush(self) -> None:
+        buf, self._buf = self._buf, ""
+        self._emit(buf)
+
+    def _emit(self, text: str) -> None:
+        if not text:
+            return
+        sink = self.on_thinking if self._in_think else self.on_text
+        if sink:
+            sink(text)
+
+    @staticmethod
+    def _partial_tag_suffix(buf: str, tag: str) -> int:
+        for k in range(min(len(buf), len(tag) - 1), 0, -1):
+            if buf.endswith(tag[:k]):
+                return k
+        return 0
 
 
 class AgentLoop:
@@ -36,6 +99,7 @@ class AgentLoop:
         on_tool_result: Optional[Callable[[str, str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
         status_callback: Optional[Callable[[str], None]] = None,
+        on_thinking: Optional[Callable[[str], None]] = None,
     ):
         self.llm_service = llm_service
         self.tool_registry = tool_registry
@@ -54,6 +118,10 @@ class AgentLoop:
         # they fall through to stream_callback (legacy behaviour for
         # LLMAgentStep/ReflectionStep which show them in PipelineChatPanel).
         self.status_callback = status_callback
+        # Thinking channel: when set, streamed <think>…</think> content and the
+        # provider reasoning channel are routed here instead of into the answer
+        # stream. None (default) keeps the token stream unfiltered. - Claude Generated
+        self.on_thinking = on_thinking
 
     @property
     def _status_cb(self) -> Optional[Callable[[str], None]]:
@@ -139,6 +207,15 @@ class AgentLoop:
             if self._status_cb and self.max_iterations > 1:
                 self._status_cb(f"\n🔄 Iteration {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
 
+            # Fresh per-iteration filter: diverts streamed <think> content to
+            # the thinking channel; without on_thinking the stream stays
+            # untouched (pipeline paths). - Claude Generated
+            think_filter: Optional[ThinkStreamFilter] = None
+            stream_cb = self.stream_callback
+            if self.on_thinking and self.stream_callback:
+                think_filter = ThinkStreamFilter(self.stream_callback, self.on_thinking)
+                stream_cb = think_filter.feed
+
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
                     provider=provider,
@@ -149,22 +226,37 @@ class AgentLoop:
                     top_p=top_p,
                     max_tokens=max_tokens,
                     seed=seed,
-                    stream_callback=self.stream_callback,
+                    stream_callback=stream_cb,
                     should_stop=self.should_stop,
                     think=think,
                 )
             except Exception as e:
+                if think_filter:
+                    think_filter.flush()
                 logger.error(f"LLM call failed at tool-call {iteration}: {e}")
                 if self._status_cb:
                     self._status_cb(f"\n❌ LLM-Fehler: {e}\n")
                 final_content = f"Error: {e}"
                 run_error = str(e)  # mark run as failed, not just oddly-worded - Claude Generated
                 break
+            if think_filter:
+                think_filter.flush()
+
+            # Provider reasoning channel → thinking block. May cosmetically
+            # duplicate streamed <think> content if a provider delivers both. - Claude Generated
+            if self.on_thinking and getattr(response, "reasoning", ""):
+                try:
+                    self.on_thinking(response.reasoning)
+                except Exception as e:
+                    log_caught(logger, e, "on_thinking hook (reasoning channel)")
 
             # Case 1: LLM wants to call tools
             if response.has_tool_calls:
-                # Show LLM's reasoning before tool calls (transparency)
-                if response.content and self._status_cb:
+                # Show LLM's reasoning before tool calls (transparency).
+                # When the content already streamed live, this excerpt is by
+                # definition a duplicate → skip (mirrors the on_tool_call
+                # suppression pattern below). - Claude Generated
+                if response.content and self._status_cb and not self.stream_callback:
                     reasoning = response.content.strip()
                     if reasoning:
                         # Truncate long reasoning to first 200 chars
@@ -281,9 +373,11 @@ class AgentLoop:
                         "name": tc.name,
                     })
 
-                # If there was also text content, accumulate it
+                # If there was also text content, accumulate it. Separate
+                # iterations with a blank line so markdown doesn't glue the
+                # turns into one paragraph. - Claude Generated
                 if response.content:
-                    final_content += response.content
+                    final_content += ("\n\n" if final_content else "") + response.content
 
                 # Continue loop for next LLM turn
                 continue
@@ -316,8 +410,8 @@ class AgentLoop:
                     )
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     final_stop_reason = forced.stop_reason
-                    if final_content and self.stream_callback:
-                        self.stream_callback(final_content)
+                    if final_content:
+                        final_content = self._emit_final(final_content)
                 except Exception:
                     logger.exception("final-answer nudge failed")
 
@@ -344,7 +438,7 @@ class AgentLoop:
                 if self.stream_callback:
                     self.stream_callback(final_content)
             if final_content:
-                messages.append({"role": "assistant", "content": final_content})
+                messages.append({"role": "assistant", "content": strip_think_tags(final_content)})
             if self._status_cb and final_content and self.max_iterations > 1:
                 self._status_cb(
                     f"\n✅ Fertig nach {iteration} Iteration(en), "
@@ -376,6 +470,10 @@ class AgentLoop:
                     final_stop_reason = forced.stop_reason
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     if final_content:
+                        # Stream the forced answer too — otherwise it is the one
+                        # final-content path the frontends never see live. - Claude Generated
+                        final_content = self._emit_final(final_content)
+                    if final_content:
                         messages.append({"role": "assistant", "content": final_content})
                 except Exception:
                     final_content = "Agent reached maximum iterations without conclusion."
@@ -393,7 +491,7 @@ class AgentLoop:
         # Extract only messages added during this run (new user prompt + tool calls + assistant)
         conv = [dict(m) for m in messages[history_len:]] if messages else []
         return AgentResult(
-            content=final_content,
+            content=strip_think_tags(final_content) if final_content else final_content,
             tool_log=tool_log,
             iterations=min(iteration, self.max_iterations) if 'iteration' in dir() else 0,
             tokens_used=0,  # TODO: Track from provider responses
@@ -401,6 +499,28 @@ class AgentLoop:
             error=run_error,
             stop_reason=getattr(final_stop_reason, "value", str(final_stop_reason)),
         )
+
+    def _emit_final(self, text: str) -> str:
+        """Deliver a non-streamed final answer to the frontends - Claude Generated
+
+        Routes ``<think>`` parts to the thinking channel (if wired), streams the
+        clean remainder, and returns it. May return "" if the answer was
+        thinking-only — callers fall back to their empty-answer handling.
+        """
+        if self.on_thinking:
+            thinking = "\n".join(
+                part for part in re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
+                if part.strip()
+            )
+            if thinking.strip():
+                try:
+                    self.on_thinking(thinking)
+                except Exception as e:
+                    log_caught(logger, e, "on_thinking hook (final answer)")
+        clean = strip_think_tags(text).strip()
+        if clean and self.stream_callback:
+            self.stream_callback(clean)
+        return clean
 
     def _get_tool_type_label(self, tool_name: str) -> str:
         """Get a human-readable label for the tool type.
@@ -442,7 +562,7 @@ class AgentLoop:
             })
         return {
             "role": "assistant",
-            "content": response.content or "",
+            "content": strip_think_tags(response.content or ""),
             "tool_calls": tool_calls_data,
         }
 

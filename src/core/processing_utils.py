@@ -5,6 +5,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def strip_think_tags(text: str) -> str:
+    """Remove <think>…</think> reasoning blocks from an LLM response - Claude Generated"""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+
 def chunk_abstract_by_lines(text: str, lines_per_chunk: int) -> List[str]:
     logger.info(
         f"chunk_abstract_by_lines called with text length {len(text)} and {lines_per_chunk} lines per chunk"
@@ -90,7 +95,7 @@ def extract_keywords_from_response(text: str, output_format: Optional[str] = Non
         logger.warning("JSON-Parsing fehlgeschlagen, Fallback auf XML-Extraktion")
 
     # Legacy XML extraction
-    cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned_text = strip_think_tags(text)
     match = re.search(r"<final_list>(.*?)</final_list>", cleaned_text, re.DOTALL)
     if match:
         keywords = match.group(1).split("|")
@@ -127,7 +132,7 @@ def extract_title_from_response(text: str, output_format: Optional[str] = None) 
         logger.warning("JSON Titel-Parsing fehlgeschlagen, Fallback auf XML")
 
     # Legacy XML extraction
-    cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned_text = strip_think_tags(text)
     match = re.search(r"<final_title>(.*?)</final_title>", cleaned_text, re.DOTALL)
     if match:
         title = match.group(1).strip()
@@ -159,7 +164,7 @@ def extract_missing_concepts_from_response(text: str, output_format: Optional[st
         logger.warning("JSON Missing-Concepts-Parsing fehlgeschlagen, Fallback auf XML")
 
     # Legacy XML extraction
-    cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned_text = strip_think_tags(text)
     cleaned_text = re.sub(r"<\|begin_of_thought\|>.*?<\|end_of_thought\|>", "", cleaned_text, flags=re.DOTALL)
 
     match = re.search(r'<missing_list>\s*([^<]+)\s*</missing_list>', cleaned_text, re.DOTALL | re.IGNORECASE)
@@ -275,7 +280,7 @@ def extract_gnd_system_from_response(text: str, output_format: Optional[str] = N
 
     try:
         # Remove <think> tags first
-        cleaned_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        cleaned_text = strip_think_tags(text)
 
         # Try to find the <class> tag first (if the prompt is updated to include it)
         match_class_tag = re.search(r"<class>(.*?)</class>", cleaned_text, re.DOTALL)

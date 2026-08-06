@@ -172,6 +172,7 @@ class HeadlessAgentRunner:
         on_status: Optional[Callable[[str], None]] = None,
         on_tool_call: Optional[Callable[[Any], None]] = None,
         on_tool_result: Optional[Callable[[str, str], None]] = None,
+        on_thinking: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
         think: Optional[bool] = None,
         language: str = "de",
@@ -219,6 +220,7 @@ class HeadlessAgentRunner:
             status_callback=on_status,
             on_tool_call=on_tool_call,
             on_tool_result=on_tool_result,
+            on_thinking=on_thinking,
             should_stop=should_stop,
         )
 

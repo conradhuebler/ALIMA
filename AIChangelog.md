@@ -6,6 +6,70 @@
 
 ## 2026
 
+### Chat-Rendering entflochten + Webapp-Log zeigt den Lauf wieder (August 6, 2026)
+
+Zwei Operator-Befunde, drei Ursachen auf verschiedenen Ebenen.
+
+**1. Chat: Tool-Calls, Thinking und Antwort klebten aneinander.** Eine
+Assistant-Bubble spannte den gesamten Agent-Lauf: Tool-Collapsibles wurden
+dahinter angehängt, spätere Tokens flossen aber weiter in die Bubble *darüber*
+— Prosa aus Iteration 2 stand über den Tool-Calls, die ihr vorausgingen.
+Zusätzlich klebten Iterationen ohne Separator aneinander
+(`final_content += response.content`), und `<think>`-Blöcke wurden im Chat-Pfad
+nie gestrippt: markdown-it lässt das unbekannte Inline-Tag durch, beim Streamen
+escaped es das JS — die Darstellung sprang also beim Finalisieren.
+
+- `UnifiedMessageRenderer._segment_break()` schließt Thinking-Block und Bubble,
+  bevor ein Collapsible/Tool-/Fehlerblock angehängt wird; `finalize_assistant_bubble`
+  ist jetzt idempotent. Ergebnis: Bubble pro Iteration, DOM-Reihenfolge = Chronologie.
+- Neuer Thinking-Kanal: `AgentLoop(on_thinking=…)` + `ThinkStreamFilter`
+  (Zustandsmaschine, hält Tag-Präfixe über Token-Grenzen zurück) leitet
+  `<think>`-Inhalt und `response.reasoning` in ein eingeklapptes 💭-Collapsible
+  (`kind="thinking"`, gedrosselte Updates). Ohne `on_thinking` bleibt der Strom
+  ungefiltert — Pipeline-Pfade unverändert.
+- Separator `\n\n` zwischen Tool-Turn-Prosa; Max-Iterations-Forced-Answer wird
+  jetzt auch gestreamt (war der einzige Final-Pfad ohne Stream); der 💭-Status-Auszug
+  entfällt, wenn ohnehin gestreamt wird. Persistierte Texte sind think-frei.
+- Verdrahtet in beiden Frontends + CLI (`alima agent`: Thinking auf stderr).
+
+**2. Webapp rendert das Pipeline-Ergebnis nicht.** Der JS-Dispatcher war
+unschuldig (alle 11 Event-Typen behandelt). Emissionsseitig fehlten schlicht
+vier Blöcke: Abschlusszeile, `📌 N GND-Schlagworte`, Schlagwortketten und
+`report_markdown` — die gab es nur im GUI-Mixin. Neu: Qt-freies
+`render_pipeline_result(renderer, analysis_state, duration)` in
+`pipeline_formatters.py`, von GUI **und** Webapp aufgerufen. Dazu klappt die
+Webapp die Input-Zone nach Abschluss wieder auf, sonst blieb das
+Summary-Panel (`max-height:0`) unsichtbar.
+
+**3. Die Wurzel für „man sieht nix von der Pipeline": der StateBus lieferte
+nicht.** `emit_event` entscheidet per `QAbstractEventDispatcher.instance()`
+zwischen Queue und Direktversand. `DatabaseManager` legt für QtSql eine
+`QCoreApplication` an — die Webapp hat damit einen Dispatcher auf dem
+Main-Thread, ruft aber nie `exec()`. Jedes vom Pipeline-Worker emittierte
+Event landete in einer Queue, die niemand abarbeitet: sämtliche
+bus-getriebene Chrome (Schritt-Collapsibles, Agentik-Prompts, Tool-Calls)
+verschwand spurlos, im agentischen Modus blieb das Log bis zum Ende leer.
+`state_bus.set_direct_dispatch(True)` (Webapp-`lifespan`) liefert
+Cross-Thread-Events synchron aus; die GUI behält den Queue-Hop, weil ihre
+Subscriber Widgets anfassen.
+
+**4. Rate-Limit-Wartemeldung als Broadcast.** Sie ging bisher in
+`stream_callback` — wurde also als Teil der Modellantwort gerendert, und im
+agentischen Webapp-Modus (Tokens nur gepuffert) war sie gar nicht sichtbar.
+Jetzt emittiert `_retry_on_rate_limit` `state.notice` (`{text, level}`) auf dem
+Bus; beide Bridges rendern sie als Warn-Log-Zeile, die CLI spiegelt sie nach
+stderr (`main.py`). Ein Kanal, alle Oberflächen, unabhängig davon welche
+Callbacks der laufende Pfad verdrahtet hat.
+
+Tests: 1715 grün (+30). `tests/test_webapp_run_chrome.py` fährt `run_analysis`
+mit Stub-Manager gegen eine QCoreApplication ohne Schleife und prüft
+klassisch + agentisch; per Mutation verifiziert (Flag aus ⇒ 0 Collapsibles).
+Dazu `test_state_bus_direct_dispatch.py`, `test_rate_limit_notice.py`,
+`test_render_pipeline_result.py`,
+Thinking-/Segmentierungs-Tests in `test_agent_loop_hooks.py`,
+`test_unified_message_renderer.py`, `test_webapp_chat.py`,
+`test_chat_agent_worker.py`.
+
 ### Webapp „findet keine Provider-Config": drei Schichten, eine Wurzel (August 4, 2026)
 
 Operator-Befund: das Provider/Modell-Dropdown der Webapp blieb leer bzw. lud

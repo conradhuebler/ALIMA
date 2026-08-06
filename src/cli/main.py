@@ -459,6 +459,20 @@ def main():
     setup_logging(level=args.log_level)
     logger = logging.getLogger(__name__)
 
+    # Operational notices (e.g. an LLM rate-limit wait) are broadcast on the
+    # state bus; the CLI has no log surface, so mirror them to stderr. No Qt
+    # loop runs here → deliver synchronously. - Claude Generated
+    try:
+        from src.core.state_bus import AlimaStateBus, set_direct_dispatch
+
+        set_direct_dispatch(True)
+        AlimaStateBus().subscribe(
+            "state.notice",
+            lambda p: print((p or {}).get("text", ""), file=sys.stderr, flush=True),
+        )
+    except Exception:
+        logger.debug("state.notice CLI subscription failed", exc_info=True)
+
     # First-run setup + prompts.json checks (skipped for infra/inspection commands).
     # Single config load shared by both checks. - Claude Generated
     if args.command not in _SETUP_EXEMPT_COMMANDS:

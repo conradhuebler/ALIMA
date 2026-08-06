@@ -116,6 +116,17 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Chat-Rendering + Webapp-Log ✅ DONE (Aug 6, Suite 1711):** Bubble pro
+  Iteration (`_segment_break`), Thinking als 💭-Collapsible
+  (`AgentLoop(on_thinking=…)` + `ThinkStreamFilter`, `<think>` nie mehr im
+  Antworttext), geteiltes `render_pipeline_result` (Webapp zeigt Keywords/
+  Ketten/Report wie die GUI). **Wurzel des leeren Webapp-Logs:** `AlimaStateBus`
+  stellte Cross-Thread-Events in eine Qt-Queue, die keiner abarbeitet
+  (`DatabaseManager` legt eine `QCoreApplication` ohne `exec()` an) → neu
+  `state_bus.set_direct_dispatch(True)` im Webapp-`lifespan`; GUI unverändert.
+  Rate-Limit-Wartemeldung jetzt `state.notice` auf dem Bus (statt im
+  Token-Strom) → sichtbar in GUI, Webapp und CLI-stderr.
+  Details: `AIChangelog.md` (Aug 6).
 - **➡️ Offene WPs: [`docs/open_workpackages.md`](docs/open_workpackages.md)**
   (Stand Aug 4): **Daten-Achse D1+D2 ✅ ABGESCHLOSSEN** (P0–P4, Ernte,
   Title-Records kanonisch, `dk_*`-Sweep; Rest = Adoption: GUI/CLI-Eingabetypen

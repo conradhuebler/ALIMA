@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock
 
-from src.core.agent_loop import AgentLoop
+from src.core.agent_loop import AgentLoop, ThinkStreamFilter
 from src.core.data_models import AgentResponse, ToolCall
 
 
@@ -186,6 +186,202 @@ class TestAgentLoopHooks(unittest.TestCase):
         loop2.run(system_prompt="sys", user_prompt="ask", tools=["get_keywords"], provider="p", model="m")
         self.assertTrue(any(s.lstrip().startswith("🔧") for s in status_log2))
         self.assertTrue(any(s.lstrip().startswith("✓") for s in status_log2))
+
+
+class TestThinkStreamFilter(unittest.TestCase):
+    """<think> stream filter: diversion, tag splits, flush semantics. Claude Generated."""
+
+    def _run(self, chunks):
+        texts, thinks = [], []
+        f = ThinkStreamFilter(texts.append, thinks.append)
+        for c in chunks:
+            f.feed(c)
+        f.flush()
+        return "".join(texts), "".join(thinks)
+
+    def test_plain_text_passthrough(self):
+        text, think = self._run(["Hello ", "world"])
+        self.assertEqual(text, "Hello world")
+        self.assertEqual(think, "")
+
+    def test_think_content_diverted(self):
+        text, think = self._run(["a<think>x</think>b"])
+        self.assertEqual(text, "ab")
+        self.assertEqual(think, "x")
+
+    def test_tags_split_across_token_boundaries(self):
+        full = "pre<think>secret</think>post"
+        # Every possible single split point of the whole stream.
+        for i in range(1, len(full)):
+            text, think = self._run([full[:i], full[i:]])
+            self.assertEqual(text, "prepost", f"split at {i}")
+            self.assertEqual(think, "secret", f"split at {i}")
+        # Char-by-char (worst case).
+        text, think = self._run(list(full))
+        self.assertEqual(text, "prepost")
+        self.assertEqual(think, "secret")
+
+    def test_unclosed_think_flushes_to_thinking(self):
+        text, think = self._run(["a<think>never closed"])
+        self.assertEqual(text, "a")
+        self.assertEqual(think, "never closed")
+
+    def test_lone_angle_bracket_stays_text(self):
+        text, think = self._run(list("a < b and c > d, <thin fabric>"))
+        self.assertEqual(text, "a < b and c > d, <thin fabric>")
+        self.assertEqual(think, "")
+
+    def test_multiple_think_segments(self):
+        text, think = self._run(["<think>one</think>A<think>two</think>B"])
+        self.assertEqual(text, "AB")
+        self.assertEqual(think, "onetwo")
+
+
+class TestAgentLoopThinking(unittest.TestCase):
+    """on_thinking wiring, think-stripping, separators. Claude Generated."""
+
+    def _streaming_llm(self, chunks, content):
+        """LLM mock that streams ``chunks`` via stream_callback then returns
+        a final (no-tool) response with ``content``."""
+        svc = MagicMock()
+
+        def _gen(**kwargs):
+            cb = kwargs.get("stream_callback")
+            if cb:
+                for c in chunks:
+                    cb(c)
+            return AgentResponse(content=content, tool_calls=[])
+
+        svc.generate_with_tools.side_effect = _gen
+        return svc
+
+    def test_think_stream_diverted_to_on_thinking(self):
+        llm = self._streaming_llm(
+            ["<think>plan", "ning</think>", "Antwort"],
+            "<think>planning</think>Antwort",
+        )
+        tokens, thinks = [], []
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=_make_registry(),
+            stream_callback=tokens.append,
+            status_callback=lambda s: None,
+            on_thinking=thinks.append,
+        )
+        result = loop.run(system_prompt="s", user_prompt="u", tools=[], provider="p", model="m")
+        self.assertEqual("".join(tokens), "Antwort")
+        self.assertEqual("".join(thinks), "planning")
+        # Persisted/final content is think-stripped.
+        self.assertEqual(result.content, "Antwort")
+        assistant_msgs = [m for m in result.messages if m.get("role") == "assistant"]
+        self.assertTrue(all("<think>" not in (m.get("content") or "") for m in assistant_msgs))
+
+    def test_stream_unfiltered_without_on_thinking(self):
+        llm = self._streaming_llm(
+            ["<think>plan</think>", "Antwort"], "<think>plan</think>Antwort"
+        )
+        tokens = []
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=_make_registry(),
+            stream_callback=tokens.append,
+            status_callback=lambda s: None,
+        )
+        result = loop.run(system_prompt="s", user_prompt="u", tools=[], provider="p", model="m")
+        # Pipeline back-compat: without on_thinking the stream is untouched.
+        self.assertEqual("".join(tokens), "<think>plan</think>Antwort")
+        # AgentResult content is still think-stripped.
+        self.assertEqual(result.content, "Antwort")
+
+    def test_reasoning_channel_routed_to_on_thinking(self):
+        responses = [AgentResponse(content="Done.", tool_calls=[], reasoning="deep thought")]
+        llm = _make_llm_service(responses)
+        thinks = []
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=_make_registry(),
+            stream_callback=lambda t: None,
+            on_thinking=thinks.append,
+        )
+        result = loop.run(system_prompt="s", user_prompt="u", tools=[], provider="p", model="m")
+        self.assertEqual(thinks, ["deep thought"])
+        self.assertEqual(result.content, "Done.")
+
+    def test_reasoning_excerpt_suppressed_when_streaming(self):
+        """The 💭 status excerpt duplicates streamed prose → only emitted
+        when no stream_callback is wired."""
+        tc = ToolCall(id="t1", name="get_keywords", arguments={})
+        responses = [
+            AgentResponse(content="Ich suche jetzt.", tool_calls=[tc]),
+            AgentResponse(content="Fertig.", tool_calls=[]),
+        ]
+        llm = _make_llm_service(responses)
+        status_log = []
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=_make_registry(),
+            stream_callback=lambda t: None,
+            status_callback=status_log.append,
+        )
+        loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+        self.assertEqual([s for s in status_log if "💭" in s], [])
+
+        # Without streaming the excerpt still appears (CLI/status-only paths).
+        responses2 = [
+            AgentResponse(content="Ich suche jetzt.", tool_calls=[tc]),
+            AgentResponse(content="Fertig.", tool_calls=[]),
+        ]
+        llm2 = _make_llm_service(responses2)
+        status_log2 = []
+        loop2 = AgentLoop(
+            llm_service=llm2,
+            tool_registry=_make_registry(),
+            status_callback=status_log2.append,
+        )
+        loop2.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+        self.assertTrue(any("💭" in s for s in status_log2))
+
+    def test_tool_turn_prose_joined_with_blank_line(self):
+        """Prose accumulated across tool turns gets a paragraph separator."""
+        tc = ToolCall(id="t1", name="get_keywords", arguments={})
+        responses = [
+            AgentResponse(content="Erst suchen.", tool_calls=[tc]),
+            AgentResponse(content="Dann filtern.", tool_calls=[tc]),
+        ]
+        llm = _make_llm_service(responses)
+        loop = AgentLoop(
+            llm_service=llm,
+            tool_registry=_make_registry(),
+            max_iterations=2,
+            status_callback=lambda s: None,
+        )
+        result = loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+        self.assertEqual(result.content, "Erst suchen.\n\nDann filtern.")
+
+    def test_max_iterations_forced_answer_is_streamed(self):
+        """The forced final answer (max iterations, empty prose) must reach
+        the stream so per-iteration bubble finalize doesn't lose it."""
+        tc = ToolCall(id="t1", name="get_keywords", arguments={})
+
+        svc = MagicMock()
+
+        def _gen(**kwargs):
+            if kwargs.get("tools"):
+                return AgentResponse(content="", tool_calls=[tc])
+            return AgentResponse(content="Erzwungene Antwort.", tool_calls=[])
+
+        svc.generate_with_tools.side_effect = _gen
+        tokens = []
+        loop = AgentLoop(
+            llm_service=svc,
+            tool_registry=_make_registry(),
+            max_iterations=2,
+            stream_callback=tokens.append,
+            status_callback=lambda s: None,
+        )
+        result = loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+        self.assertEqual("".join(tokens), "Erzwungene Antwort.")
+        self.assertEqual(result.content, "Erzwungene Antwort.")
 
 
 if __name__ == "__main__":

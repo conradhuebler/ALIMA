@@ -24,6 +24,7 @@ import uvicorn
 # Import ALIMA Pipeline components - Claude Generated
 # PipelineConfig kept only for re-export (tests patch appmod.PipelineConfig.*). - Claude Generated
 from src.core.pipeline_manager import PipelineConfig
+from src.core.state_bus import set_direct_dispatch
 from src.utils.config_manager import ConfigManager
 from src.utils.qt_plugin_setup import setup_qt_plugin_paths, get_available_sql_drivers
 # cleanup_old_autosaves (session_io.py, F-6 split) is used by the lifespan. - Claude Generated
@@ -96,6 +97,13 @@ async def lifespan(app):
     # Suppress session-polling spam AFTER uvicorn has configured its loggers
     logging.getLogger("uvicorn.access").addFilter(_SuppressSessionPolling())
     logger.info("Starting ALIMA Webapp...")
+
+    # No Qt event loop runs here, but DatabaseManager creates a QCoreApplication
+    # for QtSql — so AlimaStateBus would queue every worker-thread event for a
+    # loop that never spins, and all bus-driven log chrome (pipeline steps,
+    # agentic prompts, tool calls) would vanish. Deliver synchronously instead;
+    # the webapp's subscribers only append to a lock-protected buffer. - Claude Generated
+    set_direct_dispatch(True)
 
     try:
         startup_config = ConfigManager(logger=logger).load_config()

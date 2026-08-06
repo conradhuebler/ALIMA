@@ -101,6 +101,13 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
         sys.stderr.write(line)
         sys.stderr.flush()
 
+    def _emit_thinking(text: str) -> None:
+        # Thinking on stderr: stdout stays the clean, think-free answer
+        # stream (matches the think-stripped final_content in the JSON
+        # payload). - Claude Generated
+        sys.stderr.write(text)
+        sys.stderr.flush()
+
     def _emit_tool_call(tc) -> None:
         sys.stderr.write(f"\n🔧 {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)[:120]})\n")
         sys.stderr.flush()
@@ -182,6 +189,7 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
             on_status=_emit_status,
             on_tool_call=_emit_tool_call,
             on_tool_result=_emit_tool_result,
+            on_thinking=_emit_thinking,
             should_stop=stop_event.is_set,
         )
     finally:

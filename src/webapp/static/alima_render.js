@@ -47,6 +47,7 @@ function _applyCollapsibleKind(det, kind) {
   // kind === 'error' marks the block with the red error chrome. Kinds are
   // append-only: an error never un-errors (replay safety).
   if (kind === 'error') det.classList.add('rc-error');
+  if (kind === 'thinking') det.classList.add('rc-thinking');
 }
 function appendCollapsible(id, summary, body, open, kind) {
   // Idempotent per id: a replay/duplicate updates the existing block.

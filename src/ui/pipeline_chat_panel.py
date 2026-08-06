@@ -235,6 +235,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
                 "state.pipeline_completed",
                 lambda p: self._on_bus_pipeline_completed(p),
             )
+            bus.subscribe("state.notice", self._on_bus_notice)
         except Exception:
             self.logger.exception("PipelineChatPanel: AlimaStateBus subscribe failed")
 

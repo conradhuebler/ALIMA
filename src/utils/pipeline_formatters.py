@@ -992,3 +992,58 @@ class PipelineResultFormatter:
                     gnd_keywords.append(f"{keyword} (GND-ID: {gnd_id})")
 
         return gnd_keywords
+
+
+def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str] = None) -> None:
+    """Emit the final pipeline result blocks via a UnifiedMessageRenderer - Claude Generated
+
+    Qt-free and shared by the GUI chat panel and the webapp: completion line,
+    final GND keywords, Schlagwortketten, the DK/Auswertung cards, and a
+    workflow ``report_markdown``. Emits nothing for sections without data.
+    """
+    duration_suffix = f" in {duration_str}" if duration_str else ""
+    renderer.render_pipeline_log(
+        f"\U0001f389 Pipeline vollständig abgeschlossen{duration_suffix}!", "success"
+    )
+
+    if analysis_state and getattr(analysis_state, "final_llm_analysis", None):
+        kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
+        if kw_list:
+            kw_display = ", ".join(kw_list)
+            renderer.render_pipeline_log(
+                f"\U0001f4cc {len(kw_list)} GND-Schlagworte ausgewählt:\n{kw_display}",
+                "success",
+            )
+        response_text = analysis_state.final_llm_analysis.response_full_text or ""
+        if "schlagwortketten" in response_text.lower():
+            chain_lines = [
+                line for line in response_text.split("\n") if "→" in line or "->" in line
+            ]
+            if chain_lines:
+                renderer.render_pipeline_log(
+                    "\U0001f517 Schlagwortketten:\n" + "\n".join(chain_lines[:10]),
+                    "success",
+                )
+
+    if analysis_state and getattr(analysis_state, "dk_classifications", None):
+        card_html, dk_codes_text = (
+            PipelineResultFormatter.format_dk_classifications_card_html(analysis_state)
+        )
+        if card_html:
+            renderer.render_pipeline_log("\U0001f3f7 DK-Klassifikationen:", "success")
+            renderer.render_html_block(
+                card_html, kind="dk_classifications", plain_text=dk_codes_text
+            )
+
+    if analysis_state:
+        ausw_html, ausw_plain = (
+            PipelineResultFormatter.format_dk_auswertung_card_html(analysis_state)
+        )
+        if ausw_html:
+            renderer.render_html_block(
+                ausw_html, kind="dk_statistics", plain_text=ausw_plain
+            )
+
+    report_markdown = getattr(analysis_state, "report_markdown", "") if analysis_state else ""
+    if report_markdown:
+        renderer.render_markdown_block(report_markdown, kind="workflow_report")

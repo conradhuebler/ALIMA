@@ -1258,6 +1258,10 @@ class AlimaWebapp {
             }
 
             // Show results panel for both extraction-only and full pipeline - Claude Generated
+            // Re-expand the input zone: it auto-collapses on run start
+            // (updateButtonState) and #results-panel lives inside its body —
+            // without this the summary stays invisible (max-height:0). - Claude Generated
+            this.setInputZoneCollapsed(false);
             this.showResultsPanel();
 
             // For extraction-only, display simplified results - Claude Generated
