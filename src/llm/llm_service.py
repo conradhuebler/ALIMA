@@ -667,10 +667,12 @@ class LlmService(QObject):
         if providers is None:
             providers = list(self.supported_providers.keys())
         
-        # Apply Ollama routing logic for backward compatibility
+        # Apply Ollama routing logic for backward compatibility. A configured
+        # provider literally named "ollama" (any provider_type) is NOT the
+        # legacy alias and must be registered normally. - Claude Generated
         filtered_providers = []
         for provider in providers:
-            if provider == "ollama":
+            if provider == "ollama" and provider not in self.supported_providers:
                 # Check if we have any enabled Ollama providers
                 if self.alima_config.unified_config.get_enabled_ollama_providers():
                     filtered_providers.append(provider)
@@ -741,11 +743,13 @@ class LlmService(QObject):
         if providers is None:
             providers = list(self.supported_providers.keys())
             
-        # Apply Ollama routing logic for backward compatibility
+        # Apply Ollama routing logic for backward compatibility. A configured
+        # provider literally named "ollama" (any provider_type) is NOT the
+        # legacy alias and must be initialized normally. - Claude Generated
         filtered_providers = []
         for provider in providers:
             # For backward compatibility, allow legacy "ollama" provider
-            if provider == "ollama":
+            if provider == "ollama" and provider not in self.supported_providers:
                 # Check if we have any enabled Ollama providers
                 if self.alima_config.unified_config.get_enabled_ollama_providers():
                     filtered_providers.append(provider)
@@ -805,7 +809,8 @@ class LlmService(QObject):
         Returns:
             Actual configured provider name
         """
-        if provider == "ollama":
+        if provider == "ollama" and provider not in self.supported_providers:
+            # Legacy alias: no configured provider is actually named "ollama".
             # Map "ollama" to first available configured ollama provider
             for ollama_provider in self.alima_config.unified_config.get_enabled_ollama_providers():
                 if ollama_provider.name in self.clients:
