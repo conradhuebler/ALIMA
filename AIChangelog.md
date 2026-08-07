@@ -6,6 +6,82 @@
 
 ## 2026
 
+### Session-Prompt-Override im Abstract-Tab wirkt jetzt (August 7, 2026)
+
+Operator-Befund: Nach einem Pipeline-Lauf im Abstract-Tab (Prompt-Reiter) den
+Prompt editieren und die Einzelanalyse neu starten — der editierte Prompt lief
+nie mit. Ursache: `abstract_tab.start_analysis` legte `prompt_template`/
+`system_prompt` in `PipelineStepConfig.custom_params`, die klassischen
+Step-Executoren lasen sie aber per `getattr(step_config, …)` als Top-Level-
+Attribute, die auf `PipelineStepConfig` nicht existieren — der Override wurde
+still verworfen und der `PromptService`-Prompt lief.
+
+- `_pipeline_classic_steps.py` (`initialisation` + `keywords`): Override wird
+  jetzt aus `custom_params` gezogen (dasselbe Muster wie
+  `keyword_chunking_threshold`/`chunking_task`); `system` nur zusammen mit
+  `prompt_template`, weil `analyze_abstract` es sonst fallen lässt. CLI-Parität
+  gratis: `PipelineConfigBuilder.apply_override` legt unbekannte Parameter
+  generisch in `custom_params` ab.
+- `abstract_tab.py`: Diff-Gating — der Feldinhalt wird nur als Override
+  gesendet, wenn er vom geladenen Prompt-Set abweicht (Baseline in
+  `on_prompt_selected`). Zwingend: die Keys standen bisher *immer* in
+  `custom_params`; ohne Gating würde jeder Lauf zum Override und damit den
+  Modell-Tier-Match des PromptService aushebeln und `output_format="xml"`
+  erzwingen. Aktiver Override wird im Results-Feld angezeigt.
+- Platzhalter-Validierung vor dem Lauf (`validate_prompt_placeholders` in
+  `pipeline_text_utils.py`, rein): unbalancierte Klammern, positionale und
+  unbekannte Felder → `QMessageBox` statt späterem Format-Crash. Meldung nennt
+  Zeile + Textausschnitt der ersten defekten Klammer.
+- Nebenbefund, behoben: 5 Prompt-Sets in `prompts.json` (keywords Set 1+2,
+  initialisation Set 2, dk_classification Set 1+2) enthielten ein nacktes
+  ``` `{` ``` („Direkt mit `{` beginnen") und crashten `.format()` mit
+  `ValueError` — die `default`-Sets waren durch die yaml-Schattierung inert,
+  aber die qwen/cogito/deepseek/magistral-Sets laufen bei exaktem Modellnamen
+  wirklich. Fix: ``` `{` ``` → ``` `{{` ``` (das LLM sieht nach `format()`
+  unverändert `{`); `prompts.yaml` war sauber. Sichtbar wurde das über die
+  neue Validierung: jedes Editieren eines dieser Sets meldete die
+  vorbestehende defekte Klammer.
+- Sicherheitsnetz: `on_analysis_completed` prüft jetzt `step.status` —
+  Executor-Fehler (von `execute_step` geschluckt) zeigten bisher „Analyse
+  abgeschlossen ✓".
+- Chunking-Grenze: im Chunk-Pfad wird der Override entfernt (Chunk-Läufe
+  nutzen bewusst den `chunking_task`-Prompt), mit Stream-Hinweis.
+
+Grenzen: wirkt nur für Steps über `analyze_abstract` (`initialisation`,
+`keywords`); `dk_classification` hat einen separaten Prompt-Mechanismus.
+Override erzwingt XML-Ausgabeformat (bestehende Semantik des
+`prompt_template`-Zweigs). Session-only, keine Persistierung — die getrennten
+Befunde (Prompt-Editor-Dialog ohne Service-Reload; `prompts.yaml` überschattet
+die `default`-Variante aus `prompts.json`; tote Expert-Mode-Prompt-Felder im
+`PipelineConfigDialog`) bleiben offen.
+
+Tests: `tests/test_prompt_override_flow.py` (realer `PipelineManager`,
+custom_params→Executor-kwargs, per Mutation gegengeprüft) + Erweiterungen in
+`test_pipeline_utils.py` (Executor→`analyze_abstract`, Chunk-Grenze,
+Validator). Suite 1728.
+
+**Nachtrag: Pipeline-Task-Schnellwahl + sprechende Prompt-Set-Labels.** Der
+Abstract-Tab verlangte Insiderwissen an zwei Stellen: Task-Combobox mit rohen
+Task-Namen und Prompt-Combobox mit „Prompt Set N".
+- Task-Leiste: drei Buttons für die klassischen Pipeline-LLM-Schritte
+  (🔍 Initialisierung / 🏷️ Schlagworte / 📚 DK-Klassifikation, `PIPELINE_TASKS`
+  in `abstract_tab.py`), Klick lädt den Task samt aktivem Prompt; darunter
+  eine Feedback-Zeile, die den gewählten Task beschreibt. Status und
+  Startmeldung nennen beim Lauf den Task („Analyse läuft… (🏷️ Schlagworte)").
+  Combobox bleibt für alle übrigen Tasks, bidirektional synchron.
+- Prompt-Combobox: `PromptService.get_prompt_set_overview(task)` berechnet,
+  welches Set welchen Modell-Key zur Laufzeit gewinnt (Merge-Reihenfolge wie
+  `_build_model_index`, letzter gewinnt = yaml-Schattierung). Labels jetzt
+  „⭐ Standard" / `cogito:14b +5` / „(inaktiv)" für überschattete Sets;
+  Vorauswahl ist das ⭐-Set statt Set 1 (bei keywords/initialisation/
+  dk_classification ein überschattetes Legacy-Set). Tests:
+  `tests/test_prompt_set_overview.py` (gegen echte `get_prompt_config`-
+  Auflösung gepinnt).
+- Startup-Crash dabei behoben: yaml-gemergte Sets tragen `seed=None`
+  (Index 5), die ⭐-Vorauswahl lud erstmals ein solches Set beim Start →
+  `int(None)`-TypeError in `on_prompt_selected`; Temp/P-Value/Seed-Konvertierung
+  jetzt None-fest. Suite 1733.
+
 ### Chat-Rendering entflochten + Webapp-Log zeigt den Lauf wieder (August 6, 2026)
 
 Zwei Operator-Befunde, drei Ursachen auf verschiedenen Ebenen.

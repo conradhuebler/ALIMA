@@ -1415,6 +1415,16 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
         total_keywords = len(gnd_compliant_keywords)
 
         if total_keywords > keyword_chunking_threshold:
+            # Session prompt override is not applied to chunk runs: they use the
+            # chunking_task prompt on purpose - Claude Generated
+            if "prompt_template" in kwargs or "system" in kwargs:
+                kwargs.pop("prompt_template", None)
+                kwargs.pop("system", None)
+                if stream_callback:
+                    stream_callback(
+                        "Hinweis: Prompt-Override wird im Chunking-Pfad ignoriert (chunking_task-Prompts bleiben aktiv).\n",
+                        kwargs.get("step_id", "keywords"),
+                    )
             if stream_callback:
                 stream_callback(
                     f"Zu viele Keywords ({total_keywords} > {keyword_chunking_threshold}). Verwende Chunking-Logik.\n",

@@ -298,6 +298,89 @@ class TestPipelineStepExecutor(unittest.TestCase):
         # Survivor pool is independent of the (mocked) final consolidation result.
         self.assertEqual(final_keywords, ["KW1 (GND-ID: 1)"])
 
+    def test_initial_extraction_forwards_prompt_override(self):
+        """Session prompt override reaches analyze_abstract - Claude Generated
+
+        Pins _filter_alima_kwargs against future exclusion of
+        prompt_template/system: the classic steps forward the override via
+        **kwargs, so an added exclusion would silently kill the feature.
+        """
+        mock_task_state = TaskState(
+            abstract_data=AbstractData(abstract="abstract", keywords=""),
+            analysis_result=AnalysisResult(
+                full_text="<final_list>KW</final_list>", matched_keywords={}, gnd_systematic=""
+            ),
+            status="completed",
+        )
+        self.mock_alima_manager.analyze_abstract.return_value = mock_task_state
+
+        self.executor.execute_initial_keyword_extraction(
+            abstract_text="abstract",
+            model="test-model",
+            provider="test-provider",
+            task="initialisation",
+            prompt_template="T {abstract}",
+            system="S",
+        )
+
+        call_kwargs = self.mock_alima_manager.analyze_abstract.call_args.kwargs
+        self.assertEqual(call_kwargs["prompt_template"], "T {abstract}")
+        self.assertEqual(call_kwargs["system"], "S")
+
+    def test_chunking_path_drops_prompt_override(self):
+        """Chunk runs keep their chunking_task prompt: override is removed - Claude Generated"""
+        search_results = {
+            "user_provided": {
+                "KW1": {"count": 1, "gnd_ids": set()},
+                "KW2": {"count": 1, "gnd_ids": set()},
+                "KW3": {"count": 1, "gnd_ids": set()},
+            }
+        }
+        with patch.object(
+            self.executor,
+            "_execute_chunked_keyword_analysis",
+            return_value=(["KW1"], [], MagicMock()),
+        ) as mock_chunked:
+            self.executor.execute_final_keyword_analysis(
+                original_abstract="abstract",
+                search_results=search_results,
+                model="test-model",
+                provider="test-provider",
+                keyword_chunking_threshold=2,  # forces chunking of the 3-keyword pool
+                prompt_template="T {abstract}",
+                system="S",
+            )
+
+        mock_chunked.assert_called_once()
+        chunk_kwargs = mock_chunked.call_args.kwargs
+        self.assertNotIn("prompt_template", chunk_kwargs)
+        self.assertNotIn("system", chunk_kwargs)
+
+    def test_single_path_keeps_prompt_override(self):
+        """Below the chunking threshold the override flows through - Claude Generated"""
+        search_results = {
+            "user_provided": {"KW1": {"count": 1, "gnd_ids": set()}}
+        }
+        with patch.object(
+            self.executor,
+            "_execute_single_keyword_analysis",
+            return_value=(["KW1"], [], MagicMock()),
+        ) as mock_single:
+            self.executor.execute_final_keyword_analysis(
+                original_abstract="abstract",
+                search_results=search_results,
+                model="test-model",
+                provider="test-provider",
+                keyword_chunking_threshold=5,
+                prompt_template="T {abstract}",
+                system="S",
+            )
+
+        mock_single.assert_called_once()
+        single_kwargs = mock_single.call_args.kwargs
+        self.assertEqual(single_kwargs["prompt_template"], "T {abstract}")
+        self.assertEqual(single_kwargs["system"], "S")
+
     # execute_notation_search resolves the DK extractor via resolve_dk_extractor →
     # CatalogProvider → BiblioSuggester, so BiblioClient is constructed in the
     # suggester — patch it there. Since WP P4 the token + SOAP URLs come from the
@@ -756,6 +839,56 @@ class TestPipelineResultFormatterDisplay(unittest.TestCase):
         self.assertIn("classification-entry", html)
         self.assertIn("614.7", html)
         self.assertEqual(plain, "DK 614.7")
+
+
+class TestValidatePromptPlaceholders(unittest.TestCase):
+    """User-edited prompt templates are checked before an override run - Claude Generated"""
+
+    def test_valid_template(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        self.assertIsNone(
+            validate_prompt_placeholders("Analysiere {abstract} mit {keywords}.")
+        )
+
+    def test_missing_placeholder_is_ok(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        self.assertIsNone(validate_prompt_placeholders("Nur {abstract}."))
+
+    def test_unknown_field(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        error = validate_prompt_placeholders("Text {foo}")
+        self.assertIsNotNone(error)
+        self.assertIn("{foo}", error)
+
+    def test_positional_field(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        self.assertIsNotNone(validate_prompt_placeholders("Text {}"))
+        self.assertIsNotNone(validate_prompt_placeholders("Text {0}"))
+
+    def test_unbalanced_braces(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        error = validate_prompt_placeholders("Text {abstract")
+        self.assertIsNotNone(error)
+        self.assertIn("Klammern", error)
+
+    def test_unbalanced_brace_reports_line_and_context(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        error = validate_prompt_placeholders(
+            "Analysiere {abstract}.\nAntworte als JSON. Direkt mit `{` beginnen."
+        )
+        self.assertIsNotNone(error)
+        self.assertIn("Zeile 2", error)
+        self.assertIn("beginnen", error)
+
+    def test_lone_closing_brace_reports_location(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        error = validate_prompt_placeholders("{abstract} und dann }")
+        self.assertIsNotNone(error)
+        self.assertIn("Zeile 1", error)
+
+    def test_escaped_braces_are_ok(self):
+        from src.utils.pipeline_text_utils import validate_prompt_placeholders
+        self.assertIsNone(validate_prompt_placeholders("JSON: {{\"a\": 1}} {abstract}"))
 
 
 if __name__ == '__main__':

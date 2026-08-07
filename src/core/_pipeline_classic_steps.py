@@ -255,6 +255,13 @@ class ClassicStepExecutorMixin:
                 if value is not None:
                     filtered_config[param] = value
 
+            # Session prompt override lives in custom_params (GUI Prompt tab / CLI override) - Claude Generated
+            if step_config.custom_params.get("prompt_template"):
+                filtered_config["prompt_template"] = step_config.custom_params["prompt_template"]
+                if step_config.custom_params.get("system_prompt"):
+                    filtered_config["system"] = step_config.custom_params["system_prompt"]
+                self.logger.info("Initialisation: using session prompt override from custom_params")
+
             # Handle system_prompt -> system parameter mapping
             if hasattr(step_config, 'system_prompt') and step_config.system_prompt:
                 filtered_config["system"] = step_config.system_prompt
@@ -447,7 +454,8 @@ class ClassicStepExecutorMixin:
             self._abort_step_event.clear()
 
             # Only pass parameters that AlimaManager.analyze_abstract() expects
-            # Note: prompt_template removed - let PromptService load correct prompt based on task
+            # Note: PromptService loads the prompt for the task by default; an explicit
+            # session override arrives via custom_params["prompt_template"] (see below)
             allowed_params = [
                 "use_chunking_abstract",
                 "abstract_chunk_size",
@@ -467,6 +475,13 @@ class ClassicStepExecutorMixin:
             for p in ["keyword_chunking_threshold", "chunking_task"]:
                 if p in step_config.custom_params:
                     filtered_config[p] = step_config.custom_params[p]
+
+            # Session prompt override lives in custom_params (GUI Prompt tab / CLI override) - Claude Generated
+            if step_config.custom_params.get("prompt_template"):
+                filtered_config["prompt_template"] = step_config.custom_params["prompt_template"]
+                if step_config.custom_params.get("system_prompt"):
+                    filtered_config["system"] = step_config.custom_params["system_prompt"]
+                self.logger.info("Keywords: using session prompt override from custom_params")
 
             # TaskPreference override for chunking_threshold (keywords task only)
             if hasattr(self, 'config') and hasattr(self.config, 'step_configs'):
