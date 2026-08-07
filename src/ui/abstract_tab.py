@@ -64,6 +64,7 @@ from ..core.data_models import AbstractData, AnalysisResult, KeywordAnalysisStat
 from ..core.pipeline_manager import PipelineManager, PipelineStep, PipelineConfig
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..utils.config_models import PipelineStepConfig, PipelineMode
+from ..utils.pipeline_text_utils import validate_prompt_placeholders
 from .styles import (
     get_main_stylesheet,
     get_button_styles,
@@ -87,6 +88,26 @@ import threading
 import time
 from typing import List, Tuple, Dict, Optional
 import uuid
+
+# The LLM tasks of the classic pipeline, in pipeline order. Drives the
+# quick-select task buttons; all other tasks stay combo-only - Claude Generated
+PIPELINE_TASKS = [
+    (
+        "initialisation",
+        "🔍 Initialisierung",
+        "Pipeline-Schritt 2: extrahiert erste Schlagwort-Kandidaten aus dem Text.",
+    ),
+    (
+        "keywords",
+        "🏷️ Schlagworte",
+        "Pipeline-Schritt 4: wählt aus den GND-Treffern die finalen Schlagworte.",
+    ),
+    (
+        "dk_classification",
+        "📚 DK-Klassifikation",
+        "Pipeline-Schritt 6: ordnet Notationen anhand der Katalog-Treffer zu.",
+    ),
+]
 
 
 class AbstractTab(QWidget):
@@ -142,6 +163,11 @@ class AbstractTab(QWidget):
         self.explicit_provider_selection = None  # None = not explicitly set by user
         self.explicit_model_selection = None     # None = not explicitly set by user
         self.user_interaction_mode = True        # False = programmatic change
+
+        # Baselines of the loaded prompt set; an analysis run only overrides the
+        # PromptService prompt when the editor content differs from these - Claude Generated
+        self._loaded_prompt_template = ""
+        self._loaded_system_prompt = ""
 
         # Signal connections moved to central MainWindow management - Claude Generated
         # self.llm.ollama_url_updated.connect(self.on_ollama_url_updated)
@@ -227,6 +253,18 @@ class AbstractTab(QWidget):
         task_label = QLabel("📌 Task:")
         task_label.setStyleSheet("font-weight: bold;")
         control_bar.addWidget(task_label)
+        # Quick-select buttons for the classic pipeline tasks; the combo keeps
+        # every task (OCR, rephrase, …) for the rest - Claude Generated
+        self._pipeline_task_buttons = {}
+        for task_name, button_label, description in PIPELINE_TASKS:
+            button = QPushButton(button_label)
+            button.setCheckable(True)
+            button.setToolTip(description)
+            button.clicked.connect(
+                lambda _checked, t=task_name: self._select_task_by_name(t)
+            )
+            control_bar.addWidget(button)
+            self._pipeline_task_buttons[task_name] = button
         self.task_selector_combo = QComboBox()
         self.task_selector_combo.setMinimumWidth(180)
         self.task_selector_combo.currentIndexChanged.connect(self.on_task_selected)
@@ -239,6 +277,12 @@ class AbstractTab(QWidget):
         self.progress_bar.setFormat("Generiere Antwort... %p%")
         control_bar.addWidget(self.progress_bar)
         main_layout.addLayout(control_bar)
+
+        # Feedback line: which task is active and what it does - Claude Generated
+        self.task_description_label = QLabel("")
+        self.task_description_label.setStyleSheet("color: gray;")
+        self.task_description_label.setWordWrap(True)
+        main_layout.addWidget(self.task_description_label)
 
         # ======== Input and Config Side by Side ========
         input_config_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -741,25 +785,74 @@ class AbstractTab(QWidget):
         self.task_selector_combo.clear()
         tasks = self.prompt_manager.get_available_tasks()
         self.task_selector_combo.addItems(tasks)
+        # Only offer pipeline-task buttons whose task actually exists - Claude Generated
+        for task_name, button in self._pipeline_task_buttons.items():
+            button.setVisible(task_name in tasks)
 
     def on_task_selected(self, index):
         if index < 0:
             return
         self.task = self.task_selector_combo.currentText()
+        self._sync_task_feedback()
         self.populate_prompt_selector()
+
+    def _select_task_by_name(self, task_name: str):
+        """Pipeline-task button click → combo selection (single source of truth) - Claude Generated"""
+        combo_index = self.task_selector_combo.findText(task_name)
+        if combo_index >= 0:
+            self.task_selector_combo.setCurrentIndex(combo_index)
+
+    def _task_display_name(self, task_name: str) -> str:
+        """Pipeline label for a task, falling back to the raw task name - Claude Generated"""
+        for name, button_label, _description in PIPELINE_TASKS:
+            if name == task_name:
+                return button_label
+        return task_name
+
+    def _sync_task_feedback(self):
+        """Check the active task button and describe the selected task - Claude Generated"""
+        for task_name, button in self._pipeline_task_buttons.items():
+            button.setChecked(task_name == self.task)
+        description = next(
+            (desc for name, _label, desc in PIPELINE_TASKS if name == self.task),
+            f"Task „{self.task}“ (kein Schritt der klassischen Pipeline).",
+        )
+        self.task_description_label.setText(description)
 
     def populate_prompt_selector(self):
         self.prompt_selector_combo.clear()
         if not self.task:
             return
-        prompts = self.prompt_manager.get_prompts_for_task(self.task)
-        for i, prompt_set in enumerate(prompts):
-            self.prompt_selector_combo.addItem(f"Prompt Set {i+1}", userData=i)
+        overview = self.prompt_manager.get_prompt_set_overview(self.task)
+        for info in overview:
+            label = self._prompt_set_label(info)
+            if not info["live_models"]:
+                label += " (inaktiv)"
+            self.prompt_selector_combo.addItem(
+                f"{info['index'] + 1}: {label}", userData=info["index"]
+            )
         if self.prompt_selector_combo.count() > 0:
+            # Preselect the set the pipeline actually runs as default - Claude Generated
+            default_index = next(
+                (info["index"] for info in overview if info["wins_default"]), 0
+            )
             self.user_interaction_mode = False  # Disable tracking during programmatic change
-            self.prompt_selector_combo.setCurrentIndex(0)
-            self.on_prompt_selected(0)  # This will now respect explicit_model_selection
+            self.prompt_selector_combo.setCurrentIndex(default_index)
+            self.on_prompt_selected(default_index)  # This will now respect explicit_model_selection
             self.user_interaction_mode = True  # Re-enable tracking
+
+    def _prompt_set_label(self, info: dict) -> str:
+        """Human-readable label for a prompt set from its overview entry - Claude Generated"""
+        if info["wins_default"]:
+            return "⭐ Standard"
+        models = info["live_models"] or info["models"]
+        if not models:
+            return f"Set {info['index'] + 1}"
+        label = models[0]
+        if len(models) > 1:
+            label += f" +{len(models) - 1}"
+        return label
+
 
     def on_prompt_selected(self, index):
         if index < 0:
@@ -779,21 +872,36 @@ class AbstractTab(QWidget):
         system_prompt_text = prompt_set[1] if len(prompt_set) > 1 else ""
         self.system_prompt_edit.setPlainText(system_prompt_text)
 
-        # Safely get and set parameters
+        # Remember loaded state so start_analysis can detect user edits - Claude Generated
+        self._loaded_prompt_template = prompt_template_text
+        self._loaded_system_prompt = system_prompt_text
+
+        # Safely get and set parameters. YAML-merged sets carry None for unset
+        # fields (e.g. seed), so guard against None, not just short lists - Claude Generated
         # Temperature (index 2)
         temperature_value = (
-            float(prompt_set[2]) if len(prompt_set) > 2 else 0.7
-        )  # Default to 0.7
+            float(prompt_set[2])
+            if len(prompt_set) > 2 and prompt_set[2] is not None
+            else 0.7
+        )
         self.temp_slider.setValue(int(temperature_value * 100))
         self.temp_spinbox.setValue(temperature_value)
 
         # P-value (index 3)
-        p_value = float(prompt_set[3]) if len(prompt_set) > 3 else 0.1  # Default to 0.1
+        p_value = (
+            float(prompt_set[3])
+            if len(prompt_set) > 3 and prompt_set[3] is not None
+            else 0.1
+        )
         self.p_value_slider.setValue(int(p_value * 100))
         self.p_value_spinbox.setValue(p_value)
 
         # Seed (index 5)
-        seed_value = int(prompt_set[5]) if len(prompt_set) > 5 else 0  # Default to 0
+        seed_value = (
+            int(prompt_set[5])
+            if len(prompt_set) > 5 and prompt_set[5] is not None
+            else 0
+        )
         self.seed_spinbox.setValue(seed_value)
 
         # Model (index 4) - Only set if user hasn't explicitly chosen one - Claude Generated
@@ -858,13 +966,34 @@ class AbstractTab(QWidget):
             )
             return
 
+        # Session prompt override: only when the editor content differs from the
+        # loaded prompt set; otherwise the PromptService picks the prompt (incl.
+        # model-specific variants) - Claude Generated
+        edited_prompt = self.prompt_edit.toPlainText().strip()
+        edited_system = self.system_prompt_edit.toPlainText().strip()
+        prompt_overridden = bool(edited_prompt) and (
+            edited_prompt != self._loaded_prompt_template.strip()
+            or edited_system != self._loaded_system_prompt.strip()
+        )
+        if prompt_overridden:
+            placeholder_error = validate_prompt_placeholders(edited_prompt)
+            if placeholder_error:
+                QMessageBox.warning(
+                    self,
+                    "Ungültige Prompt-Vorlage",
+                    placeholder_error,
+                )
+                return
+
         # Set analysis running state
         self.is_analysis_running = True
 
         # Update UI for analysis state
         self.analyze_button.setVisible(False)
         self.cancel_button.setVisible(True)
-        self.status_label.setText("Analyse läuft...")
+        self.status_label.setText(
+            f"Analyse läuft... ({self._task_display_name(self.task)})"
+        )
         self.status_label.setStyleSheet("QLabel { color: #ff9800; font-weight: bold; }")
         self.progress_bar.setVisible(True)
         self.results_edit.clear()
@@ -874,7 +1003,16 @@ class AbstractTab(QWidget):
             self.hide_input_during_streaming()
 
         # Add analysis start message to results
-        self.results_edit.setPlainText("🔄 Analyse gestartet...\n\n")
+        start_message = (
+            f"🔄 Analyse gestartet... ({self._task_display_name(self.task)})\n\n"
+        )
+        if prompt_overridden:
+            start_message = (
+                "✏️ Editierter Prompt aktiv (Session-Override, XML-Ausgabeformat)\n"
+                + start_message
+            )
+            self.logger.info("Session prompt override active for task '%s'", self.task)
+        self.results_edit.setPlainText(start_message)
 
         # 1. Create ad-hoc PipelineConfig for single step execution - Claude Generated
         adhoc_config = PipelineConfig()
@@ -898,8 +1036,8 @@ class AbstractTab(QWidget):
             top_p=self.p_value_spinbox.value(),
             repetition_penalty=self.repetition_penalty_spinbox.value() if self.repetition_penalty_spinbox.value() != 1.0 else None,
             custom_params={
-                'prompt_template': self.prompt_edit.toPlainText().strip(),
-                'system_prompt': self.system_prompt_edit.toPlainText().strip(),
+                **({'prompt_template': edited_prompt, 'system_prompt': edited_system}
+                   if prompt_overridden else {}),
                 'use_chunking_abstract': self.enable_chunk_abstract.isChecked(),
                 'abstract_chunk_size': self.abstract_chunk_slider.value(),
                 'use_chunking_keywords': self.enable_chunk_keywords.isChecked(),
@@ -937,6 +1075,12 @@ class AbstractTab(QWidget):
 
     def on_analysis_completed(self, step: PipelineStep):
         """Handle analysis completion with PipelineStep integration - Claude Generated"""
+
+        # execute_step swallows executor exceptions into step.status; without this
+        # check a failed step would render as "Analyse abgeschlossen ✓" - Claude Generated
+        if step.status == "error":
+            self.on_analysis_error(step.error_message or "Unbekannter Fehler im Pipeline-Schritt")
+            return
 
         # Get currently displayed text (from streaming) - Claude Generated
         current_results_text = self.results_edit.toPlainText()

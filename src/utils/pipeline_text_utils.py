@@ -8,11 +8,84 @@ executor and PipelineResultFormatter can share these. Split out of the former
 import html
 import logging
 import re
+import string
 from datetime import datetime
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _find_unbalanced_brace(template: str) -> Optional[int]:
+    """Position of the first brace str.format would choke on, else None - Claude Generated"""
+    i, n = 0, len(template)
+    while i < n:
+        c = template[i]
+        if c == "{":
+            if template.startswith("{{", i):
+                i += 2
+                continue
+            closing = template.find("}", i + 1)
+            next_open = template.find("{", i + 1)
+            if closing == -1 or (next_open != -1 and next_open < closing):
+                return i
+            i = closing + 1
+        elif c == "}":
+            if template.startswith("}}", i):
+                i += 2
+                continue
+            return i
+        else:
+            i += 1
+    return None
+
+
+def validate_prompt_placeholders(
+    template: str, allowed: Tuple[str, ...] = ("abstract", "keywords")
+) -> Optional[str]:
+    """Check a user-edited prompt template against the runtime placeholders - Claude Generated
+
+    Returns a German error message for unbalanced braces, positional fields
+    (``{}``/``{0}``) or field names outside ``allowed``; ``None`` if the template
+    is usable. Missing placeholders are fine: ``str.format(**vars)`` ignores
+    unused variables.
+    """
+    pos = _find_unbalanced_brace(template)
+    if pos is not None:
+        line = template.count("\n", 0, pos) + 1
+        snippet = " ".join(template[max(0, pos - 30) : pos + 30].split())
+        return (
+            f"Unausgeglichene geschweifte Klammer in Zeile {line}: »…{snippet}…«. "
+            "Literale Klammern müssen als {{ bzw. }} geschrieben werden."
+        )
+
+    try:
+        fields = [
+            field_name
+            for _, field_name, _, _ in string.Formatter().parse(template)
+            if field_name is not None
+        ]
+    except ValueError:
+        return (
+            "Die Prompt-Vorlage enthält unausgeglichene geschweifte Klammern. "
+            "Literale Klammern müssen als {{ bzw. }} geschrieben werden."
+        )
+
+    invalid = []
+    for field_name in fields:
+        base_name = field_name.split(".")[0].split("[")[0]
+        if base_name == "" or base_name.isdigit():
+            invalid.append("{" + field_name + "}")
+        elif base_name not in allowed:
+            invalid.append("{" + base_name + "}")
+
+    if invalid:
+        allowed_list = ", ".join("{" + name + "}" for name in allowed)
+        return (
+            f"Unbekannte Platzhalter in der Prompt-Vorlage: {', '.join(sorted(set(invalid)))}. "
+            f"Verfügbar sind: {allowed_list}. Literale Klammern als {{{{ bzw. }}}} schreiben."
+        )
+    return None
 
 
 def repair_display_text(text: Any) -> str:

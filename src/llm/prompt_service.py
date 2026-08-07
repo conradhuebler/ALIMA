@@ -72,6 +72,40 @@ class PromptService:
             return self.config[task_name]["prompts"]
         return []
 
+    def get_prompt_set_overview(self, task_name: str) -> List[Dict]:
+        """Which prompt set wins which model key at runtime - Claude Generated
+
+        For the same model key a later set shadows an earlier one (merge order,
+        see _build_model_index: last assignment wins — this is how YAML variants
+        override JSON ones). A set whose every key is shadowed is unreachable.
+
+        Returns one dict per set, in list order:
+        ``{"index", "models", "live_models", "wins_default"}`` where
+        ``live_models`` are the model keys this set actually serves.
+        """
+        prompt_sets = self.get_prompts_for_task(task_name)
+        winner_by_model: Dict[str, int] = {}
+        for idx, pset in enumerate(prompt_sets):
+            models = pset[4] if len(pset) > 4 and isinstance(pset[4], list) else []
+            for model in models:
+                winner_by_model[model] = idx
+
+        overview = []
+        for idx, pset in enumerate(prompt_sets):
+            models = list(pset[4]) if len(pset) > 4 and isinstance(pset[4], list) else []
+            live_models = sorted(
+                model for model, winner in winner_by_model.items() if winner == idx
+            )
+            overview.append(
+                {
+                    "index": idx,
+                    "models": models,
+                    "live_models": live_models,
+                    "wins_default": winner_by_model.get("default") == idx,
+                }
+            )
+        return overview
+
 
 
     def get_prompt_config(self, task: str, model: str) -> Optional[PromptConfigData]:
