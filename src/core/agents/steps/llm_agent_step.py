@@ -549,6 +549,11 @@ class LLMAgentStep(BaseStep):
             "temperature": llm_cfg.get("temperature", getattr(context, "temperature", 0.5)),
             "top_p": llm_cfg.get("top_p", 0.9),
             "max_tokens": llm_cfg.get("max_tokens", getattr(context, "max_tokens", 4096)),
+            # Thinking control: step llm.think > context.think > provider default.
+            # A reasoning model spends its max_tokens budget on the thinking
+            # channel first, so this is the lever that decides whether the
+            # answer still fits into it. - Claude Generated
+            "think": llm_cfg.get("think", getattr(context, "think", None)),
             "max_iterations": int(llm_cfg.get("max_iterations", 20)),
             "timeout_seconds": int(llm_cfg.get("timeout_seconds", 300)),
             "provider": getattr(context, "provider", "") or "",
@@ -638,6 +643,7 @@ class LLMAgentStep(BaseStep):
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
             seed=params.get("seed"),
+            think=params.get("think"),
         )
 
     # ------------------------------------------------------------------

@@ -419,16 +419,27 @@ class AgentLoop:
                 # No text AND no tool calls — surface WHY instead of a silent
                 # empty bubble. Prefer the reasoning channel; otherwise explain
                 # via stop_reason. Stream it so both frontends show it live. - Claude Generated
-                if getattr(response, "reasoning", ""):
+                reasoning_text = getattr(response, "reasoning", "") or ""
+                # Truncation is checked BEFORE the reasoning channel: a run cut
+                # off by max_tokens leaves an unfinished train of thought, and
+                # printing that as the answer hides why the answer is missing. - Claude Generated
+                if response.stop_reason == StopReason.MAX_TOKENS:
+                    budget = (
+                        f" Davon entfielen {len(reasoning_text)} Zeichen auf den "
+                        f"Reasoning-Kanal."
+                        if reasoning_text
+                        else ""
+                    )
+                    final_content = (
+                        f"⚠️ Das Modell hat das Token-Budget (max_tokens={max_tokens}) "
+                        f"aufgebraucht, bevor eine Antwort kam.{budget} "
+                        "max_tokens erhöhen, die Eingabe kürzen oder das Reasoning "
+                        "abschalten (think=false)."
+                    )
+                elif reasoning_text:
                     final_content = (
                         "💭 (Modell antwortete nur im Reasoning-Kanal, keine "
-                        "separate finale Antwort):\n\n" + response.reasoning
-                    )
-                elif response.stop_reason == StopReason.MAX_TOKENS:
-                    final_content = (
-                        "⚠️ Das Modell hat das Token-Limit erreicht, bevor eine "
-                        "Antwort kam (evtl. hat das Reasoning das Budget aufgebraucht). "
-                        "Erhöhe max_tokens oder kürze die Eingabe."
+                        "separate finale Antwort):\n\n" + reasoning_text
                     )
                 else:
                     final_content = (

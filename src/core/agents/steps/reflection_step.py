@@ -181,6 +181,7 @@ class ReflectionStep(BaseStep):
             "timeout_seconds": 120,
             "provider": getattr(context, "provider", "") or "",
             "model": getattr(context, "model", "") or "",
+            "think": llm_cfg.get("think", getattr(context, "think", None)),
         }
         if llm_override:
             if llm_override.get("temperature") is not None:
@@ -212,6 +213,7 @@ class ReflectionStep(BaseStep):
             temperature=params["temperature"],
             top_p=params["top_p"],
             max_tokens=params["max_tokens"],
+            think=params.get("think"),
         )
         _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
 

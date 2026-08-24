@@ -25,6 +25,8 @@ class BaseSharedContext:
     temperature: float = 0.5
     max_tokens: int = 4096
     seed: Optional[int] = None
+    # None = leave the provider default; True/False = explicit thinking control.
+    think: Optional[bool] = None
     verbose: bool = False
 
     # Execution tracking
@@ -53,6 +55,7 @@ class BaseSharedContext:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "seed": self.seed,
+            "think": self.think,
             "execution_history": self.execution_history,
             "extra": self.extra,
         }
@@ -65,6 +68,7 @@ class BaseSharedContext:
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
             seed=data.get("seed"),
+            think=data.get("think"),
         )
         ctx.step_results = data.get("step_results", {})
         ctx.quality_scores = data.get("quality_scores", {})

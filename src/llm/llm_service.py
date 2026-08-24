@@ -197,6 +197,24 @@ def _retry_on_rate_limit(
                 waited += step
 
 
+# Reasoning-Kanal: OpenAI-kompatible Backends benennen das Feld
+# unterschiedlich — vLLM/SGLang/DeepSeek liefern ``reasoning_content``,
+# Ollama (``/v1``) und OpenRouter liefern ``reasoning``. Wer nur einen der
+# beiden Namen liest, sieht bei der jeweils anderen Familie gar kein
+# Reasoning und hält eine reine Denk-Antwort für eine leere Antwort. Beide
+# Namen sind Extra-Felder des SDK-Modells, daher ``getattr``. - Claude Generated
+_REASONING_FIELDS = ("reasoning_content", "reasoning")
+
+
+def _extract_reasoning(obj: Any) -> str:
+    """Return the reasoning text of an OpenAI-compatible message/delta. - Claude Generated"""
+    for field in _REASONING_FIELDS:
+        value = getattr(obj, field, None)
+        if value:
+            return value
+    return ""
+
+
 class ProviderState(Enum):
     """Explicit placeholder stored in ``LlmService.clients`` for a provider that
     is registered but not yet connected (deferred/lazy init).
@@ -1493,8 +1511,10 @@ class LlmService(QObject):
 
         - Reasoning models (o1/o3/o4/gpt-5/gpt-oss) use the standard
           ``reasoning_effort`` param — "medium" when on, "minimal"/"low" when off.
-        - Other OpenAI-compatible backends (vLLM/SGLang/Ollama-OpenAI serving
-          Qwen3 etc.) use ``extra_body.chat_template_kwargs.enable_thinking``.
+        - Other OpenAI-compatible backends get both dialects: vLLM/SGLang
+          (Qwen3 etc.) read ``extra_body.chat_template_kwargs.enable_thinking``,
+          Ollama's ``/v1`` endpoint ignores that and reads ``reasoning_effort``
+          ("none" switches the reasoning channel off entirely).
 
         CAVEAT: thinking controls are not part of the base OpenAI protocol; a
         backend that rejects unknown fields will only see them when the user
@@ -1518,7 +1538,15 @@ class LlmService(QObject):
             params.setdefault("extra_body", {}).setdefault(
                 "chat_template_kwargs", {}
             )["enable_thinking"] = think
-            self.logger.debug(f"OpenAI think: enable_thinking={think} for {model}")
+            # Ollama serves its models through /v1 as well and ignores
+            # chat_template_kwargs; there only reasoning_effort has an effect,
+            # and only "none" suppresses the reasoning channel ("low" still
+            # produced several hundred reasoning tokens on nemotron-3.5).
+            effort = "medium" if think else "none"
+            params["reasoning_effort"] = effort
+            self.logger.debug(
+                f"OpenAI think: enable_thinking={think}, reasoning_effort={effort} for {model}"
+            )
 
     def _generate_openai_compatible(
         self,
@@ -2604,9 +2632,9 @@ class LlmService(QObject):
                         content += delta.content
                         stream_callback(delta.content)
 
-                    # Reasoning channel (vLLM/OpenAI-compat reasoning models). Not
-                    # all SDKs expose it → getattr. - Claude Generated
-                    rc = getattr(delta, "reasoning_content", None)
+                    # Reasoning channel (vLLM/OpenAI-compat reasoning models).
+                    # Field name varies per backend → _extract_reasoning. - Claude Generated
+                    rc = _extract_reasoning(delta)
                     if rc:
                         reasoning += rc
 
@@ -2664,7 +2692,7 @@ class LlmService(QObject):
                     return AgentResponse(content="", tool_calls=[], stop_reason=StopReason.CANCELLED)
 
                 content = response.choices[0].message.content or ""
-                reasoning = getattr(response.choices[0].message, "reasoning_content", "") or ""
+                reasoning = _extract_reasoning(response.choices[0].message)
                 tool_calls = []
 
                 if response.choices[0].message.tool_calls:

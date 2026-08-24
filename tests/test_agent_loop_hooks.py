@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from src.core.agent_loop import AgentLoop, ThinkStreamFilter
-from src.core.data_models import AgentResponse, ToolCall
+from src.core.data_models import AgentResponse, StopReason, ToolCall
 
 
 def _make_registry() -> MagicMock:
@@ -306,6 +306,41 @@ class TestAgentLoopThinking(unittest.TestCase):
         result = loop.run(system_prompt="s", user_prompt="u", tools=[], provider="p", model="m")
         self.assertEqual(thinks, ["deep thought"])
         self.assertEqual(result.content, "Done.")
+
+    def test_truncated_turn_reports_budget_not_reasoning_dump(self):
+        """An empty turn cut off by max_tokens must say the budget ran out.
+        Printing the unfinished train of thought as the answer hides that."""
+        responses = [
+            AgentResponse(
+                content="", tool_calls=[], reasoning="halb fertiger Gedanke",
+                stop_reason=StopReason.MAX_TOKENS,
+            )
+        ]
+        llm = _make_llm_service(responses)
+        loop = AgentLoop(llm_service=llm, tool_registry=_make_registry())
+        result = loop.run(
+            system_prompt="s", user_prompt="u", tools=[], provider="p", model="m",
+            max_tokens=256,
+        )
+        self.assertIn("max_tokens=256", result.content)
+        self.assertIn("21 Zeichen auf den Reasoning-Kanal", result.content)
+        self.assertNotIn("halb fertiger Gedanke", result.content)
+
+    def test_reasoning_only_turn_still_shows_reasoning(self):
+        """A model that finishes normally but answers only in the reasoning
+        channel keeps that text as the answer."""
+        responses = [
+            AgentResponse(
+                content="", tool_calls=[], reasoning="die ganze Antwort",
+                stop_reason=StopReason.END_TURN,
+            )
+        ]
+        llm = _make_llm_service(responses)
+        loop = AgentLoop(llm_service=llm, tool_registry=_make_registry())
+        result = loop.run(
+            system_prompt="s", user_prompt="u", tools=[], provider="p", model="m",
+        )
+        self.assertIn("die ganze Antwort", result.content)
 
     def test_reasoning_excerpt_suppressed_when_streaming(self):
         """The 💭 status excerpt duplicates streamed prose → only emitted

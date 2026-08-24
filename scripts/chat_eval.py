@@ -41,7 +41,7 @@ DEFAULT_QUERIES = [
 _FALLBACK_MARKERS = (
     "keine Antwort geliefert",
     "keine finale Textantwort",
-    "Token-Limit erreicht",
+    "Token-Budget",
     "maximum iterations without conclusion",
 )
 

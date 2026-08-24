@@ -235,6 +235,19 @@ class AgenticPipelineMixin:
                 temperature = cfg.temperature
                 break
 
+        # Thinking control reaches the agentic steps the same way it reaches the
+        # classic ones: the GUI's global override is already written into every
+        # step_config, the CLI writes it per step via --step-think. None keeps
+        # the provider default. - Claude Generated
+        think = self.config.global_think_override
+        if think is None:
+            for cfg in self.config.step_configs.values():
+                if cfg is None:
+                    continue
+                if cfg.think is not None:
+                    think = cfg.think
+                    break
+
         if not provider or not model:
             self.logger.warning(
                 "Agentic workflow %r starts with empty provider/model "
@@ -267,6 +280,8 @@ class AgenticPipelineMixin:
         ctx.provider = provider or ctx.provider
         ctx.model = model or ctx.model
         ctx.temperature = temperature
+        if think is not None:
+            ctx.think = think
         ctx.verbose = self.config.agentic_verbose
         ctx.prompt_service = self.alima_manager.prompt_service
 

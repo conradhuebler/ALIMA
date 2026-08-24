@@ -614,6 +614,7 @@ class SharedContext(BaseSharedContext):
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "seed": self.seed,
+            "think": self.think,
             "working_title": self.working_title,
             "extracted_keywords": self.extracted_keywords,
             "gnd_entries": self.gnd_entries,
@@ -657,6 +658,7 @@ class SharedContext(BaseSharedContext):
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
             seed=data.get("seed"),
+            think=data.get("think"),
         )
         ctx.working_title = data.get("working_title", "")
         ctx.extracted_keywords = data.get("extracted_keywords", [])

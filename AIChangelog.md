@@ -6,6 +6,57 @@
 
 ## 2026
 
+### Reasoning-Modelle im agentischen Modus: Kanal, Think-Schalter, Budget-Meldung (August 24, 2026)
+
+Operator-Befund: `nemotron-3.5-lightning` (Provider `LLMachine` = lokales Ollama
+über dessen `/v1`-Endpunkt) meldete im agentischen Modus in jedem Schritt ein
+überschrittenes Token-Limit. Reproduziert im Log vom 24.8. (`alima_v51.yaml`,
+Schritte `extraction`/`reflection`): 54 s Laufzeit, leerer Inhalt,
+`finish_reason="length"`. Drei zusammenwirkende Defekte:
+
+- **Reasoning-Kanal unter falschem Namen gelesen.** `_generate_openai_with_tools`
+  las nur `reasoning_content` (vLLM/SGLang/DeepSeek-Dialekt). Ollamas `/v1` und
+  OpenRouter liefern das Feld als `reasoning` — gemessen: `message.reasoning`
+  bzw. `delta.reasoning` mit 961 Zeichen, während ALIMA 0 sah. Damit war jede
+  reine Denk-Antwort für ALIMA eine leere Antwort. Neu: `_extract_reasoning()`
+  liest beide Namen.
+- **Der Think-Schalter erreichte Ollama nicht.** `_apply_openai_think` schickte
+  für Nicht-OpenAI-Modelle ausschließlich
+  `extra_body.chat_template_kwargs.enable_thinking`; Ollama ignoriert das
+  (gemessen: 1612 Zeichen Reasoning trotz `enable_thinking=false`) und wertet
+  `reasoning_effort` aus. Beide Dialekte werden jetzt gesendet, `none` beim
+  Abschalten — `low` erzeugte auf nemotron-3.5 noch 659 Reasoning-Tokens, nur
+  `none` schaltet den Kanal wirklich ab. GWDG akzeptiert den Parameter ebenfalls.
+- **`think` fehlte im agentischen Pfad komplett.** Der klassische Pfad kennt
+  `step_config.think` seit langem; zwischen `SharedContext` und `AgentLoop` fiel
+  er in v4 heraus, d. h. die GUI-Combo („Thinking: Aus"), der Webapp-Schalter und
+  `--step-think` hatten in der Agentik keine Wirkung. Jetzt durchgereicht:
+  `PipelineConfig.global_think_override` → `SharedContext.think` →
+  `LLMAgentStep`/`ReflectionStep` → `AgentLoop.run(think=…)`, Auflösung
+  Step-`llm.think` > `context.think` > Provider-Default.
+
+Wirkung, am realen `extraction`-Schritt aus `alima_v51.yaml` gemessen (dessen
+eigenes `max_tokens: 4096`, Modell `nemotron-3.5-lightning`): `think=None` →
+keine Keywords, leerer Output; `think=False` → 17 Keywords. Das Reasoning wird
+gegen dasselbe `max_tokens`-Budget gebucht wie die Antwort, deshalb ist der
+Schalter bei Reasoning-Modellen der entscheidende Hebel und nicht nur Kosmetik.
+
+Die Abbruch-Meldung im `AgentLoop` nennt jetzt das konkrete Budget und wohin es
+ging („max_tokens=256 … davon N Zeichen Reasoning-Kanal") und wird **vor** dem
+Reasoning-Zweig geprüft: ein abgeschnittener Gedankengang als Antwort auszugeben
+verdeckt, warum die Antwort fehlt.
+
+Offen (nicht angefasst): Der agentische Schritt meldet `success=True`, obwohl
+`extraction` nichts geliefert hat — deshalb drehte der MetaAgent weiter. Der
+Ollama-Native-Pfad (`_generate_ollama_native_with_tools`) reicht `max_tokens`
+nicht als `num_predict` durch und kennt kein `MAX_TOKENS` als `stop_reason`.
+
+Tests: `tests/test_llm_service_reasoning_channel.py` (beide Feld-Dialekte,
+beide Think-Dialekte, Streaming + Non-Streaming, `length` → `MAX_TOKENS`),
+`tests/test_agentic_think_propagation.py` (Auflösungsreihenfolge,
+Serialisierung), 2 neue Fälle in `test_agent_loop_hooks.py`. Alle per Mutation
+gegengeprüft. Suite 1750.
+
 ### Session-Prompt-Override im Abstract-Tab wirkt jetzt (August 7, 2026)
 
 Operator-Befund: Nach einem Pipeline-Lauf im Abstract-Tab (Prompt-Reiter) den
