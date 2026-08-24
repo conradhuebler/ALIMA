@@ -54,7 +54,8 @@ class BibRecord:
     * ``urls`` is a typed role map; ``url`` is DERIVED from it
       (:data:`URL_ROLE_PRIORITY`), never set independently.
     * ``identifiers`` carries only non-empty ids (``doi``/``ppn``/``isbn``/
-      ``rsn``/``id``/``gnd``) — the shared envelope for F-8.
+      ``rsn``/``id``/``gnd``, plus a source's own scheme where it has one —
+      ``idn`` for the DNB, ``bvnumber`` for the BVB) — the shared envelope for F-8.
     """
 
     source: str = ""
@@ -290,11 +291,38 @@ def _from_k10plus(rec: Dict[str, Any]) -> BibRecord:
     )
 
 
+def _from_kvk(rec: Dict[str, Any]) -> BibRecord:
+    """KVK meta-search hit — the thinnest record shape ALIMA takes in.
+
+    The KVK JSON has no subjects and no notations, so both containers stay
+    empty; inventing them from the imprint line would be a guess dressed up as
+    catalogue data. ``identifiers`` come from the record *link*, not from a
+    field (see ``providers/kvk/client.extract_identifiers``), and the link is
+    the union catalog's record page → role ``catalog``.
+    """
+    return BibRecord(
+        source="kvk",
+        identifiers=_identifiers(
+            ppn=rec.get("ppn"), idn=rec.get("idn"), bvnumber=rec.get("bvnumber"),
+        ),
+        title=str(rec.get("title") or ""),
+        authors=_clean_strings(rec.get("author") or rec.get("authors")),
+        year=str(rec.get("year") or ""),
+        urls=_urls(catalog=rec.get("url")),
+        # The imprint line is the only publisher-ish text the KVK gives, and only
+        # for the catalogs that leave `author`/`year` empty. Kept verbatim rather
+        # than split into publisher/place, which the format does not guarantee.
+        publisher=str(rec.get("text") or ""),
+        raw=rec,
+    )
+
+
 _NORMALIZERS = {
     "finc": _from_finc,
     "catalog": _from_catalog,
     "sru": _from_sru,
     "k10plus": _from_k10plus,
+    "kvk": _from_kvk,
 }
 
 

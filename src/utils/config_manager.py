@@ -471,13 +471,20 @@ class ConfigManager:
                 ensure_lookup_instances,
                 instance_from_dict,
                 synthesize_input_instances,
+                synthesize_missing_search_instances,
                 synthesize_search_instances,
             )
 
             raw_plugins = config_data.get("plugins", []) or []
             plugins = [instance_from_dict(p) for p in raw_plugins if isinstance(p, dict)]
-            if not any(p.category == SEARCH_CATEGORY for p in plugins):
+            search_instances = [p for p in plugins if p.category == SEARCH_CATEGORY]
+            if not search_instances:
                 plugins += synthesize_search_instances(legacy_catalog, legacy_gate)
+            else:
+                # A built-in registered in a later release has no legacy section to
+                # migrate — backfill it so it does not stay invisible on an existing
+                # installation (same policy as the lookup category). - Claude Generated
+                plugins += synthesize_missing_search_instances(search_instances)
             if not any(p.category == INPUT_CATEGORY for p in plugins):
                 plugins += synthesize_input_instances(system_config)
             ensure_lookup_instances(plugins)

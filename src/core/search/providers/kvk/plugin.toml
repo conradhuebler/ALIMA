@@ -1,0 +1,20 @@
+# Real, loadable code-plugin manifest — blueprint for JSON-Meta-Suchen über
+# mehrere Kataloge. To make this YOUR plugin: rename `id` here AND the class
+# `id` attribute in provider.py (they must match).
+
+[plugin]
+id = "kvk"
+label = "KVK (Verbundkataloge)"
+category = "search_provider"
+type = "code"
+api_version = "1"
+capabilities = ["title_records"]
+
+[entry]
+module = "provider.py"
+class = "KvkProvider"
+
+[doc]
+description = "Karlsruher Virtueller Katalog (maske=kvk-json): eine Anfrage über mehrere deutsche Verbundkataloge, Titelnachweise ohne Schlagworte/Notationen."
+input = "Suchbegriffe + Suchachse (kw/title/author/subject/isbn); Katalogauswahl per Konfiguration."
+output = "Titel-Datensätze je Begriff (Titel, Autor, Jahr, Katalog, Link) plus die aus dem Link lesbaren Identifier (ppn/idn/bvnumber)."

@@ -149,6 +149,8 @@ lists registered providers with checkboxes.
 | Catalog (Libero/Biblio) | `catalog` | GND_KEYWORDS, TITLE_RECORDS, CLASSIFICATION |
 | finc (VuFind) | `finc` | TITLE_RECORDS, SUBJECT_FACETS |
 | Local GND DB | `gnd_local` | GND_KEYWORDS (no network; not cache-wrapped) |
+| SRU / MARC-XML | `sru` | TITLE_RECORDS, CLASSIFICATION (no MCP tool) |
+| KVK (Verbundkataloge) | `kvk` | TITLE_RECORDS (no subjects, no notations; not cache-wrapped) |
 
 ## Migration (incremental, facade-preserving)
 

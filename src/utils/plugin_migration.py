@@ -59,7 +59,7 @@ SEARCH_FIELD_MAP: Dict[str, Dict[str, str]] = {
 
 # Stable presentation order + built-in labels (avoids importing the Qt-free
 # provider classes just for a label during config parsing).
-_SEARCH_ORDER = ["lobid", "swb", "catalog", "finc", "sru", "gnd_local"]
+_SEARCH_ORDER = ["lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"]
 _SEARCH_LABELS = {
     "lobid": "Lobid (GND/DNB)",
     "swb": "SWB (BSZ)",
@@ -67,6 +67,7 @@ _SEARCH_LABELS = {
     "finc": "finc (VuFind)",
     "sru": "SRU / MARC-XML",
     "gnd_local": "Lokale GND-DB",
+    "kvk": "KVK (Verbundkataloge)",
 }
 
 SEARCH_CATEGORY = "search_provider"
@@ -121,19 +122,57 @@ def synthesize_search_instances(catalog_section, gate_section=None) -> List:
     return instances
 
 
-def ensure_search_instances(plugins: List) -> None:
-    """Seed one primary instance per built-in search type when the category is
-    empty - Claude Generated.
+def synthesize_missing_search_instances(existing_search_instances: List) -> List:
+    """One enabled primary instance per built-in search type that has none yet
+    - Claude Generated.
 
-    The search twin of :func:`ensure_lookup_instances`, for call sites that build a
-    config from scratch (the setup wizards). They must not leave the category empty
-    *nor* add a lone hand-made instance: the load/save synthesis guard is
-    per-category, so one catalog instance would strand the other five built-ins.
-    Mutates ``plugins`` in place.
+    The search twin of :func:`synthesize_missing_lookup_instances`. Backfilling
+    only the *missing* types is what makes a built-in registered in a later
+    release (``kvk``) show up on an existing installation: the former
+    all-or-nothing category gate seeded a fresh config and then never looked
+    again, so a new provider stayed invisible until the operator added it by
+    hand.
+
+    Limited to :data:`_SEARCH_ORDER` — the ids shipped as blueprint dirs under
+    ``src/core/search/providers/`` (pinned by ``test_builtin_search_types``).
+    An external code plugin is deliberately NOT backfilled here: it brings its
+    own instance, carrying its manifest ``[settings]``, through plugin
+    discovery, and a bare one seeded here would shadow it (discovery dedupes on
+    ``(category, instance_id)``).
+
+    Switching a source off is ``enabled=False``, which keeps the instance — so
+    a disabled provider is not "missing" and is never re-seeded here.
     """
-    if any(p.category == SEARCH_CATEGORY for p in plugins):
+    from src.utils.config_models import PluginInstanceConfig
+
+    present = {p.provider_id for p in existing_search_instances}
+    return [
+        PluginInstanceConfig(
+            instance_id=pid,
+            category=SEARCH_CATEGORY,
+            provider_id=pid,
+            label=_SEARCH_LABELS.get(pid, pid),
+            enabled=True,
+            is_primary=True,
+            settings={},
+        )
+        for pid in _SEARCH_ORDER
+        if pid not in present
+    ]
+
+
+def ensure_search_instances(plugins: List) -> None:
+    """Make sure every built-in search type has an instance - Claude Generated.
+
+    Seeds a config that has none (the setup wizards build one from scratch) and
+    backfills a type registered in a later release, in one pass — mirroring
+    :func:`ensure_lookup_instances`. Mutates ``plugins`` in place.
+    """
+    search = [p for p in plugins if p.category == SEARCH_CATEGORY]
+    if not search:
+        plugins += synthesize_search_instances({})
         return
-    plugins += synthesize_search_instances({})
+    plugins += synthesize_missing_search_instances(search)
 
 
 # ---------------------------------------------------------------------------

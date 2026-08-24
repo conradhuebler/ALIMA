@@ -153,7 +153,7 @@ class SetPrimarySettingsTest(unittest.TestCase):
         set_primary_settings(cfg, "catalog", {"token": "TOK"})
         self.assertEqual(
             {p.instance_id for p in cfg.instances_for("search_provider")},
-            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"},
         )
 
     def test_writes_onto_the_primary_and_merges(self):
@@ -310,9 +310,89 @@ class MigrationTest(unittest.TestCase):
         insts = pm.synthesize_search_instances({})
         self.assertEqual(
             {i.instance_id for i in insts},
-            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"},
         )
         self.assertTrue(all(i.enabled for i in insts))
+
+
+class BackfillMissingSearchInstancesTest(unittest.TestCase):
+    """A built-in registered in a later release must reach an EXISTING config.
+
+    The category gate used to be all-or-nothing: seed once when empty, never
+    look again — so a new provider stayed invisible until the operator added an
+    instance by hand. Same policy as the lookup category.
+    """
+
+    def _existing(self, *provider_ids, enabled=True):
+        from src.utils.config_models import PluginInstanceConfig
+
+        return [
+            PluginInstanceConfig(
+                instance_id=pid, category=pm.SEARCH_CATEGORY, provider_id=pid,
+                enabled=enabled, is_primary=True, settings={},
+            )
+            for pid in provider_ids
+        ]
+
+    def test_backfills_only_the_missing_type(self):
+        existing = self._existing("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
+        added = pm.synthesize_missing_search_instances(existing)
+        self.assertEqual([i.provider_id for i in added], ["kvk"])
+        self.assertTrue(added[0].enabled)
+        self.assertTrue(added[0].is_primary)
+        self.assertEqual(added[0].label, "KVK (Verbundkataloge)")
+
+    def test_nothing_to_add_when_complete(self):
+        existing = self._existing(*pm._SEARCH_ORDER)
+        self.assertEqual(pm.synthesize_missing_search_instances(existing), [])
+
+    def test_a_disabled_instance_is_not_reseeded(self):
+        """Switching a source off is enabled=False, which keeps the instance —
+        so it is not 'missing' and must not come back enabled."""
+        existing = self._existing(*pm._SEARCH_ORDER, enabled=False)
+        self.assertEqual(pm.synthesize_missing_search_instances(existing), [])
+
+    def test_external_plugin_ids_are_left_alone(self):
+        """An external code plugin brings its own instance (with its manifest
+        settings) through plugin discovery; seeding a bare one here would
+        shadow it."""
+        existing = self._existing("lobid", "my_own_catalog")
+        added = pm.synthesize_missing_search_instances(existing)
+        self.assertNotIn("my_own_catalog", [i.provider_id for i in added])
+        self.assertIn("kvk", [i.provider_id for i in added])
+
+    def test_ensure_tops_up_a_partial_category_and_is_idempotent(self):
+        plugins = self._existing("lobid")
+        pm.ensure_search_instances(plugins)
+        first = [p.provider_id for p in plugins]
+        # A non-empty category used to short-circuit — the other built-ins
+        # (kvk included) were never added.
+        self.assertEqual(set(first), set(pm._SEARCH_ORDER))
+        pm.ensure_search_instances(plugins)
+        self.assertEqual([p.provider_id for p in plugins], first)
+        self.assertEqual(len(first), len(set(first)))
+
+    def test_ensure_still_seeds_an_empty_category_from_legacy(self):
+        plugins = []
+        pm.ensure_search_instances(plugins)
+        self.assertEqual(
+            {p.provider_id for p in plugins}, set(pm._SEARCH_ORDER)
+        )
+
+    def test_search_order_covers_every_builtin_blueprint_dir(self):
+        """The backfill set is a hand-kept list; this is what stops the next
+        built-in provider dir from being forgotten in it."""
+        from pathlib import Path
+
+        providers_dir = (
+            Path(__file__).resolve().parent.parent
+            / "src" / "core" / "search" / "providers"
+        )
+        dirs = {
+            d.name for d in providers_dir.iterdir()
+            if d.is_dir() and d.name != "__pycache__" and (d / "plugin.toml").is_file()
+        }
+        self.assertEqual(set(pm._SEARCH_ORDER), dirs)
 
 
 class ListPluginsToolTest(unittest.TestCase):

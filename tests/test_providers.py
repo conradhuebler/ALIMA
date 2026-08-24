@@ -45,7 +45,7 @@ class RegistryTest(unittest.TestCase):
     def test_builtin_providers_registered(self):
         self.assertEqual(
             set(list_providers()),
-            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+            {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"},
         )
 
     def test_capability_index_matches_spec(self):
@@ -55,7 +55,7 @@ class RegistryTest(unittest.TestCase):
         )
         self.assertEqual(
             set(providers_for_capability(SearchCapability.TITLE_RECORDS)),
-            {"catalog", "finc", "sru"},
+            {"catalog", "finc", "sru", "kvk"},
         )
         self.assertEqual(
             set(providers_for_capability(SearchCapability.SUBJECT_FACETS)), {"finc"}

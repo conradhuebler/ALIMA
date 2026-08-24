@@ -54,11 +54,50 @@ class PluginConfigRoundTripTest(unittest.TestCase):
     def test_search_instances_synthesised(self):
         cfg = self.cm.load_config()
         insts = {p.instance_id: p for p in cfg.instances_for("search_provider")}
-        self.assertEqual(set(insts), {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"})
+        self.assertEqual(
+            set(insts), {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"}
+        )
         self.assertEqual(insts["catalog"].settings["token"], "TOK")
         self.assertEqual(insts["finc"].settings["default_limit"], 25)
         self.assertFalse(insts["finc"].enabled)
         self.assertTrue(insts["swb"].enabled)
+
+    def test_a_later_builtin_reaches_an_existing_plugin_config(self):
+        """The restart question: a config that already carries plugin instances
+        must still pick up a provider added in a later release. The old gate
+        seeded only an empty category, so it never did."""
+        older = {
+            "unified_config": {"providers": [], "gemini_api_key": "K"},
+            "plugins": [
+                {"instance_id": pid, "category": "search_provider", "provider_id": pid,
+                 "enabled": True, "is_primary": True, "settings": {}}
+                for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
+            ],
+        }
+        self.tmp.write_text(json.dumps(older))
+        cfg = self._reload()
+        insts = {p.instance_id: p for p in cfg.instances_for("search_provider")}
+        self.assertIn("kvk", insts)
+        self.assertTrue(insts["kvk"].enabled)
+        # and no duplicates on the next start
+        ids = [p.instance_id for p in cfg.instances_for("search_provider")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_an_existing_instance_keeps_its_settings_when_a_builtin_is_added(self):
+        older = {
+            "unified_config": {"providers": [], "gemini_api_key": "K"},
+            "plugins": [
+                {"instance_id": "catalog", "category": "search_provider",
+                 "provider_id": "catalog", "enabled": False, "is_primary": True,
+                 "settings": {"token": "KEEP"}},
+            ],
+        }
+        self.tmp.write_text(json.dumps(older))
+        cfg = self._reload()
+        insts = {p.instance_id: p for p in cfg.instances_for("search_provider")}
+        self.assertEqual(insts["catalog"].settings["token"], "KEEP")
+        self.assertFalse(insts["catalog"].enabled)
+        self.assertIn("kvk", insts)
 
     def test_input_instances_synthesised(self):
         cfg = self.cm.load_config()

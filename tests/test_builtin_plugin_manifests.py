@@ -30,7 +30,7 @@ class BuiltinPluginManifestTest(unittest.TestCase):
     def test_blueprint_dirs_exist(self):
         names = {d.name for d in _blueprint_dirs()}
         self.assertEqual(
-            names, {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"},
+            names, {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"},
             "every built-in provider is a self-contained blueprint dir",
         )
 

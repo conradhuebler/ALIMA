@@ -6,6 +6,82 @@
 
 ## 2026
 
+### KVK als Suchprovider-Plugin (August 24, 2026)
+
+Der KVK (Karlsruher Virtueller Katalog) gibt seine Ergebnisse als JSON aus, wenn
+in der Such-URL `maske=kvk-redesign` durch `maske=kvk-json` ersetzt wird. Neues
+Built-in-Plugin `src/core/search/providers/kvk/` (Blaupausen-Verzeichnis wie die
+anderen sechs), Capability **`title_records`**, MCP-Tool `search_kvk`.
+
+**Was der KVK liefert — und was nicht.** Die Antwort ist NDJSON: ein Objekt je
+abgefragtem Verbundkatalog plus ein abschließender `{"type":"error"}`-Block mit
+den Katalogen, die nichts fanden. Je Treffer stehen dort `title`, `author`,
+`year`, `text` (Impressum-Zeile), der Link und ein `digital`-Flag. **Keine
+Schlagworte, keine Notationen** — `embedFulltitle=1` ändert daran nichts
+(byte-identisch gegengeprüft). Der Provider deklariert deshalb nur
+`title_records`; für GND-Pool und Klassifikation bleiben lobid/catalog/finc/sru
+zuständig. Was der KVK kann, ist Breite: eine Anfrage erreicht acht Verbünde.
+
+Drei Eigenheiten des Formats, die den Code prägen:
+
+- **Die Feldbelegung wechselt je Katalog.** Die DNB füllt `author`/`year`,
+  K10plus lässt beide leer und schreibt alles in `text`
+  („Quintes, Florian. - Freiburg im Breisgau, 06.07.2026"). `parse_item` liest
+  notfalls aus `text`, aber nur den führenden Namen und die letzte Jahreszahl —
+  mehr garantiert das Format nicht.
+- **Identifier stehen im Link, nicht in einem Feld.** `bibtip_docid` ist bei
+  K10plus eine PPN, bei der DNB eine IDN; StaBi (`/Record/…`) und KOBV
+  (`gbv_…`) liefern PPNs, BVB eine BV-Nummer. Damit hängt der KVK an ALIMAs
+  vorhandener Anreicherung: PPN → `k10plus_resolve` → Schlagworte + DDC.
+  Gegengeprüft an `1981371435` (6 Schlagworte, DDC 540). **Grenze:** eine
+  zweite Test-PPN lieferte „Keine Treffer" — die Brücke trägt nicht immer.
+  KOBV mischt außerdem `gbv_<ppn>` mit `almahu_<mms-id>`, hbz linkt ebenfalls
+  Alma-Ids; die bleiben bewusst ohne Identifier, weil eine Alma-Id als „ppn"
+  wie ein Lookup-Fehlschlag aussähe statt wie die falsche Id, die sie ist.
+- **Der Cap läuft im Round-Robin über die Kataloge.** Der KVK reiht seine
+  Kataloge hintereinander; ein `records[:limit]` hätte eine 5-Treffer-Anfrage
+  komplett aus dem erstgenannten Katalog bedient und die anderen sieben still
+  verschluckt — also genau die Breite weggeworfen, für die man eine Meta-Suche
+  benutzt.
+
+**Fehler vs. kein Treffer** bleibt getrennt: `ProviderResult.errors` bekommt nur
+den Transportfehler; Kataloge, die nichts fanden, stehen in
+`per_term_meta[term]["catalog_errors"]`, die Trefferzahlen samt
+`truncated`-Flag in `catalog_stats` (der KVK liefert je Katalog nur die erste
+Seite).
+
+**Framework-Nebenbefund, behoben:** `_make_title_records_handler` band die
+Capability an einen Suggester (`sugg.search_titles`) und meldete „not available",
+wenn keiner existierte. Provider, die `title_records` über den Provider-Contract
+selbst bedienen, sahen damit aus wie eine kaputte Instanz. Der Handler fällt
+jetzt auf `provider.search(TITLE_RECORDS, …)` zurück; der Libero-Pfad ist
+unverändert.
+
+**Kein Raw-Cache.** Das Ergebnis hängt von der Katalogauswahl ab, die der
+Cache-Key (`raw_cache_params_for`: `search_type`/`max_pages`/`facets`) nicht
+ausdrücken kann. Ein stiller Falschtreffer wäre schlimmer als kein Cache.
+
+**Zweiter Framework-Befund, behoben:** Suchprovider-Instanzen wurden nur gesät,
+wenn die Kategorie **leer** war — ein später hinzugekommener Built-in blieb auf
+bestehenden Installationen unsichtbar, bis der Operator ihn von Hand anlegte
+(gegen eine Kopie der Produktiv-Config bestätigt: `kvk` fehlte nach Laden *und*
+nach Speichern+Neuladen). Die Lookup-Kategorie hatte dasselbe Problem längst
+gelöst: `ensure_lookup_instances` füllt fehlende Typen nach. Suchprovider ziehen
+jetzt gleich — neu `synthesize_missing_search_instances`, angewandt in
+`ensure_search_instances` und im Ladepfad. Abgegrenzt bleibt es auf
+`_SEARCH_ORDER`, also die Built-in-Blaupausen-Verzeichnisse: ein externes
+Code-Plugin bringt seine Instanz samt Manifest-`[settings]` über die
+Plugin-Discovery mit, eine hier nackt gesäte würde sie verdecken (Discovery
+dedupliziert auf `(category, instance_id)`). Eine Quelle abzuschalten ist
+`enabled=False` und behält die Instanz — die gilt damit nicht als fehlend und
+wird nie reaktiviert.
+
+Tests: `tests/test_kvk_provider.py` (36 Fälle) gegen
+`tests/fixtures/kvk_raw_huebler.ndjson` — eine **echte** KVK-Antwort, weil genau
+die katalogabhängige Feldbelegung das ist, was eine handgeschriebene Fixture
+glattbügeln würde. Vier Mutationen gegengeprüft (Impressum-Fallback, DNB-Id als
+PPN, Round-Robin, kaputte NDJSON-Zeile), je 8 Tests schlugen an. Suite 1786.
+
 ### Reasoning-Modelle im agentischen Modus: Kanal, Think-Schalter, Budget-Meldung (August 24, 2026)
 
 Operator-Befund: `nemotron-3.5-lightning` (Provider `LLMachine` = lokales Ollama

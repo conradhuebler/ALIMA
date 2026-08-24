@@ -524,7 +524,14 @@ class ToolGenerationMixin:
             km.store_raw_response(source, term, params, blob, http_status=last_status.get(term))
 
     def _make_title_records_handler(self, spec, inst):
-        """Catalog title-records handler built on the search factory (no mirror). - Claude Generated"""
+        """Catalog title-records handler built on the search factory (no mirror). - Claude Generated
+
+        Two backends end up here. A suggester-backed source (Libero/catalog)
+        answers through ``search_titles``; a standalone provider (kvk) has no
+        suggester and answers through the provider contract itself. Before, a
+        missing suggester was reported as "not available" — which is what the
+        contract-only providers look like, even though they work. - Claude Generated
+        """
         def handler(terms, search_type="title", max_results=25, **_ignore):
             from src.core.search.service import underlying_suggester
 
@@ -535,19 +542,36 @@ class ToolGenerationMixin:
                         {"error": spec.unavailable_message or "catalog not available"}
                     )
                 sugg = underlying_suggester(provider)
-                if sugg is None:
-                    return json.dumps(
-                        {"error": spec.unavailable_message or "catalog not available"}
+                if sugg is not None:
+                    results = sugg.search_titles(
+                        list(terms), search_type=search_type, max_results=max_results
                     )
-                results = sugg.search_titles(
-                    list(terms), search_type=search_type, max_results=max_results
-                )
+                    out = {"source": spec.source_label, "results": results}
+                else:
+                    from src.core.search.provider import SearchCapability
+
+                    res = provider.search(
+                        SearchCapability.TITLE_RECORDS,
+                        list(terms),
+                        search_type=search_type,
+                        max_results=max_results,
+                    )
+                    out = {
+                        "source": spec.source_label,
+                        "results": {
+                            term: [it.record for it in items if it.record is not None]
+                            for term, items in res.per_term.items()
+                        },
+                    }
+                    meta = {t: m for t, m in (res.per_term_meta or {}).items() if m}
+                    if meta:
+                        out["meta"] = meta
+                    if spec.include_errors:
+                        out["errors"] = dict(res.errors or {})
             except Exception as exc:
                 logger.error("search tool '%s' failed: %s", spec.name, exc)
                 return json.dumps({"error": str(exc)})
-            return json.dumps(
-                {"source": spec.source_label, "results": results}, ensure_ascii=False
-            )
+            return json.dumps(out, ensure_ascii=False)
 
         return handler
 

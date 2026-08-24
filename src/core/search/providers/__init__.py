@@ -10,3 +10,4 @@ from . import catalog as _catalog  # noqa: F401
 from . import finc as _finc  # noqa: F401
 from . import sru as _sru  # noqa: F401
 from . import gnd_local as _gnd_local  # noqa: F401
+from . import kvk as _kvk  # noqa: F401
