@@ -59,7 +59,11 @@ def create_argument_parser():
         Configured ArgumentParser instance
     """
     parser = argparse.ArgumentParser(
-        description="ALIMA CLI - AI-powered abstract analysis."
+        description=(
+            "ALIMA CLI - Automated Library Indexing and Metadata Assignment: "
+            "classic and agentic pipelines, batch processing, chat agent, "
+            "GND/DK/RVK search, and configuration (providers, database, plugins)."
+        )
     )
 
     # Global logging level argument

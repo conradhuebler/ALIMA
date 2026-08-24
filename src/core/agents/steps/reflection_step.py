@@ -218,6 +218,12 @@ class ReflectionStep(BaseStep):
         _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
 
         _log_response(self.step_id, result.content)
+        if getattr(result, "error", None):
+            # No model answer — content holds the loop's diagnostic, not a
+            # verdict. Failing here lets MetaAgent take its documented
+            # rule-based fallback instead of reading status=None/action=None
+            # out of an unparseable warning and cycling on. - Claude Generated
+            raise RuntimeError(f"Reflection LLM call failed: {result.error}")
         parsed = self._extract_json(result.content)
         logger.info(f"ReflectionStep '{self.step_id}': status={parsed.get('status')}, action={parsed.get('action')}")
 

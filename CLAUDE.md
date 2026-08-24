@@ -2,7 +2,7 @@
 
 ## Overview
 
-**ALIMA** (Automatic Library Indexing and Metadata Analysis) — pipeline for library science workflows combining LLM-powered text analysis with GND/SWB keyword search and DK/RVK classification.
+**ALIMA** (Automated Library Indexing and Metadata Assignment) — pipeline for library science workflows combining LLM-powered text analysis with GND/SWB keyword search and DK/RVK classification.
 
 ## Core
 1. Don't assume. Don't hide confusion. Surface tradeoffs.

@@ -6,6 +6,61 @@
 
 ## 2026
 
+### Leere Modellantwort ist kein erfolgreicher Schritt; Ollama-Native-Budget (August 24, 2026)
+
+Zwei Befunde aus dem nemotron-Fall nachgezogen.
+
+**1. Der `AgentResult.error`-Vertrag wurde vom `AgentLoop` selbst gebrochen.**
+Das Feld trägt seit jeher die Ansage „content hält dann einen Fehlerstring, KEINE
+Modellantwort — Aufrufer müssen das prüfen". Die Leer-Zug-Fallbacks hielten sich
+nicht daran: sie schrieben eine **selbst verfasste** Warnung in `content` und
+ließen `error` leer. `LLMAgentStep` parste die Warnung wie eine Modellantwort,
+bekam `{}` und meldete `success=True` — genau deshalb drehte der MetaAgent im
+nemotron-Lauf weiter, statt abzubrechen. Jetzt setzen alle vier
+loop-eigenen Meldungen `run_error` (Budget erschöpft, leerer Zug, kein
+Abschlusstext nach Tool-Calls, Exception im erzwungenen Schlusszug).
+
+Bewusst **nicht** als Fehler markiert: die Reasoning-Kanal-Antwort. Der Text
+stammt dort vom Modell, nur im falschen Kanal — ein Aufrufer kann sein JSON
+darin durchaus finden. Die Trennlinie ist „hat der Loop den Text verfasst oder
+das Modell".
+
+`ReflectionStep` prüft `result.error` jetzt ebenfalls und schlägt fehl, statt
+`status=None`/`action=None` aus einer unparsbaren Warnung zu lesen — MetaAgent
+nimmt dann seinen dokumentierten regelbasierten Ausweg. Gemessen am echten
+`extraction`-Schritt aus `alima_v51.yaml`: `think=None` → `success=False` mit
+konkretem Grund (vorher `success=True`, 0 Keywords); `think=False` →
+`success=True`, 17 Keywords.
+
+Nebeneffekt: `scripts/chat_eval.py` musste die Fallback-Meldungen bisher am
+Wortlaut erkennen (`_FALLBACK_MARKERS`). Das war das Symptom desselben Lochs und
+läuft jetzt über das Flag.
+
+**2. Der native Ollama-Pfad ignorierte das Token-Budget.**
+`_generate_ollama_native_with_tools` nahm `max_tokens` entgegen und ließ es
+fallen: die Anfrage lief gegen Ollamas unbegrenzten Default (`num_predict=-1`).
+Damit war ausgerechnet der Provider, bei dem eine ausufernde Antwort lokale
+GPU-Zeit kostet, der einzige ohne Deckel — und konnte eine abgeschnittene
+Antwort nie melden. Jetzt `options["num_predict"]`, und `done_reason == "length"`
+→ `StopReason.MAX_TOKENS` (non-streaming am Response, streaming am letzten
+Chunk). **Verhaltensänderung:** wer bisher auf dem Native-Pfad von Ollamas
+unbegrenztem Default profitiert hat, bekommt jetzt den konfigurierten Deckel —
+sichtbar als klare Budget-Meldung statt als leere Antwort.
+
+Dabei der dritte Feldname für den Reasoning-Kanal: nativ heißt er
+`message.thinking` (vLLM `reasoning_content`, Ollama-`/v1` `reasoning`) und
+wurde bisher gar nicht gelesen. Neu `_field(obj, name)`, weil der Ollama-Client
+je nach Aufruf und Release pydantic-Modelle oder Dicts liefert.
+
+Gegen den echten Server gemessen: `max_tokens=32` → `MAX_TOKENS` + 106 Zeichen
+Reasoning (vorher `END_TURN`, leerer Inhalt, 0 Reasoning), streaming genauso;
+`think=False` + 2048 → normale Antwort; Tool-Aufruf liefert weiterhin
+`TOOL_USE` mit korrekten Argumenten, streaming wie non-streaming.
+
+Tests: `tests/test_agent_no_answer_is_an_error.py` (9),
+`tests/test_ollama_native_budget.py` (12), fünf Mutationen einzeln
+gegengeprüft. Suite 1816.
+
 ### KVK als Suchprovider-Plugin (August 24, 2026)
 
 Der KVK (Karlsruher Virtueller Katalog) gibt seine Ergebnisse als JSON aus, wenn
@@ -122,10 +177,9 @@ ging („max_tokens=256 … davon N Zeichen Reasoning-Kanal") und wird **vor** d
 Reasoning-Zweig geprüft: ein abgeschnittener Gedankengang als Antwort auszugeben
 verdeckt, warum die Antwort fehlt.
 
-Offen (nicht angefasst): Der agentische Schritt meldet `success=True`, obwohl
-`extraction` nichts geliefert hat — deshalb drehte der MetaAgent weiter. Der
-Ollama-Native-Pfad (`_generate_ollama_native_with_tools`) reicht `max_tokens`
-nicht als `num_predict` durch und kennt kein `MAX_TOKENS` als `stop_reason`.
+Zwei Befunde blieben zunächst offen und sind im Folgeeintrag desselben Tages
+behoben: der agentische Schritt meldete `success=True`, obwohl `extraction`
+nichts geliefert hatte, und der Ollama-Native-Pfad ignorierte `max_tokens`.
 
 Tests: `tests/test_llm_service_reasoning_channel.py` (beide Feld-Dialekte,
 beide Think-Dialekte, Streaming + Non-Streaming, `length` → `MAX_TOKENS`),

@@ -184,7 +184,13 @@ class AgentLoop:
         final_content = ""
         final_stop_reason: StopReason = StopReason.END_TURN  # tracked for diagnosis - Claude Generated
         nudged = False  # one-time "write the final answer" retry - Claude Generated
-        run_error: Optional[str] = None  # LLM hard failure — see AgentResult.error - Claude Generated
+        # Set when the run produced no model answer — an LLM exception, or a
+        # turn the loop had to answer for itself with a diagnostic message.
+        # Both put loop-authored text into ``content``, so ``AgentResult.error``
+        # is the only way a caller can tell that text apart from a model answer.
+        # Leaving it unset made an empty turn look like a successful step.
+        # See AgentResult.error. - Claude Generated
+        run_error: Optional[str] = None
 
         for iteration in range(1, self.max_iterations + 1):
             # Cancel check (P-δ.3 hook). Latency = max one iteration.
@@ -436,7 +442,11 @@ class AgentLoop:
                         "max_tokens erhöhen, die Eingabe kürzen oder das Reasoning "
                         "abschalten (think=false)."
                     )
+                    run_error = final_content
                 elif reasoning_text:
+                    # Model output, not a loop-authored diagnostic: the answer
+                    # arrived in the wrong channel, but it IS the model talking.
+                    # No run_error — a caller may still find its JSON in there.
                     final_content = (
                         "💭 (Modell antwortete nur im Reasoning-Kanal, keine "
                         "separate finale Antwort):\n\n" + reasoning_text
@@ -446,6 +456,7 @@ class AgentLoop:
                         "⚠️ Das Modell hat keine Antwort geliefert "
                         "(leerer Inhalt, keine Tool-Calls)."
                     )
+                    run_error = final_content
                 if self.stream_callback:
                     self.stream_callback(final_content)
             if final_content:
@@ -488,6 +499,7 @@ class AgentLoop:
                         messages.append({"role": "assistant", "content": final_content})
                 except Exception:
                     final_content = "Agent reached maximum iterations without conclusion."
+                    run_error = final_content
                 # Some models (e.g. code models) call tools but never write a
                 # final answer → don't end on a silent empty bubble. - Claude Generated
                 if not final_content:
@@ -496,6 +508,7 @@ class AgentLoop:
                         "Textantwort geliefert. Dieses Modell schreibt im Tool-Modus "
                         "oft keinen Abschlusstext — ggf. ein anderes Chat-Modell wählen."
                     )
+                    run_error = final_content
                     if self.stream_callback:
                         self.stream_callback(final_content)
 

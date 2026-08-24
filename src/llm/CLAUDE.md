@@ -35,7 +35,9 @@ The `src/llm/` directory provides a unified interface for integrating multiple L
 - Shared scaffolding: `_convert_messages_for_{ollama,openai}`, `_retry_on_rate_limit`, `_apply_openai_think`, `_extract_reasoning`. Per-provider generators are genuinely provider-specific (no further safe dedup; superseded HTTP-Ollama/GitHub/Azure generators removed June 2026).
 
 ### Reasoning-Modelle über OpenAI-kompatible Endpunkte
-- **Zwei Feld-Dialekte für denselben Kanal**: vLLM/SGLang/DeepSeek senden `reasoning_content`, Ollamas `/v1` und OpenRouter senden `reasoning` → immer `_extract_reasoning()` benutzen, nie ein Feld direkt.
+- **Drei Feld-Dialekte für denselben Kanal**: vLLM/SGLang/DeepSeek senden `reasoning_content`, Ollamas `/v1` und OpenRouter senden `reasoning`, der native Ollama-Client `message.thinking` → nie ein Feld direkt lesen (`_extract_reasoning()` für die OpenAI-Pfade, `_field(msg, "thinking")` nativ).
+- **`_field(obj, name)`** für alle Ollama-Payloads: der Client liefert je nach Aufruf und Release pydantic-Modelle oder Dicts.
+- **Budget nativ**: `options["num_predict"]` (nicht `max_tokens`), Truncation meldet Ollama als `done_reason == "length"` — non-streaming am Response, streaming am letzten Chunk.
 - **Zwei Think-Dialekte**: `extra_body.chat_template_kwargs.enable_thinking` erreicht vLLM, `reasoning_effort` erreicht Ollama; `_apply_openai_think` sendet beide. Nur `reasoning_effort="none"` schaltet den Kanal wirklich ab.
 - **Reasoning-Tokens zählen gegen `max_tokens`** — ein Reasoning-Modell kann das Budget aufbrauchen, bevor die Antwort beginnt (`finish_reason="length"`, leerer Inhalt).
 - `_generate_ollama_native_with_tools` reicht `max_tokens` nicht als `num_predict` durch und liefert nie `StopReason.MAX_TOKENS`.

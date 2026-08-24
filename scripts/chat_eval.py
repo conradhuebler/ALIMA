@@ -37,7 +37,8 @@ DEFAULT_QUERIES = [
     "Welche DK-Klassifikation passt zu Halbleiterphysik?",
 ]
 
-# Substrings that mark the agent-loop fallback/warning answers (not a real answer).
+# Fallback for a result that predates AgentResult.error carrying the loop's own
+# diagnostics; the flag is the authority, these strings only catch stragglers.
 _FALLBACK_MARKERS = (
     "keine Antwort geliefert",
     "keine finale Textantwort",
@@ -53,8 +54,17 @@ def _split_model(spec: str):
     return provider.strip(), model.strip()
 
 
-def _is_ok(content: str) -> bool:
-    if not content or not content.strip():
+def _is_ok(result) -> bool:
+    """A run counts as ok when the model actually answered.
+
+    ``AgentResult.error`` is set whenever the loop had to answer for itself
+    (budget exhausted, empty turn, no final text after tool calls), so the
+    check no longer has to recognise those messages by their wording.
+    """
+    if getattr(result, "error", None):
+        return False
+    content = result.content or ""
+    if not content.strip():
         return False
     return not any(m in content for m in _FALLBACK_MARKERS)
 
@@ -91,7 +101,7 @@ def run_one(svc, reg, provider, model, query, *, compact, max_iterations, max_to
         "stop": res.stop_reason,
         "tools": tools,
         "final_len": len(content),
-        "ok": _is_ok(content),
+        "ok": _is_ok(res),
         "secs": round(dt, 1),
         "preview": content[:120].replace("\n", " "),
     }

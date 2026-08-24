@@ -215,6 +215,19 @@ def _extract_reasoning(obj: Any) -> str:
     return ""
 
 
+def _field(obj: Any, name: str, default: Any = None) -> Any:
+    """Read ``name`` from a dict or an SDK model. - Claude Generated
+
+    The Ollama client returns pydantic models for some calls and plain dicts
+    for others (and has switched between them across releases), so every
+    read of its payloads has to work both ways.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    value = getattr(obj, name, default)
+    return default if value is None else value
+
+
 class ProviderState(Enum):
     """Explicit placeholder stored in ``LlmService.clients`` for a provider that
     is registered but not yet connected (deferred/lazy init).
@@ -2460,6 +2473,13 @@ class LlmService(QObject):
         options = {"temperature": temperature, "top_p": top_p}
         if seed is not None:
             options["seed"] = seed
+        # Ollama's own budget knob. ``max_tokens`` used to be accepted here and
+        # dropped, so this was the one provider that ran against Ollama's
+        # unlimited default (num_predict=-1) no matter what the caller asked
+        # for — and the one that could therefore never report a truncated
+        # answer. - Claude Generated
+        if max_tokens:
+            options["num_predict"] = int(max_tokens)
 
         # Thinking control (top-level kwarg, mirrors _generate_ollama_native) - Claude Generated
         think_kwargs: dict = {}
@@ -2501,6 +2521,8 @@ class LlmService(QObject):
                     **think_kwargs,
                 )
                 content = ""
+                reasoning = ""
+                done_reason = ""
                 tool_calls_raw: list = []
                 for chunk in response_stream:
                     if should_stop and should_stop():
@@ -2508,15 +2530,18 @@ class LlmService(QObject):
                             content=content,
                             tool_calls=[],
                             stop_reason=StopReason.CANCELLED,
+                            reasoning=reasoning,
                         )
-                    if isinstance(chunk, dict):
-                        msg = chunk.get("message") or {}
-                        text = msg.get("content", "") if isinstance(msg, dict) else ""
-                        tcs = msg.get("tool_calls") if isinstance(msg, dict) else None
-                    else:
-                        msg = getattr(chunk, "message", None)
-                        text = getattr(msg, "content", "") if msg is not None else ""
-                        tcs = getattr(msg, "tool_calls", None) if msg is not None else None
+                    msg = _field(chunk, "message") or {}
+                    text = _field(msg, "content", "") or ""
+                    tcs = _field(msg, "tool_calls")
+                    # Ollama's native reasoning channel is a THIRD field name for
+                    # the same thing (``reasoning_content`` on vLLM, ``reasoning``
+                    # on Ollama's own /v1). - Claude Generated
+                    thinking = _field(msg, "thinking", "") or ""
+                    done_reason = _field(chunk, "done_reason", "") or done_reason
+                    if thinking:
+                        reasoning += thinking
                     if text:
                         content += text
                         stream_callback(text)
@@ -2535,18 +2560,36 @@ class LlmService(QObject):
                     **think_kwargs,
                 )
                 content = ""
+                reasoning = ""
                 tool_calls = []
-                if "message" in response:
-                    msg = response["message"]
-                    content = msg.get("content", "") or ""
-                    if msg.get("tool_calls"):
-                        tool_calls = _extract_tool_calls(msg["tool_calls"])
+                done_reason = _field(response, "done_reason", "") or ""
+                msg = _field(response, "message")
+                if msg is not None:
+                    content = _field(msg, "content", "") or ""
+                    reasoning = _field(msg, "thinking", "") or ""
+                    raw_tcs = _field(msg, "tool_calls")
+                    if raw_tcs:
+                        tool_calls = _extract_tool_calls(raw_tcs)
 
             if should_stop and should_stop():
-                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
+                return AgentResponse(
+                    content=content, tool_calls=[],
+                    stop_reason=StopReason.CANCELLED, reasoning=reasoning,
+                )
 
-            stop_reason = StopReason.TOOL_USE if tool_calls else StopReason.END_TURN
-            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+            # Truncation first, as on the OpenAI path: a turn cut off mid-flight
+            # may carry half-written tool arguments, so "hit the budget" is the
+            # honest reason even when tool_calls came back. - Claude Generated
+            if done_reason == "length":
+                stop_reason = StopReason.MAX_TOKENS
+            elif tool_calls:
+                stop_reason = StopReason.TOOL_USE
+            else:
+                stop_reason = StopReason.END_TURN
+            return AgentResponse(
+                content=content, tool_calls=tool_calls,
+                stop_reason=stop_reason, reasoning=reasoning,
+            )
 
         except Exception as e:
             self.logger.error(f"Ollama native tool-calling error: {e}")

@@ -62,7 +62,7 @@ def _apply_light_app_palette(app: QApplication):
 
 def main():
     # Parse command-line arguments - Claude Generated
-    parser = argparse.ArgumentParser(description="ALIMA GUI - Automatic Library Indexing and Metadata Analysis")
+    parser = argparse.ArgumentParser(description="ALIMA GUI - Automated Library Indexing and Metadata Assignment")
     parser.add_argument("--wizard", action="store_true", help="Force first-start wizard even if config exists")
     parser.add_argument("--reset-setup", action="store_true", help="Reset setup flag and run wizard (same as --wizard)")
     args = parser.parse_args()
