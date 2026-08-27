@@ -242,6 +242,15 @@
                             <option value="on">Thinking: An</option>
                             <option value="off">Thinking: Aus</option>
                         </select>
+                        <select id="max-tokens-override" class="field field--select"
+                                title="max_tokens für alle agentischen LLM-Steps; Standard = Wert aus dem Workflow-YAML"
+                                style="max-width: 150px;">
+                            <option value="">Budget: Standard</option>
+                            <option value="8192">Budget: 8192</option>
+                            <option value="16384">Budget: 16384</option>
+                            <option value="32768">Budget: 32768</option>
+                            <option value="65536">Budget: 65536</option>
+                        </select>
                         <button id="refresh-models-btn" class="btn btn-sm" title="Modelle neu laden">🔄</button>
                     </div>
 

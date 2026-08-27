@@ -119,6 +119,24 @@ def cleanup_old_autosaves(max_age_hours: int = None):
         logger.error(f"Cleanup error: {e}")
 
 
+def _parse_max_tokens_override(value: Optional[str]) -> Optional[int]:
+    """Map a token-budget form field to an int, or None for "leave the YAML".
+
+    Empty, non-numeric and non-positive values mean "no override" rather than an
+    error: the field comes from a browser and a typo must not fail the analysis.
+    Clamped to the same ceiling as the Qt spinbox. - Claude Generated
+    """
+    if not value:
+        return None
+    try:
+        budget = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if budget <= 0:
+        return None
+    return min(budget, 131072)
+
+
 def _parse_think_override(value: Optional[str]) -> Optional[bool]:
     """Map a 'default'|'on'|'off' thinking override string to None/True/False - Claude Generated."""
     if not value:

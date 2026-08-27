@@ -124,5 +124,97 @@ class TestOverrideReachesTheContext(unittest.TestCase):
         self.assertIsNone(cfg.global_max_tokens_override)
 
 
+class TestWebappBudget(unittest.TestCase):
+    """The webapp reaches the same config field as GUI and CLI."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from src.webapp import app as appmod
+
+        return TestClient(appmod.app), appmod
+
+    def _fake_pipeline_manager(self):
+        class FakePM:
+            def __init__(self, *a, **k):
+                self.config = None
+                self.current_analysis_state = None
+
+            def set_config(self, cfg):
+                self.config = cfg
+
+            def set_callbacks(self, **cb):
+                self._cb = cb
+
+            def set_interrupt_flag(self, *a, **k):
+                pass
+
+            def start_pipeline(self, text, input_type=None, input_source=None):
+                if self._cb.get("pipeline_completed"):
+                    self._cb["pipeline_completed"](None)
+                return "fake-pipeline-id"
+
+        return FakePM()
+
+    def _post(self, sid, data):
+        from unittest import mock
+
+        client, appmod = self._client()
+        appmod.sessions[sid] = appmod.Session(sid)
+        fake_pm = self._fake_pipeline_manager()
+        try:
+            with mock.patch("src.webapp.routers.analysis.PipelineManager", return_value=fake_pm), \
+                 mock.patch("src.webapp.routers.analysis.resolve_input_to_text", return_value="text"), \
+                 mock.patch("src.webapp.routers.analysis.AppContext") as mock_ctx:
+                mock_ctx.return_value.get_services.return_value = {
+                    "config_manager": MagicMock(),
+                    "alima_manager": MagicMock(),
+                    "cache_manager": MagicMock(),
+                    "llm_service": MagicMock(),
+                    "prompt_service": MagicMock(),
+                    "pipeline_manager": fake_pm,
+                }
+                resp = client.post(f"/api/analyze/{sid}", data=data)
+            self.assertEqual(resp.status_code, 200)
+            return fake_pm
+        finally:
+            appmod.sessions.pop(sid, None)
+
+    def test_form_field_reaches_the_pipeline_config(self):
+        pm = self._post("budget-set", {
+            "input_type": "text", "content": "abc", "max_tokens_override": "32768",
+        })
+        self.assertEqual(pm.config.global_max_tokens_override, 32768)
+
+    def test_without_the_field_the_yaml_keeps_deciding(self):
+        pm = self._post("budget-unset", {"input_type": "text", "content": "abc"})
+        self.assertIsNone(pm.config.global_max_tokens_override)
+
+    def test_garbage_is_no_override_not_an_error(self):
+        """The field comes from a browser; a typo must not fail the analysis."""
+        from src.webapp.session_io import _parse_max_tokens_override
+
+        self.assertIsNone(_parse_max_tokens_override("viele"))
+        self.assertIsNone(_parse_max_tokens_override("0"))
+        self.assertIsNone(_parse_max_tokens_override("-5"))
+        self.assertIsNone(_parse_max_tokens_override(""))
+        self.assertEqual(_parse_max_tokens_override("3276800"), 131072)
+        self.assertEqual(_parse_max_tokens_override(" 8192 "), 8192)
+
+    def test_frontend_and_server_agree_on_the_field_name(self):
+        """The select, the FormData key and the Form parameter are three places
+        that must spell the same name; a rename in one is silent otherwise."""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        html = (root / "src/webapp/templates/webapp.html").read_text(encoding="utf-8")
+        js = (root / "src/webapp/static/app.js").read_text(encoding="utf-8")
+        py = (root / "src/webapp/routers/analysis.py").read_text(encoding="utf-8")
+
+        self.assertIn('id="max-tokens-override"', html)
+        self.assertIn("getElementById('max-tokens-override')", js)
+        self.assertIn("formData.append('max_tokens_override'", js)
+        self.assertIn("max_tokens_override: Optional[str] = Form(None)", py)
+
+
 if __name__ == "__main__":
     unittest.main()

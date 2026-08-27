@@ -861,6 +861,13 @@ class AlimaWebapp {
                 formData.append('think_override', thinkSelect.value);
             }
 
+            // Add the token budget if not "Standard" — it outranks the
+            // workflow YAML's per-step max_tokens. - Claude Generated
+            const budgetSelect = document.getElementById('max-tokens-override');
+            if (budgetSelect && budgetSelect.value) {
+                formData.append('max_tokens_override', budgetSelect.value);
+            }
+
             const response = await fetch(`/api/analyze/${this.sessionId}`, {
                 method: 'POST',
                 body: formData

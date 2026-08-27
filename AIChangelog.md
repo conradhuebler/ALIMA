@@ -35,10 +35,14 @@ pro Aufruf. Damit ist die Reihe: 4096 → 1 von 2 ohne Antwort, 8192 → 3 von 3
 garantiert aber nichts: der schlechteste 32768er-Lauf verbrauchte 32224 Zeichen,
 also fast alles. Der Preis ist Zeit, `think=false` antwortet in 1,6 bis 4,5 s.
 
+Die Webapp trägt ihn ebenfalls: Auswahlfeld „Budget" neben dem Think-Schalter,
+Formularfeld `max_tokens_override`, serverseitig `_parse_max_tokens_override`
+(leer, nicht-numerisch oder ≤ 0 heißt „kein Override", nicht Fehler — das Feld
+kommt aus einem Browser; gedeckelt auf dieselben 131072 wie die Qt-Spinbox).
+Damit stellen GUI, CLI und Webapp dasselbe Config-Feld.
+
 Grenze: der klassische Pfad kennt kein Budget, `generate_response` hat den
 Parameter nicht — der Override wirkt nur agentisch, so steht es auch im Tooltip.
-Die Webapp reicht ihn noch nicht durch (dort gibt es bisher nur den
-Think-Schalter).
 
 Die Budget-Meldung des `AgentLoop` riet bisher pauschal zu „max_tokens erhöhen,
 die Eingabe kürzen oder das Reasoning abschalten". Sie unterscheidet jetzt, wohin
@@ -46,9 +50,12 @@ das Budget gegangen ist: ging es in den Denkkanal, nennt sie zuerst
 „Thinking: Aus" und sagt dazu, dass ein Budget dafür deutlich größer sein muss;
 ohne Reasoning-Anteil bleibt es beim alten Rat.
 
-Tests: `tests/test_token_budget_override.py` (8) — Vorrang Override > YAML >
+Tests: `tests/test_token_budget_override.py` (12) — Vorrang Override > YAML >
 Kontext, Reflexionsschritt, CLI-Flag, Warm-Start-Roundtrip, Default bleibt
-ungesetzt. Vier Mutationen einzeln gegengeprüft. Suite 1845.
+ungesetzt, Webapp-Formularfeld erreicht die Config, Müll-Eingaben werden zu
+„kein Override", und ein statischer Test hält Select-Id, FormData-Schlüssel und
+`Form`-Parameter auf demselben Namen fest. Sechs Mutationen einzeln
+gegengeprüft. Suite 1849.
 
 ### Thinking-Budget nachgemessen: deepseek verhält sich wie nemotron (August 27, 2026)
 

@@ -30,7 +30,11 @@ from src.webapp.result_serialization import (
     extract_results_from_analysis_state as _extract_results_from_analysis_state,
     prepare_results_for_export as _prepare_results_for_export,
 )
-from src.webapp.session_io import _autosave_session_state, _parse_think_override
+from src.webapp.session_io import (
+    _autosave_session_state,
+    _parse_max_tokens_override,
+    _parse_think_override,
+)
 from src.webapp.session_state import AppContext, Session, sessions
 
 logger = logging.getLogger(__name__)
@@ -46,6 +50,7 @@ async def start_analysis(
     file: Optional[UploadFile] = File(None),  # For pdf/img
     global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
     think_override: Optional[str] = Form(None),  # "default"|"on"|"off" thinking override - Claude Generated
+    max_tokens_override: Optional[str] = Form(None),  # token budget for all agentic LLM steps - Claude Generated
     source_type: Optional[str] = Form(None),   # Original source type for filename metadata - Claude Generated
     source_value: Optional[str] = Form(None),  # DOI/URL/filename for working title - Claude Generated
     workflow: Optional[str] = Form(None),  # Workflow stem or __classic__ - Claude Generated
@@ -84,7 +89,7 @@ async def start_analysis(
         logger.info(f"Session {session_id} workflow set to: {workflow}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow, think_override))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow, think_override, max_tokens_override))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -141,6 +146,7 @@ async def run_analysis(
     source_value: Optional[str] = None,  # DOI/URL/filename for working title - Claude Generated
     workflow: Optional[str] = None,  # Workflow stem or __classic__ - Claude Generated
     think_override: Optional[str] = None,  # "default"|"on"|"off" thinking override - Claude Generated
+    max_tokens_override: Optional[str] = None,  # token budget for all agentic LLM steps - Claude Generated
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -252,6 +258,14 @@ async def run_analysis(
                 f"{pipeline_config.global_provider_override}/{pipeline_config.global_model_override} "
                 f"think={think_val}"
             )
+
+        # Token budget: independent of the provider/think override — it travels
+        # to the agentic steps through the config, not through
+        # apply_global_override(). - Claude Generated
+        budget_val = _parse_max_tokens_override(max_tokens_override)
+        if budget_val:
+            pipeline_config.global_max_tokens_override = budget_val
+            logger.info(f"🔬 Webapp token budget: max_tokens={budget_val}")
 
         # Set config on pipeline manager (was missing - config was built but never applied)
         pipeline_manager.set_config(pipeline_config)
