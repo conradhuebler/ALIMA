@@ -6,6 +6,43 @@
 
 ## 2026
 
+### Thinking-Budget nachgemessen: deepseek verhält sich wie nemotron (August 27, 2026)
+
+Operator-Befund auf einer Testmaschine: deepseek liefert keine Antwort, weil das
+Token-Budget aufgebraucht ist — dasselbe Bild wie im nemotron-Fall. Neu
+`scripts/probe_thinking.py`, das die Frage pro Modell beantwortet: es fährt eine
+Matrix aus `think` × `max_tokens` über `generate_with_tools` (denselben Einstieg
+wie ein agentischer Schritt) und meldet je Zelle Antwortlänge, Reasoning-Länge
+und Stop-Grund. `--workflow-step alima_v51:extraction` nimmt die echten Prompts
+aus dem Workflow statt eines Platzhalters.
+
+Gemessen an `LLMachine/deepseek-v4-flash:cloud`, echter `extraction`-Schritt,
+4784-Zeichen-Abstract:
+
+| think | max_tokens | Läufe mit Antwort | Reasoning | Dauer |
+|---|---|---|---|---|
+| default | 4096 (Workflow-Wert) | 1 von 2 | 7581 / 14472 Z. | 13,7 / 17,9 s |
+| off | 4096 | 2 von 2 | 0 | 1,6 / 4,5 s |
+| default | 8192 | 3 von 3 | 9202 / 16807 / 9929 Z. | 20 / 34 / 40 s |
+| default | 16384 | 2 von 3 | bis 56886 Z. | Fehllauf 121,8 s |
+
+Zwei Befunde. **Der Schalter wirkt auf diesem Pfad**: `reasoning_effort="none"`
+plus `enable_thinking=false` aus dem else-Zweig von `_apply_openai_think` wird
+von Ollamas `/v1` für deepseek beachtet (Reasoning fällt messbar auf 0), keine
+Anfrage wurde abgelehnt — `deepseek*` gehört also *nicht* in die
+Reasoning-Präfixliste, die schickt nur `"low"`. **Und ein größeres Budget ist
+kein Ersatz**: der Denkkanal wächst mit, 16384 scheitert weiterhin, nur teurer.
+Die Empfehlung, `max_tokens` im Workflow-YAML anzuheben, ist damit widerlegt;
+der Hebel bleibt `think=false` pro Modell.
+
+Einschränkungen: 2–3 Läufe je Zelle, ein Modell, ein Abstract, ein Schritt. Der
+Fehlschlag ist stochastisch, „1 von 3" ist eine Schätzung aus kleiner
+Stichprobe. Antworten wurden nach Länge und Form verglichen (Titel +
+Keywords-JSON), nicht inhaltlich bewertet.
+
+Nebenbei: `src/llm/CLAUDE.md` führte den nativen Ollama-Budget-Mangel noch als
+offen, obwohl `31ea486` ihn behoben hat.
+
 ### Thinking streamt jetzt live und klappt danach zu (August 25, 2026)
 
 Operator-Befund: Im Chatfenster erschien das Thinking erst am Ende in einem
