@@ -33,7 +33,8 @@ PROTOCOL_VERSION = 1
 # ---------------------------------------------------------------------------
 BLOCK = "block"                          # appendBlock(html)
 COLLAPSIBLE = "collapsible"              # appendCollapsible(id, summary, body, open)
-COLLAPSIBLE_UPDATE = "collapsible_update"  # updateCollapsible(id, summary, body)
+COLLAPSIBLE_UPDATE = "collapsible_update"  # updateCollapsible(id, summary, body, kind, open)
+COLLAPSIBLE_APPEND = "collapsible_append"  # appendToCollapsible(id, text)
 ASSISTANT_OPEN = "assistant_open"        # openAssistant(header)
 ASSISTANT_TOKEN = "assistant_token"      # appendToken(text)
 ASSISTANT_FINALIZE = "assistant_finalize"  # finalizeAssistant(html)
@@ -83,7 +84,11 @@ def collapsible(
 
 
 def collapsible_update(
-    block_id: str, summary: str, body: str, kind: Optional[str] = None
+    block_id: str,
+    summary: str,
+    body: str,
+    kind: Optional[str] = None,
+    open_: Optional[bool] = None,
 ) -> Dict[str, Any]:
     ev: Dict[str, Any] = {
         "type": COLLAPSIBLE_UPDATE,
@@ -93,7 +98,24 @@ def collapsible_update(
     }
     if kind:
         ev["kind"] = kind
+    if open_ is not None:
+        # Additive like ``kind``. Absent means "leave the block as it is" — the
+        # open/closed state normally belongs to the user, and only a block that
+        # was deliberately opened for live output takes it back. - Claude Generated
+        ev["open"] = bool(open_)
     return ev
+
+
+def collapsible_append(block_id: str, text: str) -> Dict[str, Any]:
+    """Append raw text to an open collapsible's body, without re-rendering it.
+
+    ``collapsible_update`` replaces the whole body, which is why the thinking
+    block had to throttle its updates and therefore lagged behind the model.
+    Appending a text node per chunk is what lets it stream at the speed the
+    tokens arrive; the final ``collapsible_update`` then swaps in the formatted
+    body. - Claude Generated
+    """
+    return {"type": COLLAPSIBLE_APPEND, "id": block_id, "text": text or ""}
 
 
 def assistant_open(header: str) -> Dict[str, Any]:

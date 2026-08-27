@@ -6,6 +6,53 @@
 
 ## 2026
 
+### Thinking streamt jetzt live und klappt danach zu (August 25, 2026)
+
+Operator-Befund: Im Chatfenster erschien das Thinking erst am Ende in einem
+Block. Zwei getrennte Ursachen.
+
+**1. Der Reasoning-Kanal kam als fertiger String.** Der `<think>`-Dialekt lief
+über `ThinkStreamFilter` schon immer live; Provider mit **separatem** Kanal
+(Ollama `/v1` `reasoning`, nativ `thinking`, vLLM `reasoning_content`)
+sammelten ihn dagegen in `_generate_*_with_tools` und gaben ihn erst auf der
+fertigen `AgentResponse` heraus — der `AgentLoop` reichte ihn danach in einem
+Stück an `on_thinking`. Neu: `generate_with_tools(thinking_callback=…)`, das die
+beiden Generatoren mit Reasoning-Kanal pro Chunk bedienen. Der Nachschlag am
+Zugende feuert nur noch, wenn **nicht** gestreamt wurde (sonst stünde der Block
+doppelt da). Gemessen (LLMachine/nemotron-3.5): **555 Chunks von 0,48 s bis
+4,82 s**, Antwort-Token ab 4,83 s — vorher ein einziger Aufruf bei ~4,8 s.
+
+**2. Der Block war von Anfang an zugeklappt und wurde gedrosselt befüllt.**
+`append_thinking` öffnete ein `collapsible` mit `open=False` und schrieb den
+Body per `collapsible_update` neu — gedrosselt auf 0,7 s, weil jedes Update den
+ganzen Body ersetzt. Jetzt öffnet der Block **aufgeklappt**, bekommt die Chunks
+über das neue `collapsible_append` (ein Textknoten je Chunk, kein Re-Render) und
+wird beim Schließen per `collapsible_update(open=False)` zugeklappt — dieselbe
+Form wie der Pipeline-Stream-Block: sichtbar während es passiert, danach aus dem
+Weg.
+
+Zwei additive Protokoll-Erweiterungen (kein `PROTOCOL_VERSION`-Bump, unbekannte
+Typen ignorieren die Clients): `collapsible_append` und ein optionales `open` auf
+`collapsible_update`. **Fehlt `open`, bleibt der Zustand unangetastet** — er
+gehört dem Nutzer; nur ein bewusst für Live-Ausgabe geöffneter Block nimmt ihn
+sich zurück.
+
+Appends werden über 40 ms zusammengefasst: ein Reasoning-Kanal liefert Hunderte
+Chunks pro Zug, und jeder kostet die Qt-View einen `runJavaScript`-Roundtrip.
+Im Ende-zu-Ende-Lauf wurden daraus **125 Events für 2964 Zeichen**, verteilt
+über die vollen 6 s.
+
+Ereignisfolge, gegen echtes Modell und echten Renderer gemessen:
+`assistant_open` → `assistant_finalize` (leere Bubble; Thinking darf nicht
+darunter hängen) → `collapsible open=True` → 125 × `collapsible_append` →
+`collapsible_update open=False`.
+
+Beide Frontends teilen `alima_render.js`, also gilt es für GUI-Chat und Webapp
+gleichermaßen; der SSE-Endpunkt `/agent` reicht die Chunks jetzt ebenfalls live
+durch. Tests: `test_unified_message_renderer.py` erweitert (aufgeklappt beim
+Öffnen, Live-Append statt Sammel-Update, Zuklappen beim Schließen, nichts geht
+zwischen Koaleszenz und Close verloren). Suite 1836.
+
 ### ALIMA gibt über sich selbst Auskunft: `about_alima` (August 24, 2026)
 
 Der Chat-Agent konnte auf „Was ist ALIMA?" oder „Wie zitiere ich das?" nur aus

@@ -36,12 +36,22 @@ class _MockWebLogView:
             "kind": kind,
         }
 
-    def update_collapsible(self, block_id, summary, body, kind=None) -> None:
+    def update_collapsible(self, block_id, summary, body, kind=None, open_=None) -> None:
         prev = self.collapsibles.get(block_id, {})
         self.collapsibles[block_id] = {
-            "summary": summary, "body": body or "", "open": prev.get("open", False),
+            "summary": summary, "body": body or "",
+            # None = leave the block's open state alone (the user owns it).
+            "open": prev.get("open", False) if open_ is None else bool(open_),
             "kind": kind or prev.get("kind"),
         }
+
+    def append_to_collapsible(self, block_id, text) -> None:
+        entry = self.collapsibles.get(block_id)
+        if entry is None:
+            return
+        entry.setdefault("appended", [])
+        entry["appended"].append(text)
+        entry["body"] = (entry.get("body") or "") + text
 
     def open_assistant(self, header: str) -> None:
         self.assistant_header = header
@@ -1018,12 +1028,37 @@ class TestBubbleSegmentation(EventOrderTestBase):
 class TestThinkingBlock(EventOrderTestBase):
     """kind="thinking" collapsible lifecycle. Claude Generated."""
 
-    def test_append_thinking_opens_collapsed_thinking_block(self):
+    def test_append_thinking_opens_an_EXPANDED_thinking_block(self):
+        """Live output has to be visible while it happens; the block is folded
+        away again in _close_thinking_block."""
         self.renderer.append_thinking("Ich überlege.")
         colls = self.transport.of_type("collapsible")
         self.assertEqual(len(colls), 1)
         self.assertEqual(colls[0].get("kind"), "thinking")
-        self.assertFalse(colls[0]["open"])
+        self.assertTrue(colls[0]["open"])
+
+    def test_thinking_is_appended_live_not_at_the_end(self):
+        """The body rewrite was throttled to ~0.7s, so the thinking lagged
+        behind the model. Chunks now reach the frontend while the block is
+        still open — coalesced over a 40ms window, so the assertion is on
+        content and timing, not on chunk boundaries."""
+        r = self.renderer
+        r.append_thinking("Teil eins. ")
+        r.append_thinking("Teil zwei.")
+        appends = self.transport.of_type("collapsible_append")
+        self.assertTrue(appends, "nothing streamed before the block closed")
+        self.assertIsNotNone(r._thinking_block_id, "block closed too early")
+        self.assertEqual({a["id"] for a in appends}, {r._thinking_block_id})
+
+    def test_nothing_is_lost_between_coalescing_and_close(self):
+        r = self.renderer
+        chunks = [f"chunk{i} " for i in range(20)]
+        for c in chunks:
+            r.append_thinking(c)
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Antwort")
+        streamed = "".join(a["text"] for a in self.transport.of_type("collapsible_append"))
+        self.assertEqual(streamed, "".join(chunks))
 
     def test_thinking_closes_on_answer_token_with_full_body(self):
         r = self.renderer
@@ -1035,6 +1070,21 @@ class TestThinkingBlock(EventOrderTestBase):
         updates = self.transport.of_type("collapsible_update")
         self.assertTrue(updates)
         self.assertIn("Teil eins. Teil zwei.", updates[-1]["body"])
+
+    def test_the_closing_update_folds_the_block(self):
+        r = self.renderer
+        r.append_thinking("Grübel.")
+        r.open_assistant_bubble("m")
+        r.append_assistant_token("Antwort")
+        self.assertIs(self.transport.of_type("collapsible_update")[-1]["open"], False)
+
+    def test_a_live_update_does_not_touch_the_open_state(self):
+        """Only the closing update owns the fold — everything else leaves the
+        block as the user left it."""
+        from src.core import render_events as ev
+
+        payload = ev.collapsible_update("tc_1", "s", "b", kind="thinking")
+        self.assertNotIn("open", payload)
 
     def test_thinking_finalizes_open_bubble_first(self):
         r = self.renderer

@@ -67,7 +67,7 @@ function appendCollapsible(id, summary, body, open, kind) {
   _log().appendChild(det);
   maybeScroll();
 }
-function updateCollapsible(id, summary, body, kind) {
+function updateCollapsible(id, summary, body, kind, open) {
   var det = document.getElementById(id);
   if (!det) return;
   _applyCollapsibleKind(det, kind);
@@ -78,6 +78,19 @@ function updateCollapsible(id, summary, body, kind) {
     b.innerHTML = body || '';
     _ensureLinksNewTab(b);
   }
+  // Only a block that was opened for live output takes its state back; absent
+  // means the user owns it.
+  if (open === true || open === false) det.open = open;
+  maybeScroll();
+}
+function appendToCollapsible(id, text) {
+  // Live append into an open block (thinking): a text node per chunk, so the
+  // body is not re-rendered on every token.
+  var det = document.getElementById(id);
+  if (!det) return;
+  var b = det.querySelector('.tc-body');
+  if (!b) return;
+  b.appendChild(document.createTextNode(text || ''));
   maybeScroll();
 }
 function openAssistant(header) {

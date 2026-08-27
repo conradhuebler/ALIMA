@@ -222,6 +222,19 @@ class AgentLoop:
                 think_filter = ThinkStreamFilter(self.stream_callback, self.on_thinking)
                 stream_cb = think_filter.feed
 
+            # Providers with a SEPARATE reasoning channel (Ollama, vLLM) used to
+            # hand it over only as the finished string on the response, so the
+            # thinking appeared in one lump after the turn while the inline
+            # <think> dialect had been streaming live all along. This routes the
+            # channel through the same sink, per chunk. - Claude Generated
+            streamed_thinking = [False]
+
+            def _thinking_cb(text: str) -> None:
+                streamed_thinking[0] = True
+                self.on_thinking(text)
+
+            thinking_cb = _thinking_cb if self.on_thinking else None
+
             try:
                 response: AgentResponse = self.llm_service.generate_with_tools(
                     provider=provider,
@@ -235,6 +248,7 @@ class AgentLoop:
                     stream_callback=stream_cb,
                     should_stop=self.should_stop,
                     think=think,
+                    thinking_callback=thinking_cb,
                 )
             except Exception as e:
                 if think_filter:
@@ -248,9 +262,13 @@ class AgentLoop:
             if think_filter:
                 think_filter.flush()
 
-            # Provider reasoning channel → thinking block. May cosmetically
-            # duplicate streamed <think> content if a provider delivers both. - Claude Generated
-            if self.on_thinking and getattr(response, "reasoning", ""):
+            # Provider reasoning channel → thinking block. Only when it did NOT
+            # already arrive chunk-wise above (non-streaming call, or a provider
+            # whose generator has no reasoning channel yet) — otherwise the whole
+            # block would be appended a second time. May still cosmetically
+            # duplicate streamed <think> content if a provider delivers both
+            # dialects. - Claude Generated
+            if self.on_thinking and not streamed_thinking[0] and getattr(response, "reasoning", ""):
                 try:
                     self.on_thinking(response.reasoning)
                 except Exception as e:

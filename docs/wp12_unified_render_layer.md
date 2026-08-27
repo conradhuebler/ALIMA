@@ -96,7 +96,8 @@ Event-Liste, deren Typen 1:1 die Schicht-1-Funktionen treffen:
 | `pipeline_log` | `html` | `appendBlock` |
 | `block` / `html_block` | `html`, `kind?` | `appendBlock` |
 | `collapsible` | `id`, `summary`, `body`, `open`, `kind?` | `appendCollapsible` |
-| `collapsible_update` | `id`, `summary`, `body`, `kind?` | `updateCollapsible` |
+| `collapsible_update` | `id`, `summary`, `body`, `kind?`, `open?` | `updateCollapsible` |
+| `collapsible_append` | `id`, `text` | `appendToCollapsible` |
 | `assistant_open`/`_token`/`_finalize` | `header` / `text` / `html` | `openAssistant`/… |
 | `stream_open`/`_token`/`_close` | `id`,`summary` / `text` / `id`,`summary`,`collapse` | `openStreamBlock`/… |
 | `proposal` | `audit_id`, `tool`, `payload` | `appendBlock` (GUI) / ignorierbar (Webapp) |
@@ -106,6 +107,14 @@ Event-Liste, deren Typen 1:1 die Schicht-1-Funktionen treffen:
 
 (`kind="error"` auf `collapsible`/`collapsible_update` schaltet das rote
 Fehler-Chrome — additives Feld, kein `PROTOCOL_VERSION`-Bump; Chat-UX 3/9.)
+
+`collapsible_append` hängt Text an den Body eines offenen Blocks an, ohne ihn
+neu zu rendern — dafür ist der Live-Thinking-Block da: `collapsible_update`
+ersetzt den ganzen Body und musste deshalb gedrosselt werden. `open?` auf
+`collapsible_update` klappt einen Block zu bzw. auf; **fehlt das Feld, bleibt
+der Zustand unangetastet**, denn er gehört dem Nutzer. Nur ein Block, der
+bewusst für Live-Ausgabe geöffnet wurde, nimmt ihn sich zurück. Beides additiv,
+kein Protokoll-Bump (unbekannte Typen ignorieren die Clients).
 
 Append-only + idempotent (per `id`), damit Webapp-Reconnect/Replay funktioniert
 (die Webapp hat bereits Recovery + 30-min-WS-Timeout).

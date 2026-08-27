@@ -39,8 +39,11 @@ class WebLogViewTransport:
             )
         elif t == ev.COLLAPSIBLE_UPDATE:
             v.update_collapsible(
-                event["id"], event["summary"], event.get("body", ""), event.get("kind")
+                event["id"], event["summary"], event.get("body", ""),
+                event.get("kind"), event.get("open"),
             )
+        elif t == ev.COLLAPSIBLE_APPEND:
+            v.append_to_collapsible(event["id"], event.get("text", ""))
         elif t == ev.ASSISTANT_OPEN:
             v.open_assistant(event["header"])
         elif t == ev.ASSISTANT_TOKEN:

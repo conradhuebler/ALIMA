@@ -215,6 +215,20 @@ def _extract_reasoning(obj: Any) -> str:
     return ""
 
 
+def _emit_thinking(callback: Optional[Callable[[str], None]], text: str) -> None:
+    """Hand one reasoning chunk to the live thinking sink. - Claude Generated
+
+    Guarded: a frontend hiccup while rendering the thinking must not abort the
+    provider call that is still streaming the answer.
+    """
+    if not callback or not text:
+        return
+    try:
+        callback(text)
+    except Exception:
+        _rl_logger.debug("thinking_callback failed", exc_info=True)
+
+
 def _field(obj: Any, name: str, default: Any = None) -> Any:
     """Read ``name`` from a dict or an SDK model. - Claude Generated
 
@@ -2343,6 +2357,7 @@ class LlmService(QObject):
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
         think: Optional[bool] = None,
+        thinking_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """
         Generate a response with tool-calling support - Claude Generated
@@ -2408,12 +2423,12 @@ class LlmService(QObject):
             if provider_type == "ollama":
                 return self._generate_ollama_native_with_tools(
                     provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop,
+                    should_stop=should_stop, thinking_callback=thinking_callback,
                 )
             elif provider_type == "openai_compatible":
                 return self._generate_openai_with_tools(
                     provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop,
+                    should_stop=should_stop, thinking_callback=thinking_callback,
                 )
             elif provider_type == "anthropic":
                 # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
@@ -2451,6 +2466,7 @@ class LlmService(QObject):
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
+        thinking_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """Tool-calling via Ollama native client - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2542,6 +2558,7 @@ class LlmService(QObject):
                     done_reason = _field(chunk, "done_reason", "") or done_reason
                     if thinking:
                         reasoning += thinking
+                        _emit_thinking(thinking_callback, thinking)
                     if text:
                         content += text
                         stream_callback(text)
@@ -2607,6 +2624,7 @@ class LlmService(QObject):
         seed: Optional[int] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
+        thinking_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
         """Tool-calling via OpenAI-compatible API - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2680,6 +2698,10 @@ class LlmService(QObject):
                     rc = _extract_reasoning(delta)
                     if rc:
                         reasoning += rc
+                        # Deliver per chunk, not only as the accumulated string
+                        # on the returned response: a frontend that shows the
+                        # thinking live can only do so if it arrives live. - Claude Generated
+                        _emit_thinking(thinking_callback, rc)
 
                     if delta.tool_calls:
                         for tc_delta in delta.tool_calls:

@@ -205,10 +205,20 @@ class WebLogView(QWidget):
         summary_html: str,
         body_html: str,
         kind: Optional[str] = None,
+        open_: Optional[bool] = None,
     ) -> None:
+        # ``open`` stays undefined unless the caller says so — the JS only
+        # touches det.open for an explicit true/false.
+        open_js = "undefined" if open_ is None else ("true" if open_ else "false")
         self._run_js(
             f"updateCollapsible({_js_str(block_id)}, {_js_str(summary_html)}, "
-            f"{_js_str(body_html)}, {_js_str(kind or '')});"
+            f"{_js_str(body_html)}, {_js_str(kind or '')}, {open_js});"
+        )
+
+    def append_to_collapsible(self, block_id: str, text: str) -> None:
+        """Append one live chunk to an open collapsible's body. - Claude Generated"""
+        self._run_js(
+            f"appendToCollapsible({_js_str(block_id)}, {_js_str(text)});"
         )
 
     def open_assistant(self, header_html: str) -> None:
