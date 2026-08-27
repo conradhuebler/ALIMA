@@ -4,6 +4,8 @@
 
 **ALIMA** (Automated Library Indexing and Metadata Assignment) — pipeline for library science workflows combining LLM-powered text analysis with GND/SWB keyword search and DK/RVK classification.
 
+**Publikation**: Hübler, *ALIMA – Ein RAG-basiertes System zur LLM-gestützten Sacherschließung*, Bibliothek Forschung und Praxis 50 (2026), H. 2, S. 197–216, [DOI 10.1515/bfp-2026-0014](https://doi.org/10.1515/bfp-2026-0014) (Open Access).
+
 ## Core
 1. Don't assume. Don't hide confusion. Surface tradeoffs.
 2. Minimum code that solves the problem. Nothing speculative.

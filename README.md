@@ -4,6 +4,11 @@
 
 Entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
 
+## Publikation
+
+Hübler, Conrad: *ALIMA – Ein RAG-basiertes System zur LLM-gestützten Sacherschließung: Prototypentwicklung und erste Erfahrungen aus der Praxis.* In: Bibliothek Forschung und Praxis 50 (2026), Heft 2, S. 197–216.
+DOI: [10.1515/bfp-2026-0014](https://doi.org/10.1515/bfp-2026-0014). Open Access (CC BY 4.0).
+
 ## Anmerkung des Autors
 ALIMA sowie die Dokumentation sind größtenteils mit Claude erstellt. LLM sind oft übereuphorisch und sehen Dinge als fertig an, auch wenn sie es noch nicht sind. Gleichzeitig ändern sich dank Agentic Coding Dinge schneller, als sie dokumentiert werden können. ALIMA ist demnach noch in der Entwicklung und noch nicht alle dokumentierten Funktionen sind als fertig anzusehen.
 

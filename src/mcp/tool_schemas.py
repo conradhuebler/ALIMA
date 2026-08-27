@@ -168,6 +168,29 @@ GET_DB_STATS = ToolDefinition(
     },
 )
 
+ABOUT_ALIMA = ToolDefinition(
+    name="about_alima",
+    description=(
+        "Facts about ALIMA itself: what the name stands for, what the system "
+        "does, how mature it is, its two pipeline modes, where it was developed, "
+        "the publication that describes it (full citation + DOI), the "
+        "repository, the licence, contributors and acknowledgements. "
+        "Call this whenever someone asks about ALIMA as a system — 'what is "
+        "ALIMA', 'what can you do', 'how does it work', 'how reliable is it', "
+        "'who made you', 'is there a paper / how do I cite this', "
+        "'which licence'. "
+        "Do NOT answer those from memory: a citation invented from training "
+        "data looks right and gets the volume, pages or year wrong. "
+        "This describes the SYSTEM, not its data — for the active sources use "
+        "list_plugins, for runnable orchestrations list_workflows, for the "
+        "database contents get_db_stats."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+    },
+)
+
 LIST_PLUGINS = ToolDefinition(
     name="list_plugins",
     description=(

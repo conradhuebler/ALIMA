@@ -6,6 +6,52 @@
 
 ## 2026
 
+### ALIMA gibt über sich selbst Auskunft: `about_alima` (August 24, 2026)
+
+Der Chat-Agent konnte auf „Was ist ALIMA?" oder „Wie zitiere ich das?" nur aus
+dem Modellgedächtnis antworten — und genau eine Zitation ist der Fall, in dem
+ein LLM eine plausible, aber falsche Version erfindet (Band, Seiten, Jahr).
+Das widerspricht auch der eigenen Prompt-Regel „nenne nur, was Tools liefern".
+
+- **`src/core/about.py`** — eine Wahrheit für die Projektfakten: Auflösung des
+  Akronyms, Kurzbeschreibung, Einrichtung, Fähigkeiten, Publikation (volle
+  Zitation, DOI, Open-Access-Lizenz), Repository, Lizenz. Über Crossref
+  (`10.1515/bfp-2026-0014`) verifiziert, nicht von der Verlagsseite abgeschrieben.
+- **MCP-Tool `about_alima`** (`tool_schemas.ABOUT_ALIMA` +
+  `ToolRegistry._handle_about_alima`): reiner Lookup, ohne Config und ohne DB —
+  die Frage „was bist du" muss auch beantwortbar sein, wenn sonst nichts
+  erreichbar ist. Die Tool-Beschreibung grenzt es gegen `list_plugins`
+  (aktive Quellen), `list_workflows` (ausführbare Orchestrierungen) und
+  `get_db_stats` (Datenbestand) ab.
+- **Der Payload deckt auch die unbequemen Fragen ab**: `status` trägt den
+  Reifegrad-Vorbehalt aus der „Anmerkung des Autors" (in Entwicklung,
+  LLM-gestützt entstanden, Vorschläge bleiben prüfpflichtig) — wer ein System
+  fragt, ob es zuverlässig ist, bekommt sonst die selbstbewusste Version.
+  Dazu `pipeline_modes`, `contributors`, `acknowledgements` und `see_also`,
+  das Datenfragen an die zuständigen Tools weiterreicht statt sie aus einer
+  Beschreibung zu beantworten.
+- **Die Tool-Beschreibung allein genügte nicht.** Gemessen (LLMachine/
+  nemotron-3.5, think=false): „Wofür steht ALIMA / Publikation?" rief das Tool,
+  aber „Welche Quellen hast du aktiv?" und „Wie zuverlässig sind deine
+  Vorschläge?" riefen **gar kein** Tool — und antworteten als *Basismodell*
+  („von Forschern von NVIDIA entwickelt … kein Zugriff auf Datenbanken").
+  Deshalb doch eine Regel in **beiden** Prompt-Stufen: Selbstfragen sind
+  Tool-Fragen (`about_alima` / `list_plugins` / `list_workflows`), und „du bist
+  ALIMA, nicht das Basismodell" — ausdrücklich auch dann, wenn die Frage nach
+  dem Modell klingt („deine Vorschläge", „wer hat dich gebaut"). Danach lösen
+  alle drei Fragen den richtigen Aufruf aus, mit nemotron-3.5 wie mit
+  gemma4:31b. Kosten: +159 Zeichen in der vollen Stufe, die kompakte bleibt bei
+  1042.
+
+Publikation zusätzlich in `README.md` (eigener Abschnitt) und `CLAUDE.md`
+(Overview-Zeile). Damit gibt es die Fakten dreimal, also hält
+`tests/test_about.py` `about.py`, README und CLAUDE.md gegeneinander fest —
+eine Zitation, die sich still selbst widerspricht, ist schlimmer als keine.
+
+Tests: `tests/test_about.py` (10), drei Mutationen gegengeprüft
+(Seitenzahl-Drift, Modulzustand statt Kopien, Tool nicht registriert).
+Suite 1826.
+
 ### Leere Modellantwort ist kein erfolgreicher Schritt; Ollama-Native-Budget (August 24, 2026)
 
 Zwei Befunde aus dem nemotron-Fall nachgezogen.

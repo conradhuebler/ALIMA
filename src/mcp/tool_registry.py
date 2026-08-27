@@ -323,6 +323,16 @@ class ToolRegistry(ToolGenerationMixin):
         stats = km.get_database_stats()
         return json.dumps(stats, ensure_ascii=False)
 
+    def _handle_about_alima(self) -> str:
+        """Project facts from the single source of truth (``src/core/about.py``).
+
+        Pure lookup, no config and no DB — asking what ALIMA is must work even
+        when nothing else is reachable. - Claude Generated
+        """
+        from src.core.about import about_payload
+
+        return json.dumps(about_payload(), ensure_ascii=False)
+
     def _handle_list_plugins(self, category: str = None, include_disabled: bool = False) -> str:
         """List active plugins (search providers + input sources) with self-docs.
 
@@ -1302,6 +1312,7 @@ class ToolRegistry(ToolGenerationMixin):
         self.register(tool_schemas.RVK_LOOKUP, self._handle_rvk_lookup)
         self.register(tool_schemas.AGGREGATE_GND_RESULTS, self._handle_aggregate_gnd_results)
         self.register(tool_schemas.LIST_PLUGINS, self._handle_list_plugins)
+        self.register(tool_schemas.ABOUT_ALIMA, self._handle_about_alima)
 
         # Library tools — search tools generated from provider specs (P3)
         for td, handler in self._generated_search_tools():
