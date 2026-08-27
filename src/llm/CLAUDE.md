@@ -40,7 +40,7 @@ The `src/llm/` directory provides a unified interface for integrating multiple L
 - **Budget nativ**: `options["num_predict"]` (nicht `max_tokens`), Truncation meldet Ollama als `done_reason == "length"` — non-streaming am Response, streaming am letzten Chunk.
 - **Zwei Think-Dialekte**: `extra_body.chat_template_kwargs.enable_thinking` erreicht vLLM, `reasoning_effort` erreicht Ollama; `_apply_openai_think` sendet beide. Nur `reasoning_effort="none"` schaltet den Kanal wirklich ab.
 - **Reasoning-Tokens zählen gegen `max_tokens`** — ein Reasoning-Modell kann das Budget aufbrauchen, bevor die Antwort beginnt (`finish_reason="length"`, leerer Inhalt).
-- **Budget anheben ersetzt `think=false` nicht** — der Denkkanal wächst mit dem Budget mit. Gemessen am echten `alima_v51:extraction` (deepseek-v4-flash:cloud): 4096 → 1 von 2 Läufen ohne Antwort, 8192 → 3 von 3 mit Antwort, 16384 → 1 von 3 ohne Antwort (56886 Zeichen Reasoning, 122 s); `think=false` antwortet in 1,6–4,5 s.
+- **Budget anheben verschiebt die Grenze, garantiert aber nichts** — der Denkkanal wächst mit. Gemessen am echten `alima_v51:extraction` (deepseek-v4-flash:cloud): 4096 → 1 von 2 Läufen ohne Antwort, 8192 → 3 von 3 mit, 16384 → 1 von 3 ohne (56886 Zeichen Reasoning, 122 s), 32768 → 5 von 5 mit (7,5k–32k Zeichen Reasoning, 15–70 s pro Aufruf). `think=false` antwortet in 1,6–4,5 s ohne Reasoning.
 - Nachmessen pro Modell: `scripts/probe_thinking.py --model P/M --workflow-step alima_v51:extraction` (Matrix think × max_tokens, meldet Antwort-/Reasoning-Länge und Stop-Grund).
 
 ## [Instructions Block - Operator-Defined Tasks]

@@ -613,6 +613,7 @@ class SharedContext(BaseSharedContext):
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "max_tokens_override": self.max_tokens_override,
             "seed": self.seed,
             "think": self.think,
             "working_title": self.working_title,
@@ -657,6 +658,7 @@ class SharedContext(BaseSharedContext):
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
+            max_tokens_override=data.get("max_tokens_override"),
             seed=data.get("seed"),
             think=data.get("think"),
         )

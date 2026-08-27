@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QComboBox,
     QSizePolicy,
+    QSpinBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from typing import Optional, Dict, List
@@ -509,6 +510,25 @@ class PipelineTab(
         self.global_think_combo.setStyleSheet(_combo_css)
         self.global_think_combo.setFixedWidth(110)
         tb_layout.addWidget(self.global_think_combo)
+
+        # Token budget for the agentic steps - Claude Generated
+        budget_label = QLabel("Budget:")
+        budget_label.setStyleSheet("padding-left: 8px;")
+        tb_layout.addWidget(budget_label)
+        self.global_max_tokens_spin = QSpinBox()
+        self.global_max_tokens_spin.setRange(0, 131072)
+        self.global_max_tokens_spin.setSingleStep(2048)
+        self.global_max_tokens_spin.setValue(0)
+        self.global_max_tokens_spin.setSpecialValueText("Standard")
+        self.global_max_tokens_spin.setToolTip(
+            "max_tokens für alle agentischen LLM-Schritte.\n"
+            "Standard = Wert aus dem Workflow-YAML (meist 4096)\n"
+            "Ein Reasoning-Modell verbraucht dieses Budget im Denkkanal, "
+            "bevor die Antwort beginnt; der Kanal wächst mit dem Budget mit.\n"
+            "Wirkt nur agentisch — die klassische Pipeline kennt kein Budget."
+        )
+        self.global_max_tokens_spin.setFixedWidth(110)
+        tb_layout.addWidget(self.global_max_tokens_spin)
 
         # Agentic vs. classic is driven by the workflow_combo selection
         # (see _on_workflow_changed). The agentic context dock is shown only

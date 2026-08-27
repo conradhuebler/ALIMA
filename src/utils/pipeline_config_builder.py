@@ -407,6 +407,11 @@ class PipelineConfigBuilder:
             builder.baseline.global_model_override = model
             logger.info(f"Global override: {provider}/{model}")
 
+        # Parse --max-tokens (agentic token budget for all LLM steps) - Claude Generated
+        if getattr(args, "max_tokens", None):
+            builder.baseline.global_max_tokens_override = int(args.max_tokens)
+            logger.info(f"Token budget override: max_tokens={args.max_tokens}")
+
         # Apply all overrides with validation
         config = builder.apply_overrides(overrides)
 

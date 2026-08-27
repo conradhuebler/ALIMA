@@ -548,7 +548,14 @@ class LLMAgentStep(BaseStep):
         return {
             "temperature": llm_cfg.get("temperature", getattr(context, "temperature", 0.5)),
             "top_p": llm_cfg.get("top_p", 0.9),
-            "max_tokens": llm_cfg.get("max_tokens", getattr(context, "max_tokens", 4096)),
+            # Budget: operator override > step llm.max_tokens > context default.
+            # The override is the one place that outranks the YAML on purpose —
+            # without it the budget can only be changed by editing every step of
+            # both v5.1 workflows. - Claude Generated
+            "max_tokens": (
+                getattr(context, "max_tokens_override", None)
+                or llm_cfg.get("max_tokens", getattr(context, "max_tokens", 4096))
+            ),
             # Thinking control: step llm.think > context.think > provider default.
             # A reasoning model spends its max_tokens budget on the thinking
             # channel first, so this is the lever that decides whether the

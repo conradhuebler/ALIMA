@@ -24,6 +24,10 @@ class BaseSharedContext:
     model: str = ""
     temperature: float = 0.5
     max_tokens: int = 4096
+    # Operator budget for every LLM step, outranking the workflow YAML's
+    # per-step value. None = the YAML decides (and ``max_tokens`` above is the
+    # fallback for steps that name no budget). - Claude Generated
+    max_tokens_override: Optional[int] = None
     seed: Optional[int] = None
     # None = leave the provider default; True/False = explicit thinking control.
     think: Optional[bool] = None
@@ -54,6 +58,7 @@ class BaseSharedContext:
             "model": self.model,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "max_tokens_override": self.max_tokens_override,
             "seed": self.seed,
             "think": self.think,
             "execution_history": self.execution_history,
@@ -67,6 +72,7 @@ class BaseSharedContext:
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 4096),
+            max_tokens_override=data.get("max_tokens_override"),
             seed=data.get("seed"),
             think=data.get("think"),
         )

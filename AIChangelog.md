@@ -6,6 +6,50 @@
 
 ## 2026
 
+### Token-Budget ist einstellbar; 32768 gemessen (August 27, 2026)
+
+Ein Lauf brach an `selection_chunks` ab: 12661 Zeichen Reasoning gegen ein
+4096er-Budget, keine Antwort. Die Frage „können wir das Budget einfach riesig
+machen" war bis hierher nicht beantwortbar, weil es **kein Budget-Stellrad gab**.
+
+Der agentische Pfad las `llm.max_tokens` aus dem Workflow und fiel sonst auf
+`context.max_tokens` zurück, das `_pipeline_agentic` nie setzte. `ctx.think` und
+`ctx.temperature` wurden gesetzt, das Budget nicht. Die Folge: die Spinbox
+„max_tokens" pro Schritt in der GUI (`step_config_widgets.py:455`) schrieb in ein
+Feld, das niemand liest, und „riesig machen" hieß fünf Stellen in
+`alima_v51.yaml` plus fünf in `alima_v51_105.yaml`, von Hand synchron.
+
+Neu `PipelineConfig.global_max_tokens_override`, gebaut wie der Think-Override:
+GUI-Toolbar „Budget" (Spinbox, 0 = „Standard"), CLI `--max-tokens` für `pipeline`
+und `batch`. Er erreicht die Schritte als `SharedContext.max_tokens_override` und
+**überstimmt dort bewusst das YAML** — das ist der Sinn der Sache, sonst bliebe
+nur die Dateiänderung. Nicht gesetzt, bleibt jeder Schritt bei dem Wert, den sein
+YAML nennt; der Default ist `None`, damit ein ungesetztes Feld kein Budget
+absenkt. Die Reflexion des MetaAgent bekommt ihn ebenfalls, sie läuft auf
+demselben Modell gegen dieselbe Wand.
+
+Gemessen (deepseek-v4-flash:cloud, echter `alima_v51:extraction`): **32768 →
+5 von 5 Läufen mit Antwort**, Reasoning 7544 bis 32224 Zeichen, 15,5 bis 69,5 s
+pro Aufruf. Damit ist die Reihe: 4096 → 1 von 2 ohne Antwort, 8192 → 3 von 3 mit,
+16384 → 1 von 3 ohne, 32768 → 5 von 5 mit. Ein großes Budget hilft also, es
+garantiert aber nichts: der schlechteste 32768er-Lauf verbrauchte 32224 Zeichen,
+also fast alles. Der Preis ist Zeit, `think=false` antwortet in 1,6 bis 4,5 s.
+
+Grenze: der klassische Pfad kennt kein Budget, `generate_response` hat den
+Parameter nicht — der Override wirkt nur agentisch, so steht es auch im Tooltip.
+Die Webapp reicht ihn noch nicht durch (dort gibt es bisher nur den
+Think-Schalter).
+
+Die Budget-Meldung des `AgentLoop` riet bisher pauschal zu „max_tokens erhöhen,
+die Eingabe kürzen oder das Reasoning abschalten". Sie unterscheidet jetzt, wohin
+das Budget gegangen ist: ging es in den Denkkanal, nennt sie zuerst
+„Thinking: Aus" und sagt dazu, dass ein Budget dafür deutlich größer sein muss;
+ohne Reasoning-Anteil bleibt es beim alten Rat.
+
+Tests: `tests/test_token_budget_override.py` (8) — Vorrang Override > YAML >
+Kontext, Reflexionsschritt, CLI-Flag, Warm-Start-Roundtrip, Default bleibt
+ungesetzt. Vier Mutationen einzeln gegengeprüft. Suite 1845.
+
 ### Thinking-Budget nachgemessen: deepseek verhält sich wie nemotron (August 27, 2026)
 
 Operator-Befund auf einer Testmaschine: deepseek liefert keine Antwort, weil das

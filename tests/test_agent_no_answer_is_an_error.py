@@ -62,6 +62,25 @@ class TestLoopMarksItsOwnDiagnostics(unittest.TestCase):
         self.assertIsNotNone(res.error)
         self.assertIn("Token-Budget", res.error)
 
+    def test_budget_advice_depends_on_where_the_budget_went(self):
+        """Reasoning ate the budget → think=false, NOT "raise max_tokens".
+
+        A reasoning channel grows with the budget it is given (measured with
+        scripts/probe_thinking.py), so the bigger-budget advice belongs only to
+        the case where no reasoning was involved.
+        """
+        with_reasoning = _run([AgentResponse(content="", tool_calls=[],
+                                             reasoning="x" * 21,
+                                             stop_reason=StopReason.MAX_TOKENS)])
+        self.assertIn("21 Zeichen auf den Reasoning-Kanal", with_reasoning.content)
+        self.assertIn("think=false", with_reasoning.content)
+        self.assertNotIn("max_tokens erhöhen", with_reasoning.content)
+
+        without_reasoning = _run([AgentResponse(content="", tool_calls=[],
+                                                stop_reason=StopReason.MAX_TOKENS)])
+        self.assertIn("max_tokens erhöhen", without_reasoning.content)
+        self.assertNotIn("Reasoning-Kanal", without_reasoning.content)
+
     def test_silent_empty_turn_is_an_error(self):
         res = _run([AgentResponse(content="", tool_calls=[],
                                   stop_reason=StopReason.END_TURN)])

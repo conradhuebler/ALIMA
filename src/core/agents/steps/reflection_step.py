@@ -176,7 +176,12 @@ class ReflectionStep(BaseStep):
         params = {
             "temperature": float(llm_cfg.get("temperature", 0.1)),
             "top_p": float(llm_cfg.get("top_p", 0.9)),
-            "max_tokens": int(llm_cfg.get("max_tokens", 2048)),
+            # Operator budget outranks the YAML here too — the reflection turn
+            # runs on the same model and hits the same wall. - Claude Generated
+            "max_tokens": int(
+                getattr(context, "max_tokens_override", None)
+                or llm_cfg.get("max_tokens", 2048)
+            ),
             "max_iterations": 1,
             "timeout_seconds": 120,
             "provider": getattr(context, "provider", "") or "",

@@ -128,10 +128,12 @@ class PipelineTabControlMixin:
         # the baseline. Requiring both avoids an invalid provider/model mix.
         provider, model = self.global_override_selector.get_selection()
         think_override = self._get_global_think_override()
+        budget_override = self._get_global_max_tokens_override()
         if provider and model:
             config.global_provider_override = provider
             config.global_model_override = model
             config.global_think_override = think_override
+            config.global_max_tokens_override = budget_override
             # Propagate into the per-step configs. Setting the attribute alone is
             # not enough: apply_global_override() only runs in __post_init__, so a
             # runtime selection here would be ignored and every LLM step would keep
@@ -150,6 +152,7 @@ class PipelineTabControlMixin:
             config = self.pipeline_manager.config
             if config:
                 config.global_think_override = think_override
+                config.global_max_tokens_override = budget_override
                 if think_override is not None:
                     config.apply_global_override()
 
@@ -158,6 +161,16 @@ class PipelineTabControlMixin:
         if not hasattr(self, 'global_think_combo'):
             return None
         return {0: None, 1: True, 2: False}.get(self.global_think_combo.currentIndex())
+
+    def _get_global_max_tokens_override(self):
+        """Read the token-budget spinbox → None or the budget - Claude Generated.
+
+        The spinbox shows "Standard" at 0 (``setSpecialValueText``); that means
+        "leave every step the budget its workflow YAML names".
+        """
+        if not hasattr(self, 'global_max_tokens_spin'):
+            return None
+        return self.global_max_tokens_spin.value() or None
 
     def _update_dk_config_from_gui(self):
         """

@@ -58,6 +58,12 @@ YAML-driven workflows consumed by `WorkflowExecutor`.
 - GUI: Settings → System → Standard-Workflow.
 - Used by `PipelineConfig.create_from_provider_preferences()` and respected by the Qt6 Pipeline-Tab and the webapp workflow dropdown.
 
+## Token Budget
+
+- Each step's `llm.max_tokens` in the YAML is the default (4096 in both v5.1 workflows, 2048 for reflection).
+- `PipelineConfig.global_max_tokens_override` outranks it for every step of a run: GUI toolbar "Budget", CLI `--max-tokens`. Unset = the YAML decides.
+- A reasoning model spends this budget on its thinking channel before the answer starts; measurements in [`src/llm/CLAUDE.md`](../src/llm/CLAUDE.md), probe: `scripts/probe_thinking.py`.
+
 ## Maintenance Rule
 
 - **`alima_v51_105.yaml` must stay in sync with `alima_v51.yaml`** except for the institution-specific classification prompt block.

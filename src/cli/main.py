@@ -105,6 +105,8 @@ def create_argument_parser():
     pipeline_parser.add_argument("--step-top-p", action="append", help="Set top-p for step")
     pipeline_parser.add_argument("--step-seed", action="append", help="Set seed for step")
     pipeline_parser.add_argument("--step-think", action="append", help="Enable/disable thinking mode for step: STEP=true|false")
+    pipeline_parser.add_argument("--max-tokens", type=int, default=None,
+                                 help="Token budget for all agentic LLM steps; outranks the workflow YAML")
 
     # Step control
     pipeline_parser.add_argument("--enable-step", help="Comma-separated list of steps to enable")
@@ -186,6 +188,8 @@ def create_argument_parser():
     batch_parser.add_argument("--step-top-p", action="append", help="Set top-p for step")
     batch_parser.add_argument("--step-seed", action="append", help="Set seed for step")
     batch_parser.add_argument("--step-think", action="append", help="Enable/disable thinking mode for step: STEP=true|false")
+    batch_parser.add_argument("--max-tokens", type=int, default=None,
+                              help="Token budget for all agentic LLM steps; outranks the workflow YAML")
     batch_parser.add_argument("--suggesters", nargs="+", default=["lobid", "swb"], help="Search suggesters")
     batch_parser.add_argument("--disable-dk-classification", action="store_true", help="Disable DK classification")
     batch_parser.add_argument("--override", dest="global_override", metavar="PROVIDER/MODEL",

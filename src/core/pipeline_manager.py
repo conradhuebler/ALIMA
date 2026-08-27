@@ -108,6 +108,12 @@ class PipelineConfig:
     global_model_override: Optional[str] = None
     # Global thinking override for all LLM steps (None = leave per-step/task value) - Claude Generated
     global_think_override: Optional[bool] = None
+    # Global token budget for all agentic LLM steps (None = leave the workflow
+    # YAML's per-step ``llm.max_tokens``). Set, it OUTRANKS the YAML: it exists
+    # so an operator can lift the budget without editing two workflow files in
+    # five places each. Reaches the steps as ``SharedContext.max_tokens_override``;
+    # the classic path takes no budget parameter at all. - Claude Generated
+    global_max_tokens_override: Optional[int] = None
 
     def __post_init__(self):
         """Initialize step configs with proper defaults - Claude Generated"""

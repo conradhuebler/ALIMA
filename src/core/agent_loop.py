@@ -448,17 +448,31 @@ class AgentLoop:
                 # off by max_tokens leaves an unfinished train of thought, and
                 # printing that as the answer hides why the answer is missing. - Claude Generated
                 if response.stop_reason == StopReason.MAX_TOKENS:
-                    budget = (
-                        f" Davon entfielen {len(reasoning_text)} Zeichen auf den "
-                        f"Reasoning-Kanal."
-                        if reasoning_text
-                        else ""
-                    )
+                    # The advice depends on WHERE the budget went. Measured on
+                    # the real alima_v51 extraction step (deepseek-v4-flash,
+                    # scripts/probe_thinking.py): a reasoning channel grows with
+                    # the budget it is given (6406 → 56886 characters between
+                    # 4096 and 16384 max_tokens), so recommending a bigger
+                    # budget there sends the operator down a road that ends in
+                    # the same place, only slower. - Claude Generated
+                    if reasoning_text:
+                        budget = (
+                            f" Davon entfielen {len(reasoning_text)} Zeichen auf den "
+                            f"Reasoning-Kanal."
+                        )
+                        advice = (
+                            " Bei einem Reasoning-Modell wirkt „Thinking: Aus\" "
+                            "(think=false) sofort; ein größeres Budget hilft auch, "
+                            "muss dafür aber deutlich größer sein, denn der "
+                            "Denkkanal wächst mit (Toolbar „Budget\", CLI "
+                            "--max-tokens)."
+                        )
+                    else:
+                        budget = ""
+                        advice = " max_tokens erhöhen oder die Eingabe kürzen."
                     final_content = (
                         f"⚠️ Das Modell hat das Token-Budget (max_tokens={max_tokens}) "
-                        f"aufgebraucht, bevor eine Antwort kam.{budget} "
-                        "max_tokens erhöhen, die Eingabe kürzen oder das Reasoning "
-                        "abschalten (think=false)."
+                        f"aufgebraucht, bevor eine Antwort kam.{budget}{advice}"
                     )
                     run_error = final_content
                 elif reasoning_text:

@@ -282,6 +282,14 @@ class AgenticPipelineMixin:
         ctx.temperature = temperature
         if think is not None:
             ctx.think = think
+        # Token budget: only an explicit operator setting travels: absent, every
+        # step keeps the budget its workflow YAML names. - Claude Generated
+        if self.config.global_max_tokens_override:
+            ctx.max_tokens_override = int(self.config.global_max_tokens_override)
+            self.logger.info(
+                "Token budget override: max_tokens=%s for all agentic steps",
+                ctx.max_tokens_override,
+            )
         ctx.verbose = self.config.agentic_verbose
         ctx.prompt_service = self.alima_manager.prompt_service
 
