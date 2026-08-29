@@ -79,7 +79,7 @@ description: ""
 
 settings:
   temperature: 0.5
-  max_tokens: 4096
+  max_tokens: 32768
 
 steps:
   - id: extraction

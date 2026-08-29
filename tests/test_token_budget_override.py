@@ -12,6 +12,7 @@ budget is the knob an operator reaches for when steps come back empty.
 
 import argparse
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from src.core.agents.shared_context import SharedContext
@@ -122,6 +123,58 @@ class TestOverrideReachesTheContext(unittest.TestCase):
             builder, argparse.Namespace(max_tokens=None)
         )
         self.assertIsNone(cfg.global_max_tokens_override)
+
+
+class TestShippedDefaults(unittest.TestCase):
+    """The shipped budget, pinned.
+
+    4096 was measured to lose the answer of a reasoning model outright, because
+    the thinking channel spends the same budget (scripts/probe_thinking.py). The
+    two v5.1 workflows therefore carry 32768 in every step, reflection included,
+    and the code fallback matches. A step that drops back below that reopens the
+    failure quietly, so the number is held here rather than in prose.
+    """
+
+    SHIPPED = 32768
+
+    def _budgets(self, stem):
+        import yaml
+
+        path = Path(__file__).resolve().parent.parent / "workflows" / f"{stem}.yaml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        found = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                for k, v in node.items():
+                    if k == "max_tokens" and isinstance(v, int):
+                        found.append(v)
+                    else:
+                        walk(v)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+        return found
+
+    def test_both_v51_workflows_carry_the_shipped_budget(self):
+        for stem in ("alima_v51", "alima_v51_105"):
+            budgets = self._budgets(stem)
+            self.assertTrue(budgets, f"{stem}.yaml names no max_tokens at all")
+            self.assertEqual(
+                sorted(set(budgets)), [self.SHIPPED],
+                f"{stem}.yaml has a step below the shipped budget: {sorted(set(budgets))}",
+            )
+
+    def test_the_two_workflows_agree(self):
+        """Sync rule from workflows/CLAUDE.md: only the classification prompt
+        may differ between v51 and v51_105."""
+        self.assertEqual(self._budgets("alima_v51"), self._budgets("alima_v51_105"))
+
+    def test_code_fallback_matches_the_workflows(self):
+        ctx = SharedContext(abstract="a", initial_keywords=[])
+        self.assertEqual(ctx.max_tokens, self.SHIPPED)
 
 
 class TestWebappBudget(unittest.TestCase):

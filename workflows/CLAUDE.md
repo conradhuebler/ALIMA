@@ -60,7 +60,7 @@ YAML-driven workflows consumed by `WorkflowExecutor`.
 
 ## Token Budget
 
-- Each step's `llm.max_tokens` in the YAML is the default (4096 in both v5.1 workflows, 2048 for reflection).
+- Each step's `llm.max_tokens` in the YAML is the default (32768 throughout both v5.1 workflows, reflection included; code fallback is 32768 too).
 - `PipelineConfig.global_max_tokens_override` outranks it for every step of a run: GUI toolbar "Budget", CLI `--max-tokens`, webapp select "Budget". Unset = the YAML decides.
 - A reasoning model spends this budget on its thinking channel before the answer starts; measurements in [`src/llm/CLAUDE.md`](../src/llm/CLAUDE.md), probe: `scripts/probe_thinking.py`.
 

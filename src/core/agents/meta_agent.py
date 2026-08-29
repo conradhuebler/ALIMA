@@ -697,7 +697,7 @@ class MetaAgent:
         llm_block: Dict[str, Any] = {
             "temperature": float(rc.get("temperature", 0.1)),
             "top_p": float(rc.get("top_p", 0.9)),
-            "max_tokens": int(rc.get("max_tokens", 2048)),
+            "max_tokens": int(rc.get("max_tokens", 32768)),
             "max_iterations": 1,
         }
         # Block model/provider win; else the constructor-level reflection_*.

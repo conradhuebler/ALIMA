@@ -15,7 +15,7 @@ description: |
 settings:
   temperature: 0.5
   top_p: 0.5
-  max_tokens: 4096
+  max_tokens: 32768
   seed: null    # P-η: workflow-wide default; per-step `llm.seed` overrides.
 
 # MetaAgent (PLAN→EXECUTE→REFLECT loop) is ALWAYS active in agentic mode —
@@ -67,7 +67,7 @@ meta_agent:
     provider: ""
     temperature: 0.1
     top_p: 0.9
-    max_tokens: 2048
+    max_tokens: 32768
     rules: |
       ALIMA-Verschlagwortung — Phasen & Prüflogik:
       Phasen: initialisation→Keywords | search→GND | selection_chunks→gefiltert |
@@ -121,7 +121,7 @@ steps:
     llm:
       temperature: 0.5
       top_p: 0.5
-      max_tokens: 4096
+      max_tokens: 32768
       max_iterations: 1
 
     tools: []
@@ -272,7 +272,7 @@ steps:
     llm:
       temperature: 0.01
       top_p: 0.5
-      max_tokens: 4096
+      max_tokens: 32768
       max_iterations: 1
 
     tools: []
@@ -356,7 +356,7 @@ steps:
     llm:
       temperature: 0.5
       top_p: 0.5
-      max_tokens: 4096
+      max_tokens: 32768
       max_iterations: 1
 
     tools: []
@@ -563,7 +563,7 @@ steps:
     llm:
       temperature: 0.25
       top_p: 0.01
-      max_tokens: 4096
+      max_tokens: 32768
       # >1 so the LLM can call rvk_lookup and then emit its final JSON.
       max_iterations: 4
 

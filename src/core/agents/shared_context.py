@@ -657,7 +657,7 @@ class SharedContext(BaseSharedContext):
             provider=data.get("provider", ""),
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
-            max_tokens=data.get("max_tokens", 4096),
+            max_tokens=data.get("max_tokens", 32768),
             max_tokens_override=data.get("max_tokens_override"),
             seed=data.get("seed"),
             think=data.get("think"),

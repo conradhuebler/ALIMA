@@ -25,7 +25,7 @@ YAML fields consumed (see workflows/*.yaml for examples)::
       llm:
           temperature: 0.5
           top_p: 0.9
-          max_tokens: 4096
+          max_tokens: 32768
           max_iterations: 20
 
 Placeholder handling:
@@ -554,7 +554,7 @@ class LLMAgentStep(BaseStep):
             # both v5.1 workflows. - Claude Generated
             "max_tokens": (
                 getattr(context, "max_tokens_override", None)
-                or llm_cfg.get("max_tokens", getattr(context, "max_tokens", 4096))
+                or llm_cfg.get("max_tokens", getattr(context, "max_tokens", 32768))
             ),
             # Thinking control: step llm.think > context.think > provider default.
             # A reasoning model spends its max_tokens budget on the thinking

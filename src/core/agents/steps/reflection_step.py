@@ -180,7 +180,7 @@ class ReflectionStep(BaseStep):
             # runs on the same model and hits the same wall. - Claude Generated
             "max_tokens": int(
                 getattr(context, "max_tokens_override", None)
-                or llm_cfg.get("max_tokens", 2048)
+                or llm_cfg.get("max_tokens", 32768)
             ),
             "max_iterations": 1,
             "timeout_seconds": 120,

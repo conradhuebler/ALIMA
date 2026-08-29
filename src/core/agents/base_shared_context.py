@@ -23,7 +23,11 @@ class BaseSharedContext:
     provider: str = ""
     model: str = ""
     temperature: float = 0.5
-    max_tokens: int = 4096
+    # 32768, not the former 4096: a reasoning model spends this budget on its
+    # thinking channel before the answer starts, and 4096 was measured to lose
+    # the answer outright (scripts/probe_thinking.py). For a model without a
+    # reasoning channel the value is a cap it never approaches. - Claude Generated
+    max_tokens: int = 32768
     # Operator budget for every LLM step, outranking the workflow YAML's
     # per-step value. None = the YAML decides (and ``max_tokens`` above is the
     # fallback for steps that name no budget). - Claude Generated
@@ -71,7 +75,7 @@ class BaseSharedContext:
             provider=data.get("provider", ""),
             model=data.get("model", ""),
             temperature=data.get("temperature", 0.5),
-            max_tokens=data.get("max_tokens", 4096),
+            max_tokens=data.get("max_tokens", 32768),
             max_tokens_override=data.get("max_tokens_override"),
             seed=data.get("seed"),
             think=data.get("think"),

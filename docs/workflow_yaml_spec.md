@@ -13,7 +13,7 @@ description: "What this workflow does"         # str, optional
 settings:                                      # global LLM defaults
   temperature: 0.5                             # float, fallback for all llm_agent steps
   top_p: 0.9                                   # float
-  max_tokens: 4096                             # int
+  max_tokens: 32768                            # int
 
 context_init:                                  # initial SharedContext fields
   abstract: ""                                 # any field of SharedContext
@@ -115,7 +115,7 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
   llm:
     temperature: 0.5
     top_p: 0.9
-    max_tokens: 4096
+    max_tokens: 32768
     max_iterations: 1                          # AgentLoop iteration cap (tool-use rounds)
     provider: ""                               # optional override (default: pipeline config)
     model: ""

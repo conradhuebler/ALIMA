@@ -6,6 +6,47 @@
 
 ## 2026
 
+### Standard-Budget auf 32768 (August 29, 2026)
+
+Die 4096 aus den v5.1-Workflows waren die Ursache der leeren Schritte: ein
+Reasoning-Modell verbraucht dieses Budget im Denkkanal, bevor die Antwort
+beginnt (Messreihe im Eintrag vom 27. August). Beide v5.1-Workflows tragen
+jetzt an allen sechs Stellen 32768, die Reflexion eingeschlossen, und die
+Code-Rückfallwerte ziehen mit: `SharedContext.max_tokens`, der Fallback in
+`LLMAgentStep._llm_params`, der Reflexionsschritt (vorher 2048), der
+Reflexions-Default im `MetaAgent` und die YAML-Vorlage im Workflow-Editor.
+
+Was ein kleines Budget eigentlich leistet, und warum es hier trotzdem weichen
+kann:
+
+- **Deckel gegen Ausufern.** `max_tokens` ist die einzige Bremse für ein Modell,
+  das sich wiederholt; genau deswegen bekam der native Ollama-Pfad in `31ea486`
+  seinen `num_predict`. Mit 32768 kostet ein solcher Lauf mehr, bevor er stoppt.
+  Gemessen: ein Fehllauf bei 16384 lief 122 s.
+- **Modell-/Kontextgrenze.** Bei OpenAI-kompatiblen Backends muss Prompt plus
+  `max_tokens` in den Kontext passen; ein zu großer Wert kann die Anfrage
+  ablehnen lassen. Gegengeprüft an fünf real konfigurierten Modellen, alle
+  akzeptieren 32768: GWDG `qwen3.5-122b-a10b` (Reasoning, 5219 Zeichen Denken),
+  GWDG `gemma-4-31b-it`, GWDG `meta-llama-3.1-8b-instruct`, Mistral
+  `ministral-14b-latest`, LLMachine `gemma4:31b-cloud`.
+- **Abschneiden als Signal.** Ein Schritt, der ins Budget läuft, zeigt an, dass
+  Prompt oder Chunking nicht passen. Dieses Signal kommt jetzt später.
+
+Für ein Modell ohne Denkkanal ändert der größere Wert nichts: gemessene
+Antworten liegen bei rund 1000 Zeichen, das Budget ist eine Obergrenze, kein
+Ziel.
+
+Unangetastet blieben die Workflows außerhalb der v5.1-Familie: `alima.yaml`
+(v5.0), die beiden `alima_classic*`, `catalog_search`, `synonym_expansion`,
+`batch_metadata`, `webindex_keywords`, `website_rag`, `research_deep`,
+`main_agent` und besonders `title_list_search`, dessen 16384 aus einem echten
+Lauf begründet und im YAML kommentiert sind.
+
+Test: `TestShippedDefaults` in `tests/test_token_budget_override.py` hält die
+Zahl in beiden Workflows und im Code-Fallback fest und prüft nebenbei, dass die
+Budgets der zwei Dateien gleich bleiben (Sync-Regel). Eine Mutation
+gegengeprüft. Suite 1864.
+
 ### Agentische Schritte zeigen ihr Thinking (August 29, 2026)
 
 Operator-Befund: Im agentischen Lauf war vom Denken nichts zu sehen, obwohl der
