@@ -127,6 +127,8 @@ class _SessionBusSubscriber:
         self._on_pipeline_completed = self._handle_pipeline_completed
         self._on_pipeline_started = self._handle_pipeline_started
         self._on_notice = self._handle_notice
+        self._on_thinking = self._handle_thinking
+        self._on_thinking_done = self._handle_thinking_done
 
     def subscribe(self) -> None:
         from src.core.state_bus import AlimaStateBus
@@ -143,6 +145,8 @@ class _SessionBusSubscriber:
         self._bus.subscribe("state.pipeline_completed", self._on_pipeline_completed)
         self._bus.subscribe("state.pipeline_started", self._on_pipeline_started)
         self._bus.subscribe("state.notice", self._on_notice)
+        self._bus.subscribe("llm.thinking", self._on_thinking)
+        self._bus.subscribe("llm.thinking_done", self._on_thinking_done)
 
     def unsubscribe(self) -> None:
         if self._bus is None:
@@ -161,6 +165,8 @@ class _SessionBusSubscriber:
             )
             self._bus.unsubscribe("state.pipeline_started", self._on_pipeline_started)
             self._bus.unsubscribe("state.notice", self._on_notice)
+            self._bus.unsubscribe("llm.thinking", self._on_thinking)
+            self._bus.unsubscribe("llm.thinking_done", self._on_thinking_done)
         except Exception:
             logger.exception("SessionBusSubscriber unsubscribe failed")
         finally:
@@ -175,6 +181,20 @@ class _SessionBusSubscriber:
     # ------------------------------------------------------------------
     # Handlers
     # ------------------------------------------------------------------
+
+    def _handle_thinking(self, payload: Dict[str, Any]) -> None:
+        """Reasoning chunk of an agentic step → the live 💭 block.
+
+        Lockstep counterpart of ``BusEventMixin._on_bus_thinking`` (GUI). - Claude Generated
+        """
+        text = (payload or {}).get("text") or ""
+        if not text:
+            return
+        self._renderer.append_thinking(text)
+
+    def _handle_thinking_done(self, _payload: Dict[str, Any]) -> None:
+        """End of an agentic turn → fold the 💭 block away. - Claude Generated"""
+        self._renderer.close_thinking()
 
     def _handle_tool_called(self, payload: Dict[str, Any]) -> None:
         bus_id = (payload or {}).get("id") or ""

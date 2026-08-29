@@ -159,7 +159,7 @@ Root:             /                    → 301-redirect to /webapp
 - **Pipeline Integration**: Direct PipelineManager with callbacks (shared with CLI/GUI)
 - **Agentic Mode**: `/api/analyze/{id}` with `workflow=<stem>` sets `enable_agentic_mode=True` on `PipelineConfig`
 - **Shared Render Layer (WP12)**: `UnifiedMessageRenderer` + `WebSocketRenderTransport` emit the same render events as the Qt6 GUI; `alima_render.js/css` render them in the browser
-- **StateBus Bridge**: `_SessionBusSubscriber` (per-run) forwards `tool.called`, `tool.result`, `state.pipeline_*` events into the session render buffer; `state_bus.py` falls back to direct dispatch when no Qt event loop is present
+- **StateBus Bridge**: `_SessionBusSubscriber` (per-run) forwards `tool.called`, `tool.result`, `state.pipeline_*`, `llm.thinking`/`llm.thinking_done` events into the session render buffer; `state_bus.py` falls back to direct dispatch when no Qt event loop is present
 - **Chat Agent**: `_build_session_agent_runner` reuses the session's `PipelineManager` or seeds an isolated one with `current_analysis_state`; `HeadlessAgentRunner` runs off the asyncio loop
 - **Service Initialization**: AppContext singleton initializes services on first use (lazy init)
 - **Initialization Sequence**: ConfigManager → LlmService → PromptService → AlimaManager → UnifiedKnowledgeManager → PipelineManager

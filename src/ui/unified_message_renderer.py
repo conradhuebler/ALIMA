@@ -577,6 +577,14 @@ class UnifiedMessageRenderer:
             )
         )
 
+    def close_thinking(self) -> None:
+        """Fold the live 💭 block away — public entry for bus consumers.
+
+        The agentic steps signal the end of a turn explicitly; inside a chat the
+        block also closes on the next answer token or tool call. - Claude Generated
+        """
+        self._close_thinking_block()
+
     def _close_thinking_block(self) -> None:
         """Final body update + history entry, then reset state - Claude Generated"""
         if not self._thinking_block_id:

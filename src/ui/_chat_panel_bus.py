@@ -49,6 +49,27 @@ class BusEventMixin:
         except Exception:
             self.logger.exception("PipelineChatPanel: bus notice rendering failed")
 
+    def _on_bus_thinking(self, payload: dict) -> None:
+        """Reasoning chunk of an agentic step → the live 💭 block.
+
+        Lockstep counterpart of ``_SessionBusSubscriber._handle_thinking``
+        (webapp). - Claude Generated
+        """
+        try:
+            text = (payload or {}).get("text") or ""
+            if not text:
+                return
+            self._renderer.append_thinking(text)
+        except Exception:
+            self.logger.exception("PipelineChatPanel: bus thinking rendering failed")
+
+    def _on_bus_thinking_done(self, _payload: dict) -> None:
+        """End of an agentic turn → fold the 💭 block away. - Claude Generated"""
+        try:
+            self._renderer.close_thinking()
+        except Exception:
+            self.logger.exception("PipelineChatPanel: bus thinking close failed")
+
     def _on_bus_tool_called(self, payload: dict) -> None:
         try:
             name = payload.get("name", "") or "tool"

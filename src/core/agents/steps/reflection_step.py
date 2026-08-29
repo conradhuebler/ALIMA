@@ -201,12 +201,25 @@ class ReflectionStep(BaseStep):
             self.stream_callback, prompt_id=_prompt_id, kind="reflection",
         )
 
+        # Reasoning of the reflection turn goes to the same 💭 block as the
+        # workers' (llm_agent_step); it runs on the same model. - Claude Generated
+        def _emit_thinking(text):
+            try:
+                from src.core.state_bus import AlimaStateBus
+
+                AlimaStateBus().emit_event(
+                    "llm.thinking", {"text": text or "", "step_id": self.step_id}
+                )
+            except Exception:
+                logger.debug("llm.thinking bus emit failed", exc_info=True)
+
         loop = AgentLoop(
             llm_service=self.llm_service,
             tool_registry=self.tool_registry,
             max_iterations=1,
             timeout_seconds=120,
             stream_callback=self.stream_callback,
+            on_thinking=_emit_thinking,
         )
         _t0 = time.monotonic()
         result = loop.run(
@@ -220,6 +233,12 @@ class ReflectionStep(BaseStep):
             max_tokens=params["max_tokens"],
             think=params.get("think"),
         )
+        try:
+            from src.core.state_bus import AlimaStateBus
+
+            AlimaStateBus().emit_event("llm.thinking_done", {"step_id": self.step_id})
+        except Exception:
+            logger.debug("llm.thinking_done bus emit failed", exc_info=True)
         _emit_prompt_done(_prompt_id, self.step_id, time.monotonic() - _t0)
 
         _log_response(self.step_id, result.content)

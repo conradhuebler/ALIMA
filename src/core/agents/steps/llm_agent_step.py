@@ -626,9 +626,29 @@ class LLMAgentStep(BaseStep):
                     )
                 except Exception:
                     logger.debug("tool.result bus emit failed", exc_info=True)
+
+            # Reasoning channel → same 💭 block the chat shows. Without an
+            # on_thinking sink the AgentLoop leaves the stream untouched, which
+            # is why the agentic run showed no thinking at all (and let an
+            # inline <think> dialect run into the pipeline text). - Claude Generated
+            def _emit_thinking(text):
+                try:
+                    _bus.emit_event(
+                        "llm.thinking", {"text": text or "", "step_id": self.step_id}
+                    )
+                except Exception:
+                    logger.debug("llm.thinking bus emit failed", exc_info=True)
+
+            def _emit_thinking_done():
+                try:
+                    _bus.emit_event("llm.thinking_done", {"step_id": self.step_id})
+                except Exception:
+                    logger.debug("llm.thinking_done bus emit failed", exc_info=True)
         except Exception:
             _emit_tool_called = None
             _emit_tool_result = None
+            _emit_thinking = None
+            _emit_thinking_done = None
 
         loop = AgentLoop(
             llm_service=self.llm_service,
@@ -639,8 +659,9 @@ class LLMAgentStep(BaseStep):
             on_tool_call=_emit_tool_called,
             on_tool_result=_emit_tool_result,
             repeat_threshold=params.get("repeat_threshold", 3),
+            on_thinking=_emit_thinking,
         )
-        return loop.run(
+        result = loop.run(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             tools=tool_names if tool_names else None,
@@ -652,6 +673,12 @@ class LLMAgentStep(BaseStep):
             seed=params.get("seed"),
             think=params.get("think"),
         )
+        # Fold the block away once the step is done. The renderer also closes it
+        # on the next answer token or tool call; a step whose last output was
+        # reasoning would otherwise leave it standing open. - Claude Generated
+        if _emit_thinking_done is not None:
+            _emit_thinking_done()
+        return result
 
     # ------------------------------------------------------------------
 

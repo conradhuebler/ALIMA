@@ -6,6 +6,41 @@
 
 ## 2026
 
+### Agentische Schritte zeigen ihr Thinking (August 29, 2026)
+
+Operator-Befund: Im agentischen Lauf war vom Denken nichts zu sehen, obwohl der
+Chat es seit dem Render-Layer-Umbau live zeigt.
+
+Grund: `LLMAgentStep` baute seinen `AgentLoop` ohne `on_thinking`. Der Loop legt
+die Reasoning-Weiche nur, wenn diese Senke existiert (`if self.on_thinking and
+self.stream_callback`), also blieb der separate Kanal ungelesen und ein inline
+`<think>`-Dialekt lief roh in den Pipeline-Text.
+
+Der Schritt emittiert jetzt `llm.thinking` pro Chunk und `llm.thinking_done` am
+Ende seines Zuges auf den `AlimaStateBus`, genau wie er es für
+`tool.called`/`tool.result` tut. Der `ReflectionStep` ebenso, er läuft auf
+demselben Modell. Beide Bus-Konsumenten bilden das im Gleichschritt ab
+(`BusEventMixin._on_bus_thinking` in der GUI, `_SessionBusSubscriber.
+_handle_thinking` in der Webapp) und rufen dieselben Renderer-Methoden wie der
+Chat: `append_thinking` öffnet den 💭-Block aufgeklappt und strömt die Chunks
+hinein, `close_thinking` klappt ihn zu. Damit sieht ein agentischer Schritt
+aus wie ein Chat-Zug: sichtbar während es passiert, danach aus dem Weg.
+
+Das Abschluss-Signal ist bedingungslos: der Renderer schließt den Block sonst
+erst beim nächsten Antwort-Token oder Tool-Block, und ein Schritt, dessen letzte
+Ausgabe Reasoning war, ließe ihn offen stehen.
+
+Nebeneffekt, gewollt: mit gesetzter Senke zieht der `ThinkStreamFilter` auch
+inline `<think>`-Text aus dem Pipeline-Strom in den Block. Die Auswertung ist
+davon nicht berührt, sie liest `result.content`, nicht den Stream.
+
+Tests: `tests/test_agentic_thinking_display.py` (8) — Produzent (Chunks plus
+Abschluss auf dem Bus, auch ohne Reasoning), Webapp-Konsument über den echten
+Bus und Renderer (Block öffnet aufgeklappt, Text kommt an, Block klappt zu),
+GUI-Mixin gegen dieselben Renderer-Aufrufe, plus Quelltext-Prüfung der
+Subskription (`PipelineChatPanel.__init__` braucht sonst eine QApplication).
+Drei Mutationen gegengeprüft. Suite 1861.
+
 ### Webapp: die Eingabe bleibt nach dem Lauf zu (August 28, 2026)
 
 Operator-Befund: Nach Analyse, Pipeline oder Workflow klappte die Eingabezone
