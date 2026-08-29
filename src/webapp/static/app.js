@@ -133,7 +133,6 @@ class AlimaWebapp {
                 this.isAnalyzing = true;
                 this.updateButtonState();
                 this.setResultsPanelState('running');
-                this.showResultsPanel();
                 this.enableExportButton(true);
                 localStorage.setItem('alima_running_session', this.sessionId);
                 this.appendLocalNotice(`🔌 Wiederverbunden mit laufender Analyse …`);
@@ -218,8 +217,6 @@ class AlimaWebapp {
         const url = new URL(window.location);
         url.searchParams.set('session', savedId);
         window.history.replaceState(null, '', url);
-
-        this.showResultsPanel();
 
         if (status === 'running') {
             this.isAnalyzing = true;
@@ -818,7 +815,10 @@ class AlimaWebapp {
             this.resetResultsPanelContent();
             this.hideRecoveryOption();
             this.setResultsPanelState('running');
-            this.showResultsPanel();
+            // The summary card is NOT shown yet: it now sits outside the
+            // collapsing input body, and an empty "Analyse läuft" card would
+            // only steal height from the chat during the run. It appears in
+            // handleAnalysisComplete, when there is something to read. - Claude Generated
             this.enableExportButton(true);
 
             // Create FormData for multipart request
@@ -1266,10 +1266,13 @@ class AlimaWebapp {
             }
 
             // Show results panel for both extraction-only and full pipeline - Claude Generated
-            // Re-expand the input zone: it auto-collapses on run start
-            // (updateButtonState) and #results-panel lives inside its body —
-            // without this the summary stays invisible (max-height:0). - Claude Generated
-            this.setInputZoneCollapsed(false);
+            // The input zone STAYS collapsed after an analysis: the summary sits
+            // outside .input-zone-body, and re-opening the input here pushed the
+            // result out of view — the operator had to collapse it again to read
+            // what came out. Extraction-only is the exception: its whole point is
+            // the extracted text in the input body, which is next to be reviewed
+            // and started. - Claude Generated
+            if (isExtractionOnly) this.setInputZoneCollapsed(false);
             this.showResultsPanel();
 
             // For extraction-only, display simplified results - Claude Generated

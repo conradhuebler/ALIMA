@@ -348,6 +348,14 @@ body {
     padding-bottom: 0;
 }
 
+/* Ergebnis-Zusammenfassung: sitzt außerhalb des einklappbaren Körpers, damit sie
+   nach einem Lauf sichtbar ist, während die Eingabe zugeklappt bleibt. */
+.input-zone-results {
+    margin: 0 var(--sp-4) var(--sp-4);
+    border: 1px solid var(--clr-border);
+    box-shadow: none;
+}
+
 /* Inner cards inside the zone shed their own border/shadow — the zone frames them */
 .input-zone-body .card {
     border: 1px solid var(--clr-border);

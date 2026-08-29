@@ -6,6 +6,33 @@
 
 ## 2026
 
+### Webapp: die Eingabe bleibt nach dem Lauf zu (August 28, 2026)
+
+Operator-Befund: Nach Analyse, Pipeline oder Workflow klappte die Eingabezone
+wieder auf, und man musste sie von Hand zuklappen, um das Ergebnis zu lesen.
+
+Grund war die Verschachtelung, nicht die Absicht: `#results-panel` lag **im**
+`.input-zone-body`, den ein Lauf per `max-height: 0` zuklappt. Die
+Zusammenfassung am Ende sichtbar zu machen ging deshalb nur, indem der ganze
+Eingabeblock wieder aufging — und der schiebt das Ergebnis aus dem Bild.
+
+Das Panel steht jetzt außerhalb des einklappbaren Körpers, als Geschwister
+zwischen Körper und Pipeline-Leiste (eigene Klasse `.input-zone-results`, weil
+`.input-zone-body .card` dort nicht mehr greift). Damit entfällt das Aufklappen
+am Ende: `handleAnalysisComplete` klappt nur noch bei der reinen
+Text-Extraktion auf, denn dort ist der extrahierte Text im Eingabekörper genau
+das, was als Nächstes geprüft und gestartet wird.
+
+Die Karte erscheint außerdem erst, wenn sie etwas zu zeigen hat. Vorher wurde
+sie beim Start eingeblendet und war im zugeklappten Körper unsichtbar; außerhalb
+wäre daraus eine leere „▶ Analyse läuft"-Zeile geworden, die dem Chat Höhe
+nimmt. `#results-summary` wird ohnehin nur in `populateSummary` gefüllt, also am
+Ende.
+
+Test: `tests/test_webapp_results_panel_layout.py` (4) hält die Verschachtelung
+fest — das Panel liegt in `#input-zone`, aber nicht in `.input-zone-body`. Eine
+Mutation gegengeprüft (Panel zurück in den Körper geschoben). Suite 1853.
+
 ### Token-Budget ist einstellbar; 32768 gemessen (August 27, 2026)
 
 Ein Lauf brach an `selection_chunks` ab: 12661 Zeichen Reasoning gegen ein

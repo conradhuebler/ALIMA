@@ -201,17 +201,18 @@
                     <pre id="extracted-text" class="extracted-text"></pre>
                 </div>
 
-                <!-- Results Panel summary (conditional) — actions live in the
-                     persistent pipeline-bar so they stay reachable when this
-                     zone is collapsed during a run. -->
-                <div id="results-panel" class="card" style="display: none;">
-                    <div class="card-header">
-                        <h2 id="results-panel-title" class="card-label">Analyse</h2>
-                    </div>
-                    <div id="results-summary" class="results-list"></div>
-                </div>
-
             </div><!-- /.input-zone-body -->
+
+            <!-- Results Panel summary (conditional) — deliberately OUTSIDE
+                 .input-zone-body: the summary must be readable after a run
+                 without re-opening the whole input above it. Actions live in
+                 the persistent pipeline-bar for the same reason. -->
+            <div id="results-panel" class="card input-zone-results" style="display: none;">
+                <div class="card-header">
+                    <h2 id="results-panel-title" class="card-label">Analyse</h2>
+                </div>
+                <div id="results-summary" class="results-list"></div>
+            </div>
 
             <!-- Pipeline-Leiste — persistent footer of the input zone: stays
                  visible when the body above collapses during a run. -->
