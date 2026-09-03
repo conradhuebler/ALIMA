@@ -338,6 +338,15 @@ class ConfigManager:
         """Directory scanned for self-contained directory plugins. - Claude Generated"""
         return Path(self.config_file).parent / "plugins"
 
+    @property
+    def rules_file(self) -> Path:
+        """Personal indexing rules (``rules.yaml``), sibling of config.json.
+
+        Hand-editable and shareable on purpose: rules are personal or
+        institution-specific and do not belong in the repository.
+        See ``src/core/user_rules.py``. - Claude Generated"""
+        return Path(self.config_file).parent / "rules.yaml"
+
     def load_config(self, force_reload: bool = False) -> AlimaConfig:
         """Load configuration with unified provider system - Claude Generated"""
         if self._config is None or force_reload:

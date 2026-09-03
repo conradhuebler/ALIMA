@@ -27,6 +27,7 @@ from ..core.chat_prompts import (
     resolve_prompt_compact,
 )
 from ..core.headless_agent import resolve_provider_model
+from ..core.user_rules import STEP_CHAT, append_rules_block, rules_block_for
 from ..utils.error_visibility import log_caught
 from ..utils.i18n import t
 from .chat_agent_worker import ChatAgentWorker
@@ -303,13 +304,24 @@ class ChatAgentMixin:
         compact = resolve_prompt_compact(
             getattr(chat_config, "system_prompt_tier", "auto"), model
         )
-        effective_system_prompt = apply_chat_directives(
-            self.system_prompt or build_system_prompt(
+        # Personal rules scoped to the chat. An operator-overridden system
+        # prompt gets them appended too — the rules are the operator's own, so
+        # replacing the generic base must not silently drop them.
+        # - Claude Generated
+        rules_block, _rules_used = rules_block_for(step=STEP_CHAT)
+        base_system_prompt = (
+            append_rules_block(self.system_prompt, rules_block)
+            if self.system_prompt
+            else build_system_prompt(
                 mode=mode,
                 compact=compact,
                 institution_context=getattr(chat_config, "institution_context", ""),
                 available_tools=self._registered_tool_names(),
-            ),
+                user_rules=rules_block,
+            )
+        )
+        effective_system_prompt = apply_chat_directives(
+            base_system_prompt,
             language=self.chat_language,
             history_truncated=history_truncated,
         )

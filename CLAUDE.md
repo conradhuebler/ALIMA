@@ -124,6 +124,18 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Persönliche Zusatzregeln ✅ ADDED (Sep 3, Suite 1991):** Regeln, die im Chat
+  formuliert werden, liegen in `~/.config/alima/rules.yaml` und gehen ab dem
+  nächsten Lauf in die Prompts der agentischen Steps, des Planers und des Chats.
+  Ein Einhängepunkt (`prompt_resolver.resolve_prompts`) deckt alle LLM-Steps,
+  `MetaAgent._append_user_rules` den Planer. Bedingungen sind **Prosa** und
+  werden vom Modell beurteilt, nicht ausgewertet; der Geltungsbereich
+  (Workflow × Step, Globs) ist strukturell und begrenzt die Tokenkosten.
+  `propose_rule` fragt über das vorhandene `ProposalGateway` zurück (GUI-Bubble,
+  CLI y/N); die Webapp kann nicht bestätigen (`AutoRejectGateway`). Export/Import
+  behalten die Herkunft, Import legt inaktiv ab. Jeder Lauf schreibt
+  `applied_rules` ins Ergebnis. **Klassisch ausgenommen** (`str.format`).
+  Details: [`docs/user_rules.md`](docs/user_rules.md).
 - **Erschließungsregeln, Planer-Gate, RVK-Guard ✅ DONE (Sep 3, Suite 1942):**
   Sechs Befunde aus echten Läufen. (1) Der MetaAgent-Planer war nicht an
   `depends_on` gebunden — `classification` lief vor `selection`,
@@ -256,6 +268,7 @@ When documenting implemented features, the AI must apply these rules:
 - [`src/core/CLAUDE.md`](src/core/CLAUDE.md) — Core business logic, pipeline orchestration, data management.
 - `src/core/agents/` — Agentic v4: `WorkflowExecutor`, `LLMAgentStep`, `DeterministicStep`, optional `MetaAgent` loop. (v3 SubAgents removed April 2026 — see [`docs/legacy/agentic_workflow_v3.md`](docs/legacy/agentic_workflow_v3.md).)
 - [`src/mcp/CLAUDE.md`](src/mcp/CLAUDE.md) — MCP tool layer: schemas, registry, handlers.
+- [`docs/user_rules.md`](docs/user_rules.md) — Persönliche Zusatzregeln: Ablage, Geltungsbereich, Chat-Ablage, Export, Grenzen.
 - [`src/ui/CLAUDE.md`](src/ui/CLAUDE.md) — PyQt6 GUI components.
 - [`src/utils/CLAUDE.md`](src/utils/CLAUDE.md) — Configuration, batch processing, logging.
 - [`docs/`](docs/) — Architecture docs (agentic, classic pipeline, subsystems, legacy).

@@ -43,14 +43,33 @@ DEFAULT_REFLECTION_SYSTEM_PROMPT = (
     "- status='complete', sobald alle Schritte gelaufen sind und keine offenen, noch "
     "nicht behandelten Lücken bestehen.\n"
     "{workflow_rules}\n"
+    "{user_rules_gate}"
     "Ausgabe als valides JSON:\n"
     '{\n'
     '  "status": "complete" | "incomplete" | "continue",\n'
     '  "gaps": [...],\n'
     '  "action": "finish" | "continue" | "search_missing" | "rerun_search" | "rerun_selection" | "rerun_classification" | "rerun_dk_collect",\n'
-    '  "reason": "..."\n'
+    '  "reason": "...",\n'
+    '  "final_output": ""\n'
     '}\n'
     "Keine Erläuterungen außerhalb des JSON."
+)
+
+# Filled into `{user_rules_gate}` only when the operator has rules that reach
+# this gate. The reflection turn is the last LLM turn of an agentic run — the
+# workflow ends in deterministic steps — so it is the only place where a rule
+# that asks for something "am Ende" can still be carried out. - Claude Generated
+USER_RULES_GATE = (
+    "Persönliche Zusatzregeln des Betreibers:\n"
+    "{user_rules}\n"
+    "- Prüfe den Stand auch gegen diese Regeln.\n"
+    "- Betrifft eine Regel nur die AUSGABE, ist das kein Grund, einen Schritt zu "
+    "wiederholen.\n"
+    "- Verlangt eine Regel etwas AM ENDE des Laufs (eine Ausgabe, ein Eintrag, ein "
+    "Format), dann führe sie aus, sobald status='complete' ist, und schreibe das "
+    "fertige Ergebnis nach 'final_output'. Dies ist der letzte Schritt, in dem das "
+    "möglich ist.\n"
+    "- Ist nichts zu erzeugen, lass 'final_output' leer.\n\n"
 )
 
 DEFAULT_REFLECTION_USER_PROMPT = (
@@ -78,6 +97,25 @@ DEFAULT_REFLECTION_USER_PROMPT = (
     "Wenn fehlende Konzepte schon gesucht wurden, wähle 'continue' oder 'finish'.\n\n"
     "Welche Phase ist erreicht und was fehlt noch?"
 )
+
+
+def _user_rules_values(context: Any) -> Dict[str, str]:
+    """``user_rules_gate`` / ``user_rules`` for the reflection prompt.
+
+    Both are empty strings when no rule reaches this gate, so the prompt stays
+    byte-identical to the pre-feature one. - Claude Generated
+    """
+    from src.core.user_rules import STEP_REFLECTION, render_rule_line, rules_block_for
+
+    workflow = str(getattr(context, "workflow_name", "") or "")
+    block, rules = rules_block_for(workflow=workflow, step=STEP_REFLECTION)
+    if not block:
+        return {"user_rules_gate": "", "user_rules": ""}
+    rendered = "\n".join(render_rule_line(r) for r in rules)
+    return {
+        "user_rules_gate": USER_RULES_GATE.replace("{user_rules}", rendered),
+        "user_rules": rendered,
+    }
 
 
 @register_step("reflection")
@@ -151,6 +189,9 @@ class ReflectionStep(BaseStep):
             # Defensive: if this step ever runs without MetaAgent composing the
             # system prompt, keep the {workflow_rules} slot from leaking. - Claude Generated
             "workflow_rules": "",
+            # The operator's own rules. Empty gate ⇒ the prompt is exactly what
+            # it was before the feature. - Claude Generated
+            **_user_rules_values(context),
             "missing_concepts": ", ".join(missing) if missing else "keine",
             "missing_concepts_searched": ", ".join(getattr(context, "missing_concepts_searched", [])) or "keine",
             "quality_report": json.dumps(quality, ensure_ascii=False) if quality else "{}",
@@ -169,6 +210,7 @@ class ReflectionStep(BaseStep):
             default_system=DEFAULT_REFLECTION_SYSTEM_PROMPT,
             default_user=DEFAULT_REFLECTION_USER_PROMPT,
             workflow_prompts=workflow_prompts,
+            step_id=self.step_id,
         )
 
         # LLM params

@@ -10,6 +10,8 @@ Covered:
 2. ``_format_tool_args`` truncates long args sensibly.
 3. ``_on_bus_tool_called`` / ``_on_bus_tool_result`` render collapsible
    tool blocks via the renderer (intercepted).
+4. ``_on_anchor_clicked`` routes a proposal accept/reject link to the gateway
+   and leaves ordinary links to the external-open branch.
 """
 from __future__ import annotations
 
@@ -578,3 +580,116 @@ class TestOnPipelineCompletedReportMarkdown(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProposalDecision(unittest.TestCase):
+    """The confirmation must reach the gateway exactly once.
+
+    Two regressions this pins: the decision surface used to be an anchor in the
+    chat log, which the QWebEngineView never delivered while it used a custom
+    scheme; and once it did work, it stayed clickable, so one question could be
+    answered repeatedly.
+    """
+
+    def _panel(self):
+        from unittest.mock import MagicMock
+
+        panel = SimpleNamespace(
+            proposal_gateway=MagicMock(),
+            logger=MagicMock(),
+            _append_html=lambda html: None,
+        )
+        panel._handle_mutation_link = (
+            lambda *a, **kw: PipelineChatPanel._handle_mutation_link(panel, *a, **kw)
+        )
+        return panel
+
+    def test_accept_resolves_the_decision(self):
+        panel = self._panel()
+        PipelineChatPanel._on_proposal_decided(panel, 42, True)
+        panel.proposal_gateway.resolve_decision.assert_called_once_with(42, True)
+
+    def test_reject_resolves_the_decision(self):
+        panel = self._panel()
+        PipelineChatPanel._on_proposal_decided(panel, 7, False)
+        panel.proposal_gateway.resolve_decision.assert_called_once_with(7, False)
+
+    def test_a_catalog_link_still_opens_externally(self):
+        from PyQt6.QtCore import QUrl
+
+        panel = self._panel()
+        with unittest.mock.patch(
+            "src.ui.pipeline_chat_panel.QDesktopServices.openUrl"
+        ) as open_url:
+            PipelineChatPanel._on_anchor_clicked(
+                panel, QUrl("https://katalog.ub.tu-freiberg.de/Record/0-025515640")
+            )
+        panel.proposal_gateway.resolve_decision.assert_not_called()
+        open_url.assert_called_once()
+
+
+class TestProposalBar(unittest.TestCase):
+    """The bar is a one-shot: it answers once and then has nothing to answer."""
+
+    # The suite bootstrap creates a QApplication but keeps no reference, so by
+    # the time this class runs ``QCoreApplication.instance()`` can be None
+    # again — and constructing a QWidget then aborts the process instead of
+    # raising. Hold the app and every widget for the whole class.
+    _kept: list = []
+
+    def _bar(self):
+        from PyQt6.QtWidgets import QApplication, QWidget
+        from src.ui.proposal_bar import ProposalBar
+
+        if not self._kept:
+            self._kept.append(QApplication.instance() or QApplication(["alima-tests"]))
+            self._kept.append(QWidget())
+        bar = ProposalBar(parent=self._kept[1])
+        self._kept.append(bar)
+        return bar
+
+    def test_hidden_until_a_proposal_arrives(self):
+        bar = self._bar()
+        self.assertFalse(bar.isVisible())
+        self.assertIsNone(bar.pending_audit_id)
+
+    def test_shows_the_rule_wording_condition_and_scope(self):
+        bar = self._bar()
+        bar.show_proposal(
+            1, "propose_rule",
+            {"text": "Regeltext.", "applies_when": "bei X",
+             "scope": "* × selection", "reason": "weil"},
+        )
+        self.assertEqual(bar.pending_audit_id, 1)
+        self.assertIn("Regeltext.", bar.body_label.text())
+        self.assertIn("bei X", bar.body_label.text())
+        self.assertIn("selection", bar.meta_label.text())
+        self.assertIn("weil", bar.meta_label.text())
+
+    def test_a_decision_is_emitted_once_and_the_bar_closes(self):
+        bar = self._bar()
+        seen = []
+        bar.decided.connect(lambda aid, ok: seen.append((aid, ok)))
+        bar.show_proposal(5, "propose_rule", {"text": "R"})
+
+        bar.accept_btn.click()
+        self.assertEqual(seen, [(5, True)])
+        self.assertIsNone(bar.pending_audit_id)
+
+        # Clicking again must not answer the same question a second time.
+        bar.accept_btn.click()
+        bar.reject_btn.click()
+        self.assertEqual(seen, [(5, True)])
+
+    def test_reject_emits_false(self):
+        bar = self._bar()
+        seen = []
+        bar.decided.connect(lambda aid, ok: seen.append((aid, ok)))
+        bar.show_proposal(9, "delete_rule", {"text": "R"})
+        bar.reject_btn.click()
+        self.assertEqual(seen, [(9, False)])
+
+    def test_an_unknown_tool_still_gets_a_title(self):
+        bar = self._bar()
+        bar.show_proposal(1, "something_new", {"a": "b"})
+        self.assertTrue(bar.title_label.text())

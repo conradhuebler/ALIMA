@@ -361,6 +361,20 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         chat_layout.addRow("Institutionskontext:", self.chat_institution_context)
 
+        # Personal indexing rules live in their own file, so they get a button
+        # rather than a field here. - Claude Generated
+        rules_row = QHBoxLayout()
+        self.open_rules_btn = QPushButton("Zusatzregeln verwalten…")
+        self.open_rules_btn.setToolTip(
+            "Persönliche Regeln, die an die Prompts der agentischen Schritte, des "
+            "Planers und des Chats angehängt werden. Liegen in rules.yaml neben "
+            "der config.json; die klassische Pipeline liest sie nicht."
+        )
+        self.open_rules_btn.clicked.connect(self._open_rules_dialog)
+        rules_row.addWidget(self.open_rules_btn)
+        rules_row.addStretch()
+        chat_layout.addRow("Zusatzregeln:", rules_row)
+
         chat_group.setLayout(chat_layout)
         layout.addWidget(chat_group)
 
@@ -635,6 +649,12 @@ class ComprehensiveSettingsDialog(QDialog):
         else:
             self.sqlite_group.setVisible(False)
             self.mysql_group.setVisible(True)
+
+    def _open_rules_dialog(self):
+        """Open the personal-rules dialog. - Claude Generated"""
+        from .dialogs.rules_dialog import RulesDialog
+
+        RulesDialog(parent=self).exec()
 
     def _browse_autosave_dir(self):
         """Browse for autosave directory - Claude Generated"""

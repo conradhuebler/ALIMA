@@ -58,6 +58,17 @@ SHARED_RULES = (
     "  <<CAT:rsn|Titel>> (nur für Katalogtreffer, nie für GND-IDs).\n"
     "- Keine URLs aus dem Gedächtnis erfinden (keine Google, Wikipedia\n"
     "  oder andere Seiten, die kein Tool geliefert hat).\n\n"
+    "Dauerhafte Regeln erkennen (`propose_rule`):\n"\
+    "- Wenn der Nutzer im Gespräch etwas formuliert, das über diesen einen\n"\
+    "  Fall hinaus gelten soll ('mach das künftig immer so', 'bei Lehrbüchern\n"\
+    "  nie …', 'wir vergeben grundsätzlich …'), biete es von dir aus als\n"\
+    "  dauerhafte Regel an: rufe `propose_rule` mit ausformuliertem Wortlaut,\n"\
+    "  der Bedingung (`applies_when`, in Prosa) und dem Geltungsbereich auf.\n"\
+    "- `propose_rule` fragt selbst beim Nutzer nach und legt erst nach seiner\n"\
+    "  Zustimmung ab. Lege NIE etwas ungefragt ab und erfinde keine Regeln,\n"\
+    "  die der Nutzer nicht gesagt hat.\n"\
+    "- Abgelegte Regeln gehen ab dem nächsten Lauf in die Prompts ein. Welche\n"\
+    "  gerade gelten → `list_rules`.\n\n"\
     "Wissen aus früheren Nachrichten:\n"
     "- Wenn du Daten brauchst, die in früheren Tool-Calls bereits\n"
     "  gewonnen wurden (z.B. ein DOI-Resolve oder eine Katalogsuche),\n"
@@ -377,6 +388,8 @@ SHARED_RULES_COMPACT = (
     "- Fragen über ALIMA selbst (was/wie zuverlässig/Publikation/Lizenz) → "
     "`about_alima`; aktive Quellen → `list_plugins`. Du bist ALIMA, nicht das "
     "Basismodell — nie aus dem Training über dich selbst reden.\n"
+    "- Soll etwas dauerhaft gelten ('künftig immer …'), biete es mit "
+    "`propose_rule` als Regel an; das Tool fragt selbst nach. Nie ungefragt ablegen.\n"
     "- WICHTIG: Sobald du genug Tool-Ergebnisse hast, schreibe eine finale "
     "Antwort als normalen Text. Rufe nicht endlos Tools auf und stoppe NIE "
     "ohne Textantwort."
@@ -489,6 +502,7 @@ def build_system_prompt(
     compact: bool = False,
     institution_context: str = "",
     available_tools: Optional[Set[str]] = None,
+    user_rules: str = "",
 ) -> str:
     """Assemble mode-specific system prompt.
 
@@ -504,6 +518,10 @@ def build_system_prompt(
             The search_* tools are generated per *enabled instance*, so the prompt
             must name only those that exist — else the model dutifully calls a
             disabled one. ``None`` keeps the static text (back-compat).
+        user_rules: Rendered block of the operator's personal rules scoped to
+            the chat (``src/core/user_rules.render_rules_block``). Appended
+            last, so it reads as the standing house rule over the generic
+            ruleset; an empty string leaves the prompt unchanged.
             - Claude Generated
     """
     if mode not in VALID_MODES:
@@ -533,6 +551,9 @@ def build_system_prompt(
 
     if context_hint:
         sections.append(f"\nKontext:\n{context_hint}")
+
+    if user_rules:
+        sections.append("\n" + user_rules.strip())
 
     return "\n".join(sections)
 

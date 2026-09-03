@@ -18,6 +18,7 @@ from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import StepResult
 from src.core.agents.workflow_executor import ExecutionReport, WorkflowExecutor
 from src.core.agents.workflow_loader import WorkflowDef
+from src.core.user_rules import STEP_PLANNER
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +163,7 @@ class MetaAgent:
 
             reflection = self._run_reflection(workflow, context, reflection_cfg)
             context.quality_report = reflection
+            self._capture_rule_output(context, reflection)
 
             if self.stream_callback:
                 status = reflection.get("status", "incomplete")
@@ -425,6 +427,7 @@ class MetaAgent:
             or wp.get("planning", {}).get("prompt")
         )
         system_prompt = self._inject_rules(override_system or default_system, planning_rules)
+        system_prompt = self._append_user_rules(system_prompt, context, STEP_PLANNER)
         user_prompt = override_user or default_user
 
         # Substitute dynamic placeholders into custom user prompts
@@ -713,6 +716,48 @@ class MetaAgent:
         if block:
             return base.rstrip() + "\n\n" + block + "\n"
         return base
+
+    @staticmethod
+    def _capture_rule_output(context: Any, reflection: Dict[str, Any]) -> None:
+        """Keep what the reflection produced for a rule that acts at the end.
+
+        The reflection turn is the last LLM turn of an agentic run (the
+        workflows end in deterministic steps), so it is the only place where a
+        rule of the form "am Ende soll X erzeugt werden" can still be carried
+        out. Later cycles overwrite earlier ones: the last one sees the finished
+        state. - Claude Generated
+        """
+        try:
+            produced = str((reflection or {}).get("final_output") or "").strip()
+            if not produced:
+                return
+            extra = getattr(context, "extra", None)
+            if extra is None:
+                return
+            extra["rule_output"] = produced
+        except Exception as exc:
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, "meta_agent: capturing rule output")
+
+    @staticmethod
+    def _append_user_rules(system_prompt: str, context: Any, step: str) -> str:
+        """Append the operator's personal rules to a MetaAgent prompt.
+
+        The planner builds its prompt itself and never passes through
+        ``resolve_prompts``, so it needs this call; the reflection turn goes
+        through ``ReflectionStep`` and is covered there. - Claude Generated
+        """
+        from src.core.user_rules import append_rules_block, rules_block_for
+
+        workflow = str(getattr(context, "workflow_name", "") or "")
+        block, rules = rules_block_for(workflow=workflow, step=step)
+        if not block:
+            return system_prompt
+        from src.core.agents.prompt_resolver import _record_applied
+
+        _record_applied(context, rules)
+        return append_rules_block(system_prompt, block)
 
     @staticmethod
     def _extract_json(content: str) -> Dict[str, Any]:

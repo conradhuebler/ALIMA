@@ -11,6 +11,7 @@ The `src/core/` directory contains the fundamental business logic and data manag
 - `UnifiedKnowledgeManager`: Singleton GND/classification DB + mapping-first cache (thread-safe; per-thread connections — see root `MEMORY.md`). God-file split (F-15): DDL/Migrationen → `_ukm_schema.SchemaMigrationMixin`, `catalog_dk_cache` → `_ukm_catalog_dk.CatalogDkCacheMixin`, mapping-first Smart-Search → `_ukm_smart_search.SmartSearchMixin` (verbatim Mixins, via MRO; 2077→1091 Z.). Singleton-Lebenszyklus + GND/Mapping-Query-Layer bleiben in `unified_knowledge_manager.py`.
 - `DataModels`: Core data structures (AbstractData, AnalysisResult, TaskState, KeywordAnalysisState)
 - `ProcessingUtils`: Text processing and keyword extraction utilities
+- `user_rules`: personal indexing rules (`~/.config/alima/rules.yaml`) appended to agentic, planner and chat system prompts; Qt-free store + scoping + rendering. Spec: [`docs/user_rules.md`](../../docs/user_rules.md).
 
 **Plugin System (`src/core/plugins/`, Qt-free):**
 - Category-agnostic framework: `ConfigField` schema, `PluginCategory` adapter registry, `plugin.toml` manifest + directory loader (multi-file package loading), AST security scanner + hash-pinning (all files, symlinks rejected). Concrete categories: search providers + input sources. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md), Authoring: [`docs/plugin_authoring.md`](../../docs/plugin_authoring.md).

@@ -122,6 +122,11 @@ class SharedContext(BaseSharedContext):
     # - Claude Generated
     workflow_name: str = ""
 
+    # Personal rules (``src/core/user_rules.py``) injected into this run's
+    # prompts, as ``{id, text}``. Filled by the injection points as they fire,
+    # read by ``to_keyword_analysis_state``. - Claude Generated
+    applied_user_rules: List[Dict[str, str]] = field(default_factory=list)
+
     # Shared resources
     tool_result_cache: ToolResultCache = field(default_factory=ToolResultCache)
     conversation_memory: List[Dict] = field(default_factory=list)
@@ -495,6 +500,13 @@ class SharedContext(BaseSharedContext):
                 if isinstance(kw, dict) and kw.get("keyword")
             ]
 
+        # Which personal rules actually reached a prompt in this run — collected
+        # by the injection points, so a saved result explains itself.
+        # - Claude Generated
+        state.applied_rules = [
+            dict(entry) for entry in (getattr(self, "applied_user_rules", None) or [])
+        ]
+        state.rule_output = str((self.extra or {}).get("rule_output", "") or "")
         state.keyword_chains = list(self.keyword_chains or [])
         state.core_keywords = _as_titles("core_keywords")
         state.form_keywords = _as_titles("form_keywords")

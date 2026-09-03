@@ -344,6 +344,16 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
         header_layout.addWidget(self.system_prompt_btn)
 
+        # Persönliche Zusatzregeln — direkt neben dem Gespräch erreichbar, weil
+        # der Agent sie hier vorschlägt und man dann nachsehen will, was
+        # abgelegt wurde. - Claude Generated
+        self.rules_btn = QPushButton("📌")
+        self.rules_btn.setFixedSize(26, 22)
+        self.rules_btn.setStyleSheet(icon_btn_style)
+        self.rules_btn.setToolTip("Persönliche Zusatzregeln verwalten")
+        self.rules_btn.clicked.connect(self.show_rules_dialog)
+        header_layout.addWidget(self.rules_btn)
+
         # Antwortsprache umschalten (Deutsch/Englisch) - Claude Generated
         self.chat_language = "de"
         self.language_btn = QPushButton("DE")
@@ -539,7 +549,23 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.send_btn.clicked.connect(self.send_message)
         self.input_field.set_overlay_button(self.send_btn, margin=8)
 
-        self.body_splitter.addWidget(input_frame)
+        # --- Proposal bar (one-shot confirmation) ---------------------
+        # Sits between log and input on purpose: a decision surface that
+        # scrolls away with the log gets missed, and the old inline anchors
+        # stayed clickable after the answer. - Claude Generated
+        from .proposal_bar import ProposalBar
+
+        self.proposal_bar = ProposalBar()
+        self.proposal_bar.decided.connect(self._on_proposal_decided)
+        input_layout_holder = QVBoxLayout()
+        input_layout_holder.setContentsMargins(0, 0, 0, 0)
+        input_layout_holder.setSpacing(4)
+        input_layout_holder.addWidget(self.proposal_bar)
+        input_layout_holder.addWidget(input_frame)
+        input_area = QWidget()
+        input_area.setLayout(input_layout_holder)
+
+        self.body_splitter.addWidget(input_area)
 
         # Default ratio: log gets ~80%, input ~20% — both grow with window.
         self.body_splitter.setStretchFactor(0, 8)
@@ -635,31 +661,29 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
     def _render_proposal_bubble(
         self, audit_id: int, tool_name: str, payload: dict
     ) -> None:
-        """Render a clickable confirmation bubble for a mutation proposal."""
+        """Show the proposal in the bar; the log keeps the record.
+
+        The log block is a record, not a control — the buttons live in the bar
+        so they vanish once the question is answered. - Claude Generated
+        """
         self._renderer.render_proposal_bubble(audit_id, tool_name, payload)
+        self.proposal_bar.show_proposal(audit_id, tool_name, payload)
+
+    @pyqtSlot(int, bool)
+    def _on_proposal_decided(self, audit_id: int, accepted: bool) -> None:
+        """Release the waiting tool thread with the operator's answer."""
+        self._handle_mutation_link(audit_id, "accept" if accepted else "reject")
 
     @pyqtSlot(QUrl)
     def _on_anchor_clicked(self, url: QUrl) -> None:
-        """Route ``mutation://``, ``tool://`` and external ``http(s)://`` link clicks."""
-        scheme = url.scheme()
-        if scheme == "mutation":
-            self._handle_mutation_link(url)
-        elif scheme in ("http", "https"):
+        """Open external ``http(s)://`` links from catalogue/GND results."""
+        if url.scheme() in ("http", "https"):
             # P-δ.5: external catalog/web links from <<CAT:rsn|…>> markers.
             # setOpenExternalLinks(False) is set on the text browser, so we
             # have to drive the open ourselves via QDesktopServices.
             QDesktopServices.openUrl(url)
 
-    def _handle_mutation_link(self, url: QUrl) -> None:
-        host_part = url.host()
-        path_part = url.path().lstrip("/")
-        try:
-            audit_id = int(host_part)
-        except (TypeError, ValueError):
-            return
-        action = path_part.lower()
-        if action not in ("accept", "reject"):
-            return
+    def _handle_mutation_link(self, audit_id: int, action: str) -> None:
         accepted = action == "accept"
         try:
             self.proposal_gateway.resolve_decision(audit_id, accepted)
@@ -686,6 +710,12 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         return UnifiedMessageRenderer._format_tool_args(args)
 
     # -- System-prompt dialog --------------------------------------------
+
+    def show_rules_dialog(self):
+        """Open the personal-rules dialog. - Claude Generated"""
+        from .dialogs.rules_dialog import RulesDialog
+
+        RulesDialog(parent=self).exec()
 
     def show_system_prompt_dialog(self):
         dialog = SystemPromptDialog(self.system_prompt, parent=self)

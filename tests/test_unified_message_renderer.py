@@ -319,15 +319,37 @@ class TestSystemMessage(RendererTestBase):
 
 class TestProposalBubble(RendererTestBase):
 
-    def test_proposal_renders_anchor(self):
+    def test_proposal_records_the_change(self):
         self.renderer.render_proposal_bubble(
             1, "propose_keyword_replacement",
             {"old": "A", "new": "B", "reason": "test"}
         )
         html = self.view.to_html()
-        self.assertIn("mutation://1/accept", html)
-        self.assertIn("mutation://1/reject", html)
-        self.assertIn("Akzeptieren", html)
+        self.assertIn("A", html)
+        self.assertIn("B", html)
+        self.assertIn("#audit_1", html)
+
+    def test_the_log_block_carries_no_decision_control(self):
+        """The log keeps the record; the buttons live in ``ProposalBar``.
+
+        While the block carried anchors they stayed clickable after the answer,
+        so the same question could be resolved again and again.
+        """
+        self.renderer.render_proposal_bubble(1, "propose_rule", {"text": "R"})
+        html = self.view.to_html()
+        self.assertNotIn("<a ", html)
+        self.assertNotIn("mutation://", html)
+        self.assertNotIn("Akzeptieren", html)
+
+    def test_a_rule_record_shows_wording_condition_and_scope(self):
+        self.renderer.render_proposal_bubble(
+            3, "propose_rule",
+            {"text": "Regeltext.", "applies_when": "bei X", "scope": "* × selection"},
+        )
+        html = self.view.to_html()
+        self.assertIn("Regeltext.", html)
+        self.assertIn("bei X", html)
+        self.assertIn("selection", html)
 
     def test_proposal_history(self):
         self.renderer.render_proposal_bubble(

@@ -909,14 +909,19 @@ class UnifiedMessageRenderer:
     def render_proposal_bubble(
         self, audit_id: int, tool_name: str, payload: Dict[str, Any]
     ) -> None:
-        """Clickable mutation-proposal block with accept / reject anchors.
+        """Record of a proposal put to the operator.
 
-        ``mutation://`` anchors are intercepted by ``WebLogView`` navigation
-        handling and routed back to the panel.
+        A record, not a control: the accept/reject buttons live in
+        ``ProposalBar`` between log and input, so they disappear once the
+        question is answered. Anchors here stayed clickable afterwards, and a
+        question that scrolls away with the log is easy to miss.
+        - Claude Generated
         """
         title_map = {
             "propose_keyword_replacement": "🔁 Vorschlag: Keyword ersetzen",
             "propose_dk_change": "🏷️ Vorschlag: DK-Klassifikation ändern",
+            "propose_rule": "📌 Vorschlag: Regel dauerhaft ablegen",
+            "delete_rule": "🗑️ Vorschlag: Regel löschen",
         }
         title = title_map.get(tool_name, f"⚠️ Mutations-Vorschlag: {tool_name}")
 
@@ -935,12 +940,27 @@ class UnifiedMessageRenderer:
             action = str(payload.get("action", ""))
             verb = "hinzufügen" if action == "add" else "entfernen"
             diff_html = f"<b>{code}</b> ({verb})"
+        elif tool_name in ("propose_rule", "delete_rule"):
+            # A rule changes every future run, so the bubble shows the exact
+            # wording, its prose condition and where it will apply — that is
+            # what the operator is deciding about. - Claude Generated
+            rule_text = self._escape_html(str(payload.get("text", "")))
+            when = self._escape_html(str(payload.get("applies_when", "") or ""))
+            scope = self._escape_html(str(payload.get("scope", "") or "*"))
+            when_html = (
+                f'<div style="color: #f8f8f2; margin-top: 2px;">Bedingung: {when}</div>'
+                if when
+                else ""
+            )
+            diff_html = (
+                f"<b>{rule_text}</b>{when_html}"
+                f'<div style="color: #888; font-size: 9pt; margin-top: 2px;">'
+                f"Gilt für: {scope}</div>"
+            )
         else:
             diff_html = self._escape_html(str(payload))
 
         reason = self._escape_html(str(payload.get("reason", "") or "—"))
-        accept_href = f"mutation://{audit_id}/accept"
-        reject_href = f"mutation://{audit_id}/reject"
 
         html = (
             f'<div style="margin: 6px 12px; padding: 10px; '
@@ -950,16 +970,9 @@ class UnifiedMessageRenderer:
             f'<div style="color: #f8f8f2; margin-top: 4px;">{diff_html}</div>'
             f'<div style="color: #888; font-size: 9pt; margin-top: 4px;">'
             f"Begründung: {reason}</div>"
-            f'<div style="margin-top: 8px;">'
-            f'<a href="{accept_href}" style="color: #50fa7b; '
-            f'text-decoration: none; padding: 4px 10px; '
-            f'border: 1px solid #50fa7b; border-radius: 3px; '
-            f'margin-right: 8px;">✓ Akzeptieren</a>'
-            f'<a href="{reject_href}" style="color: #ff5555; '
-            f'text-decoration: none; padding: 4px 10px; '
-            f'border: 1px solid #ff5555; border-radius: 3px;">✗ Ablehnen</a>'
-            f'<span style="color: #555; font-size: 8pt; margin-left: 8px;">'
-            f"#audit_{audit_id}</span>"
+            f'<div style="color: #888; font-size: 9pt; margin-top: 6px;">'
+            f"Zur Bestätigung unterhalb des Verlaufs "
+            f'<span style="color: #555; font-size: 8pt;">#audit_{audit_id}</span>'
             f"</div></div>"
         )
         self.transport.send(ev.block(html, kind=ev.KIND_PROPOSAL))

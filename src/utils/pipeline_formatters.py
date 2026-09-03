@@ -1143,6 +1143,30 @@ def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str]
                 ausw_html, kind="dk_statistics", plain_text=ausw_plain
             )
 
+    # Which personal rules shaped this run. They live in the user's config, so
+    # the same workflow gives different results on another machine — naming them
+    # is what makes a result readable later. - Claude Generated
+    applied_rules = list(getattr(analysis_state, "applied_rules", []) or []) if analysis_state else []
+    if applied_rules:
+        lines = [
+            f"- {str(entry.get('text', '')).strip()}"
+            for entry in applied_rules
+            if isinstance(entry, dict) and str(entry.get("text", "")).strip()
+        ]
+        if lines:
+            renderer.render_pipeline_log(
+                f"\U0001f4cc Zusatzregeln in den Prompts dieses Laufs ({len(lines)}):\n"
+                + "\n".join(lines),
+                "info",
+            )
+
+    # Output a personal rule asked for at the end of the run, produced by the
+    # reflection gate. - Claude Generated
+    rule_output = str(getattr(analysis_state, "rule_output", "") or "") if analysis_state else ""
+    if rule_output:
+        renderer.render_pipeline_log("\U0001f4dd Aus einer Zusatzregel:", "success")
+        renderer.render_markdown_block(rule_output, kind="rule_output")
+
     report_markdown = getattr(analysis_state, "report_markdown", "") if analysis_state else ""
     if report_markdown:
         renderer.render_markdown_block(report_markdown, kind="workflow_report")

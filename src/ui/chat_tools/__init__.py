@@ -35,7 +35,11 @@ def build_chat_toolset(
       3. Mutation tools (P-ε)            (`mutations.py`) — only when
          ``pipeline_manager``, ``kb_manager`` and ``proposal_gateway``
          are all supplied. Without them the agent gets read-only access.
-      4. MCP read-only adapter           (`mcp_adapter.py`)
+      4. Rule tools                      (`rules.py`) — `list_rules` always,
+         the writing ones only with a ``proposal_gateway`` (they ask the user
+         through it). They need no ``pipeline_manager``: a rule can be
+         formulated without a loaded result.
+      5. MCP read-only adapter           (`mcp_adapter.py`)
 
     Tools whose ``available_for(session)`` returns False are skipped, so
     the agent never sees options that would no-op on empty state.
@@ -63,6 +67,24 @@ def build_chat_toolset(
         )
         candidates.extend(mutation_tools(**common_kwargs))
         candidates.extend(pipeline_tools(**common_kwargs))
+
+    # Rule tools: the writing ones need the gateway to ask through; without it
+    # only the read-only listing is offered, so the agent can still say which
+    # rules apply instead of proposing one it could never store.
+    # - Claude Generated
+    from src.ui.chat_tools.rules import ListRulesTool, rule_tools
+
+    if proposal_gateway is not None:
+        candidates.extend(
+            rule_tools(
+                gateway=proposal_gateway,
+                chat_config=chat_config,
+                session_id=str(getattr(session, "session_id", "") or ""),
+                kb_manager=kb_manager,
+            )
+        )
+    else:
+        candidates.append(ListRulesTool(chat_config=chat_config))
 
     for tool in candidates:
         if tool.available_for(session):

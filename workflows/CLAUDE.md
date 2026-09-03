@@ -108,6 +108,16 @@ means adding `status: "research"`.
 - `PipelineConfig.global_max_tokens_override` outranks it for every step of a run: GUI toolbar "Budget", CLI `--max-tokens`, webapp select "Budget". Unset = the YAML decides.
 - A reasoning model spends this budget on its thinking channel before the answer starts; measurements in [`src/llm/CLAUDE.md`](../src/llm/CLAUDE.md), probe: `scripts/probe_thinking.py`.
 
+## Persönliche Zusatzregeln (nicht in dieser Datei)
+
+- Regeln, die nur für einen Rechner oder eine Einrichtung gelten, gehören
+  **nicht** in eine Workflow-YAML, sondern nach `~/.config/alima/rules.yaml`.
+  Sie werden je nach Geltungsbereich (Workflow × Step) an die Systemprompts
+  angehängt, ohne dass eine Repository-Datei geändert wird.
+- Ein Lauf schreibt die verwendeten Regeln nach `applied_rules` ins Ergebnis —
+  wichtig, weil dieselbe YAML auf zwei Rechnern damit anders läuft.
+- Details: [`docs/user_rules.md`](../docs/user_rules.md).
+
 ## Maintenance Rule
 
 - **`alima_v51_105.yaml` must stay in sync with `alima_v51.yaml`** except for the institution-specific classification prompt block.

@@ -135,6 +135,16 @@ class KeywordAnalysisState:
     # flat string list every existing consumer reads; this is the richer view
     # the result payload prefers when present. - Claude Generated
     classification_entries: List[Dict[str, Any]] = field(default_factory=list)
+    # The operator's personal rules (``src/core/user_rules.py``) that were
+    # injected into this run's prompts, as ``{id, text}``. Rules live in the
+    # user's config, not the repository: without this the same workflow on two
+    # machines yields different results and the difference is invisible in the
+    # saved state. Empty for a run with no matching rule. - Claude Generated
+    applied_rules: List[Dict[str, str]] = field(default_factory=list)
+    # What the reflection gate produced because a personal rule asked for
+    # something at the end of the run (e.g. a catalogue entry in the operator's
+    # own format). Empty unless such a rule fired. - Claude Generated
+    rule_output: str = ""
     report_markdown: str = ""  # Generic workflow-report Markdown (e.g. title_list_search's duplicate table), rendered as an HTML block in the GUI - Claude Generated
 
     # Iterative refinement support - Claude Generated

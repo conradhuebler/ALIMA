@@ -10,10 +10,32 @@
 #      spins up a Chromium QWebEngineView, which is unstable when constructed
 #      and torn down repeatedly in a headless unit-test run (no event loop).
 #      The real widget is covered by its own smoke test and by running the app.
+#   4. Point the personal-rules store at a throwaway file. Without this the
+#      suite reads ``~/.config/alima/rules.yaml``: those rules are appended to
+#      every prompt the agentic steps build, so an operator's own rules would
+#      silently change what tests assert on. That is not hypothetical — it
+#      broke test_e2e_smoke the first time real rules existed on this machine.
+import os
 import sys
+import tempfile
+
+
+def _isolate_user_rules() -> None:
+    """Redirect the rules store to a temp path for the whole test session."""
+    from src.core.user_rules import RULES_PATH_ENV
+
+    os.environ.setdefault(
+        RULES_PATH_ENV,
+        os.path.join(tempfile.gettempdir(), "alima_test_rules_absent.yaml"),
+    )
 
 
 def _bootstrap() -> None:
+    try:
+        _isolate_user_rules()
+    except Exception:
+        pass  # the store falls back to the config dir; tests will say so
+
     try:
         from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
         from PyQt6.QtWidgets import QApplication

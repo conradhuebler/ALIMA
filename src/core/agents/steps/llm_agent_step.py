@@ -502,6 +502,7 @@ class LLMAgentStep(BaseStep):
             default_system=raw_cfg.get("system_prompt", ""),
             default_user=raw_cfg.get("user_prompt", ""),
             workflow_prompts=workflow_prompts,
+            step_id=self.step_id,
         )
 
         if llm_override and llm_override.get("temperature") is not None:

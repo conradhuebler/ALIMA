@@ -21,6 +21,9 @@
 - `batch_processing_dialog.py`: batch file/directory processing (QThread, progress, continue-on-error)
 - `SettingsDialog` / `PromptEditorDialog`: configuration + prompt template editing
 - `plugin_settings_tab.py` (`PluginSettingsTab`): category-grouped per-plugin config (search + input), auto-built from each plugin's `config_fields`; enable/primary/usage_hint + add/duplicate/remove. Single editor for provider/source config — **the Catalog tab + DOI System entries were removed** (folded into the `catalog` / DOI plugins; only the DOI `SystemConfig` fields are still derived on save — the `CatalogConfig` mirror is gone, WP P7). Replaced the checkbox-only `provider_selector.py` (deleted). Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+- `dialogs/rules_dialog.py` (`RulesDialog`): manage the personal indexing rules — list/edit/enable/delete plus export+import (provenance preserved). Reached from Settings → Chat-Agent and from 📌 in the chat panel header. Store: `src/core/user_rules.py`.
+- `chat_tools/rules.py`: `list_rules` / `propose_rule` / `set_rule_enabled` / `delete_rule`; the writing ones ask through the existing `ProposalGateway` and ignore `autonomous_pipeline` (a rule changes every *future* run, not the current one).
+- `proposal_bar.py` (`ProposalBar`): the confirmation surface for every gateway proposal — a one-shot strip between chat log and input, hidden again once answered. The log block is a record only; ⚠️ never put accept/reject anchors back there — a custom scheme is dropped by QWebEngine, and an https one stays clickable forever.
 - `TableWidget`, `Styles`: reusable display/theming (the unused `widgets.py` was removed June 2026)
 
 ### Design Patterns

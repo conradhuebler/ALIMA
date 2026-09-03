@@ -38,6 +38,7 @@ from src.webapp.routers import export as export_router
 from src.webapp.routers import websocket as websocket_router
 from src.webapp.routers import analysis as analysis_router
 from src.webapp.routers import agent as agent_router
+from src.webapp.routers import rules as rules_router
 from src.webapp.routers.workflows import _discover_workflows
 # Re-exports for tests that import/call these via src.webapp.app: run_analysis
 # (analysis); ChatMessageRequest + _build_session_agent_runner (agent). - Claude Generated
@@ -165,6 +166,7 @@ app.include_router(export_router.router)
 app.include_router(websocket_router.router)
 app.include_router(analysis_router.router)
 app.include_router(agent_router.router)
+app.include_router(rules_router.router)
 
 # Session registry (``sessions``), the ``Session`` model and the lazy
 # ``AppContext`` live in session_state.py; the WP12 render bridge classes

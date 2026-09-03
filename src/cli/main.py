@@ -32,6 +32,7 @@ from src.cli.commands import (
     agent_cmd,
     bundle_cmd,
     webindex_cmd,
+    rules_cmd,
 )
 
 
@@ -39,7 +40,7 @@ from src.cli.commands import (
 _SETUP_EXEMPT_COMMANDS = {
     "setup", "list-models", "list-providers", "test-providers",
     "list-models-detailed", "dnb-import", "clear-cache", "migrate-db",
-    "db-config", "workflows", "bundle", "webindex",
+    "db-config", "workflows", "bundle", "webindex", "rules",
 }
 
 
@@ -412,6 +413,59 @@ def create_argument_parser():
     agent_parser.add_argument("--mode", choices=["verschlagwortung", "suche", "general", "auto"],
                               default="auto", help="Agent mode: verschlagwortung (cataloging), suche (search), general, auto (detect)")
 
+    # Personal indexing rules (persönliche Zusatzregeln) - Claude Generated
+    rules_parser = subparsers.add_parser(
+        "rules",
+        help="Manage personal indexing rules injected into agentic prompts",
+    )
+    rules_parser.add_argument(
+        "--rules-file", dest="rules_file",
+        help="Rules file to operate on (default: ~/.config/alima/rules.yaml)",
+    )
+    rules_sub = rules_parser.add_subparsers(dest="rules_action")
+
+    rules_list = rules_sub.add_parser("list", help="List stored rules")
+    rules_list.add_argument("--enabled-only", action="store_true", dest="enabled_only",
+                            help="Only show active rules")
+
+    rules_show = rules_sub.add_parser("show", help="Show one rule with full provenance")
+    rules_show.add_argument("rule_id", help="Rule id, e.g. r-20260903-01")
+
+    rules_add = rules_sub.add_parser("add", help="Add a rule")
+    rules_add.add_argument("text", help="The rule as one clear instruction")
+    rules_add.add_argument("--when", help="Prose condition, e.g. 'bei Überblickswerken'")
+    rules_add.add_argument("--workflows", nargs="+",
+                           help="Workflow name globs (default: all)")
+    rules_add.add_argument("--steps", nargs="+",
+                           help="Step id globs, e.g. selection* classification (default: all)")
+    rules_add.add_argument("--note", help="Why this rule — stored as provenance")
+    rules_add.add_argument("--author", help="Who formulated it — stored as provenance")
+    rules_add.add_argument("--inactive", action="store_true",
+                           help="Store the rule without activating it")
+
+    rules_enable = rules_sub.add_parser("enable", help="Activate a rule")
+    rules_enable.add_argument("rule_id")
+    rules_disable = rules_sub.add_parser("disable", help="Silence a rule")
+    rules_disable.add_argument("rule_id")
+
+    rules_remove = rules_sub.add_parser("remove", help="Delete a rule permanently")
+    rules_remove.add_argument("rule_id")
+    rules_remove.add_argument("-y", "--yes", action="store_true",
+                              help="Delete without asking back")
+
+    rules_export = rules_sub.add_parser(
+        "export", help="Write rules to a shareable file (provenance kept verbatim)")
+    rules_export.add_argument("--out", help="Target file (default: alima_rules.yaml)")
+    rules_export.add_argument("--ids", nargs="+", help="Only these rule ids")
+    rules_export.add_argument("--enabled-only", action="store_true", dest="enabled_only",
+                              help="Only export active rules")
+
+    rules_import = rules_sub.add_parser(
+        "import", help="Merge a rules file; imported rules land inactive")
+    rules_import.add_argument("source", help="File to read")
+    rules_import.add_argument("--activate", action="store_true",
+                              help="Activate the imported rules immediately")
+
     # Setup wizard command
     setup_parser = subparsers.add_parser("setup", help="Run ALIMA first-start setup wizard")
     setup_parser.add_argument("--skip-gnd", action="store_true", help="Skip GND database download option")
@@ -555,6 +609,8 @@ def main():
         database_cmd.handle_dnb_import(args, logger)
     elif args.command == "agent":
         sys.exit(agent_cmd.handle_agent(args, config_manager, llm_service, prompt_service, logger))
+    elif args.command == "rules":
+        sys.exit(rules_cmd.handle_rules(args, logger))
     elif args.command == "workflow":
         sys.exit(workflow_cmd.handle_workflow(args, config_manager, llm_service, logger))
     elif args.command == "workflows":

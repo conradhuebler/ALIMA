@@ -6,6 +6,141 @@
 
 ## 2026
 
+### Persönliche Zusatzregeln aus dem Gespräch (September 3, 2026)
+
+Die Erschließungsregeln desselben Tages entstanden aus echten Läufen und wurden
+von Hand in `alima_v51.yaml` und den Freiberg-Zwilling geschrieben — sieben
+Stellen je Datei, mit einer Sync-Regel dazwischen. Regeln, die nur für einen
+Rechner oder eine Einrichtung gelten, gehören dort nicht hin, und sie entstehen
+ohnehin an einer anderen Stelle: im Chat über ein fertiges Ergebnis.
+
+Neu ist eine Regelablage, die der Chat selbst beschreiben kann.
+`~/.config/alima/rules.yaml` (`ConfigManager.rules_file`) hält Regeln als
+`{id, text, applies_when, scope, enabled, origin}`; `src/core/user_rules.py` ist
+Qt-frei und trägt Store, Auswahl, Rendering und Austausch.
+
+**Ein Einhängepunkt für alle Worker-Steps.** `resolve_prompts`
+(`prompt_resolver.py`) ist der einzige Trichter, durch den `LLMAgentStep`
+(einfach und gechunkt) und `ReflectionStep` gehen; der Block wird dort vor jedem
+`return` angehängt. Der MetaAgent-Planer baut seinen Prompt selbst und bekommt
+`MetaAgent._append_user_rules` (Pseudo-Step `planner`); der Chat bekommt einen
+`user_rules`-Parameter in `build_system_prompt`, analog zu
+`institution_context`. Angehängt wird **nach** `_render`, damit geschweifte
+Klammern im Regeltext nicht als Platzhalter gelesen werden. Ohne aktive Regel
+ist der Block leer und jeder Prompt byte-identisch — per Mutationsprobe
+festgenagelt (dieselbe Zusicherung mit einer aktivierten Regel muss scheitern).
+
+**Bedingungen stehen im Prompt, nicht im Code.** `applies_when` ist Prosa („bei
+Überblickswerken") und wird der Regel als Vorbedingung vorangestellt; es gibt
+keinen Auswerter. Ob ein Werk eine Gesamtdarstellung ist, kann kein Ausdruck
+über den `SharedContext` entscheiden, und ein halb funktionierender Auswerter
+wäre schlechter als keiner. Strukturell bleibt nur der Geltungsbereich
+(Workflow × Step als Globs, dazu `planner`/`reflection`/`chat`) — er entscheidet,
+in welche Prompts eine Regel überhaupt gelangt, und begrenzt damit die
+Tokenkosten.
+
+**Bestätigung wurde nicht neu gebaut.** `src/ui/chat_tools/rules.py` setzt auf
+`_MutationToolBase` auf und benutzt dasselbe `ProposalGateway` wie
+`propose_keyword_replacement`: anklickbare Bubble in der GUI (eigener Zweig in
+`render_proposal_bubble`, der Wortlaut, Bedingung und Geltungsbereich zeigt),
+y/N auf stdin in der CLI. `propose_rule` und `delete_rule` gehen darüber,
+`set_rule_enabled` nicht — umkehrbar und im Regeldialog sichtbar. Fehlt der
+`kb_manager`, tritt eine prozesslokale Ersatz-Id an die Stelle der Audit-Id,
+sonst würde `_ask_user` sicherheitshalber ablehnen und der Nutzer würde nie
+gefragt. In den geteilten Chat-Regeln steht jetzt, dass der Agent eine dauerhaft
+gemeinte Aussage von sich aus als Regel anbietet und ohne Zustimmung nichts
+ablegt.
+
+**Der autonome Modus deckt Regeln nicht ab** (Befund aus dem ersten echten
+GUI-Lauf). `_MutationToolBase._ask_user` behandelt `autonomous_pipeline` als
+„y/N überspringen"; für eine Schlagwort-Ersetzung ist das richtig, sie ändert
+den Lauf, den der Nutzer gerade gestartet hat. Eine Regel ändert dagegen jeden
+künftigen Lauf. Mit der Abkürzung landeten auf dem Rechner des Operators sechs
+Regeln in fünfzehn Minuten ohne eine einzige Rückfrage, darunter ein Duplikat
+und ein Funktionswunsch, der keine Erschließungsregel ist. `_RuleToolBase`
+überschreibt `_ask_user` und fragt immer; ohne Kanal bleibt es beim
+Fail-Safe-Ablehnen.
+
+**Die Bestätigung ist ein Widget, kein Link im Log.** Die Anker im Chat-Log
+waren zweimal falsch: Chromium verwirft eine Navigation zu einem nicht
+registrierten Schema (`mutation://`), bevor `acceptNavigationRequest` sie sieht
+— gegen die echte `WebLogView` gemessen, ein `https`-Anker auf derselben Seite
+liefert `link_clicked`, ein `mutation://`-Anker nichts. Auf https umgestellt kam
+der Klick an, blieb aber beliebig oft auslösbar, weil ein Log-Eintrag nicht
+verschwindet. Jetzt trägt `ProposalBar` (`src/ui/proposal_bar.py`) die
+Entscheidung: eine Leiste zwischen Verlauf und Eingabefeld, ein Vorschlag zur
+Zeit, nach der Antwort weg. Das Log behält den Eintrag als Protokoll, ohne
+Bedienelemente; `proposal_href`/`parse_proposal_href` sind damit wieder weg. Der
+blockierende Handoff über `ProposalGateway` ist unverändert.
+
+**Der Regel-Check am Ende sitzt in der Reflexion.** Eine Regel ist Text in einem
+Prompt und löst nichts aus — und die agentischen Workflows enden in
+deterministischen Schritten (`rvk_guard`, `dk_postprocess`), es gibt also keinen
+Abschluss-Turn. Eine Regel der Form „am Ende soll der Katalogeintrag erzeugt
+werden" erreichte damit jeden vorherigen Prompt und konnte in keinem wirken;
+genau das ist im ersten echten Lauf passiert. Die Reflexion ist der letzte
+LLM-Turn: sie bekommt die geltenden Regeln in einem eigenen Block
+(`USER_RULES_GATE`) und ein JSON-Feld `final_output`, erzeugt die geforderte
+Ausgabe, sobald `status: complete` ist, und `MetaAgent._capture_rule_output`
+führt sie über `extra["rule_output"]` nach `KeywordAnalysisState.rule_output` ins
+Ergebnis. Eine Regel, die nur die Ausgabe betrifft, rechtfertigt ausdrücklich
+keine Schritt-Wiederholung. Ohne passende Regel bleibt der Block leer und der
+Reflexions-Prompt unverändert. Workflows ohne `reflection:`-Block haben diese
+Stelle nicht — dort bleibt eine solche Regel wirkungslos.
+
+**Nebenbefund:** ein exaktes Duplikat wird nicht erneut vorgeschlagen
+(`RuleStore.find_duplicate`); im ersten Lauf war dieselbe Regel innerhalb von
+sechs Minuten zweimal abgelegt worden.
+
+**Eigener Fehler, festgehalten:** die neue Helferfunktion im
+`reflection_step` wurde zwischen `@register_step("reflection")` und
+`class ReflectionStep` eingefügt — der Dekorator lag damit auf der Funktion,
+`get_step_class("reflection")` lieferte sie zurück und jeder agentische Lauf
+brach mit „unexpected keyword argument 'config'" ab. Die volle Suite blieb dabei
+grün: niemand prüfte, was die Step-Registry tatsächlich enthält. Jetzt tut es
+ein Test (jeder Eintrag in `STEP_REGISTRY` muss eine `BaseStep`-Unterklasse
+sein).
+
+**WP-K6 hat seine fachliche Antwort** — die WinIBW-Regeln des Operators legen
+fest, dass die 555x-Feldnummer **pro Kette** vergeben wird (alle Schlagworte
+einer Kette plus `$ADE-105` unter derselben Nummer), Notationen als
+`6700 DK <Notation>` laufen und Lehrbücher in Feld 1131 gehören. Eingetragen in
+[`docs/open_workpackages.md`](docs/open_workpackages.md); der deterministische
+Export bleibt offen.
+
+**Testisolation.** Die echten Regeln des Operators gehen in jeden agentischen
+Prompt — und damit in jeden Test, der einen baut. Das brach `test_e2e_smoke`,
+sobald die ersten echten Regeln existierten. `default_rules_path` respektiert
+jetzt `ALIMA_RULES_FILE`, und der Test-Bootstrap (`tests/__init__.py`) zeigt auf
+eine Wegwerf-Datei.
+
+**Austausch mit erhaltener Herkunft.** `export`/`import` schreiben dieselbe
+Struktur; `origin` wird beim Export unverändert übernommen und beim Import
+behalten und nur um `imported_from`/`imported_at` ergänzt, kollidierende Ids
+bekommen eine neue und behalten die alte als `origin.original_id`. Importierte
+Regeln landen **inaktiv** — eine fremde Datei kann ein Dutzend Regeln
+mitbringen, und keine davon soll ungesehen einen Lauf verändern.
+
+Jeder agentische Lauf schreibt die tatsächlich injizierten Regeln nach
+`KeywordAnalysisState.applied_rules`; die geteilte Ergebnisansicht zeigt sie.
+Ohne diese Spalte wäre ein Vergleichslauf zwischen zwei Rechnern nicht mehr
+interpretierbar, weil dieselbe Workflow-YAML unterschiedlich läuft.
+
+Oberflächen: Regeldialog (`src/ui/dialogs/rules_dialog.py`, aus den
+Einstellungen und aus der Chat-Kopfzeile), `alima rules
+list|show|add|enable|disable|remove|export|import`, und `GET /api/rules` in der
+Webapp.
+
+**Grenzen**, so benannt wie die Fähigkeiten: die klassische Pipeline liest diese
+Regeln nicht (ihre Prompts gehen durch `str.format`, eine nackte Klammer im
+Regeltext bräche den Lauf); in der Webapp lässt sich keine Regel bestätigen
+(`AutoRejectGateway`), also auch keine aus dem Chat ablegen; und eine Prosa-Regel
+ist keine Garantie — derselbe Vergleichslauf, der unten das `rank`-Feld
+erzwungen hat, zeigt, dass ein Modell eine Prompt-Regel schlicht ignorieren kann,
+und für die Prosa-Bedingung gilt das doppelt.
+
+Suite 2012 (60 Tests in `tests/test_user_rules.py`, dazu Bar- und Record-Tests in `test_pipeline_chat_panel.py` und `test_unified_message_renderer.py`).
+
 ### Schritt-Reihenfolge, Formnotationen und ein RSWK-Kern (September 3, 2026)
 
 Zwei Läufe über denselben Materialchemie-Klappentext, einer mit

@@ -180,9 +180,36 @@ einzige, der Ketten überhaupt kennt. Auf einem Ergebnis vom Januar 2026 liefert
 die CLI dadurch `6700 DK RVK DK 02`. Keiner der drei prüft die Notation vor der
 Ausgabe.
 **Ansatz:** `generate_k10plus_lines` als einzige Quelle, CLI und GUI rufen sie
-über die kanonische Export-Payload. Vorher steht die fachliche Frage: welche
-Kategorien die UB Freiberg erfassen will (5550–5559 für Ketten, 6700 je System)
-— das entscheidet die Signatur.
+über die kanonische Export-Payload.
+
+**Die fachliche Frage ist beantwortet** (Operator, 3. September 2026, im Chat
+formuliert und als persönliche Zusatzregeln abgelegt — siehe
+[`user_rules.md`](user_rules.md)):
+
+- **Schlagwortketten, Feld 555x:** die Feldnummer wird **pro Kette** vergeben,
+  nicht pro Schlagwort. Alle Schlagworte einer Kette und der Abschluss stehen
+  unter derselben Nummer; erst die nächste Kette zählt hoch. Jedes Schlagwort
+  steht in einer eigenen Zeile, am Ende jeder Kette folgt eine Zeile mit dem
+  Indikator `$ADE-105`, zwischen den Ketten eine Leerzeile:
+  ```
+  5550 Cadmium
+  5550 Boden-Pflanze-System
+  5550 $ADE-105
+
+  5551 Schwermetallbelastung
+  5551 Neurotoxizität
+  5551 $ADE-105
+  ```
+- **Notationen:** `6700 DK <Notation>`, eine Zeile je Notation.
+- **Lehrbücher** gehören nicht in 555x, sondern in Feld **1131**.
+
+Damit steht die Signatur fest. Offen bleibt die Vereinheitlichung der drei
+Erzeuger auf diese Form.
+
+**Abgrenzung:** dass die agentische Reflexion diesen Eintrag heute auf Zuruf
+einer Zusatzregel erzeugt (`final_output` → `rule_output`), ersetzt den Export
+**nicht** — dort schreibt ein Modell das Format jedes Mal neu, hier soll es
+deterministisch entstehen.
 **Verifikation:** Golden-Test über zwei Ergebnisdateien, eine mit reinen
 DK-Codes und eine mit System-Präfix; beide Pfade müssen dieselben Zeilen liefern.
 
