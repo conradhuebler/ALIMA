@@ -12,6 +12,8 @@ from urllib.parse import quote
 
 import requests
 
+from src.utils.classification_systems import form_notation_label, normalize_rank
+
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +152,23 @@ def build_structured_classifications(raw_classifications, validate_rvk: bool = F
             continue
 
         entry = parse_classification_entry(item)
+
+        # A form/provenance notation (Hochschulschrift, Kongressband, …) is a
+        # legitimate assignment for a work that has that form, but it is not a
+        # subject statement. The classification prompt tells the LLM to keep the
+        # two apart; when one is assigned anyway it is marked here so the
+        # cataloguer sees it rather than reading it as a subject. - Claude Generated
+        form_label = form_notation_label(entry["system"], entry["code"])
+        if form_label:
+            entry["form_notation"] = form_label
+
+        # Keep only a rank we understand; unknown wording leaves the entry
+        # unranked rather than guessing a bucket for it. - Claude Generated
+        rank = normalize_rank(entry.get("rank"))
+        if rank:
+            entry["rank"] = rank
+        else:
+            entry.pop("rank", None)
 
         if entry["system"] == "RVK":
             if validate_rvk:
@@ -294,8 +313,12 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
     except Exception as exc:
         logger.warning(f"Error serializing dk_llm_analysis: {exc}")
 
+    # Prefer the structured entries when the run produced them: they carry the
+    # per-system core/additional rank, which the flat string list cannot. Falls
+    # back to the strings for classic runs and older sessions. - Claude Generated
     structured_classifications = build_structured_classifications(
-        dk_classifications,
+        ensure_list(getattr(analysis_state, "classification_entries", None))
+        or dk_classifications,
         validate_rvk=False,
     )
 
@@ -310,6 +333,12 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
         "working_title": working_title,
         "initial_keywords": ensure_json_serializable(initial_keywords),
         "final_keywords": ensure_json_serializable(final_keywords),
+        "core_keywords": ensure_json_serializable(
+            ensure_list(getattr(analysis_state, "core_keywords", []))
+        ),
+        "form_keywords": ensure_json_serializable(
+            ensure_list(getattr(analysis_state, "form_keywords", []))
+        ),
         "keyword_chains": ensure_json_serializable(keyword_chains),
         "search_results": ensure_json_serializable(serialized_search_results),
         "classifications": ensure_json_serializable(structured_classifications),

@@ -104,6 +104,21 @@ class MetaAgent:
                     )
                 next_step = pending
 
+            # `depends_on` is NOT enforced by the executor for a planner-chosen
+            # step (`run(only_step=…)` runs whatever it is handed). Gate it here
+            # so a skipped prerequisite cannot starve the step's inputs. - Claude Generated
+            missing_dep = self._unmet_dependency(workflow, context, next_step)
+            if missing_dep:
+                logger.info(
+                    f"MetaAgent: '{next_step}' requires '{missing_dep}', which has "
+                    f"not run — running that first"
+                )
+                if self.stream_callback:
+                    self.stream_callback(
+                        f"↪️ '{next_step}' braucht '{missing_dep}' — führe das zuerst aus\n"
+                    )
+                next_step = missing_dep
+
             if self.stream_callback:
                 self.stream_callback(f"📋 MetaAgent plan: run '{next_step}'\n")
 
@@ -488,7 +503,58 @@ class MetaAgent:
         return None
 
     @staticmethod
-    def _pending_step(workflow: WorkflowDef, context: Any) -> Optional[str]:
+    def _steps_run(context: Any) -> set:
+        """Ids of the steps already executed in this run. - Claude Generated"""
+        if hasattr(context, "execution_history"):
+            return {h["step"] for h in context.execution_history}
+        return set(getattr(context, "step_results", {}).keys())
+
+    @classmethod
+    def _unmet_dependency(
+        cls, workflow: WorkflowDef, context: Any, step_id: str
+    ) -> Optional[str]:
+        """Deepest un-run prerequisite of `step_id`, or None if all have run.
+
+        The LLM planner names the next step freely and the executor does not
+        check `depends_on`. Unchecked, a planner can run `classification` before
+        `selection`; `${extra.final_keywords}` then resolves to empty, the
+        classification prompt carries no keywords for `rvk_lookup` (no RVK at
+        all), and `dk_collect` builds its catalog pool from the coarse
+        `selection_chunks` output instead of the curated final keywords.
+
+        Depth-first, so the returned step is itself runnable. Disabled or
+        unknown deps can never run and count as satisfied. - Claude Generated
+        """
+        steps_by_id = {s.id: s for s in workflow.steps}
+        steps_run = cls._steps_run(context)
+
+        def walk(sid: str, seen: set) -> Optional[str]:
+            step = steps_by_id.get(sid)
+            if step is None or sid in seen:
+                return None
+            seen.add(sid)
+            for dep in getattr(step, "depends_on", []) or []:
+                dep_step = steps_by_id.get(dep)
+                # 'reflection' runs outside execution_history, disabled/unknown
+                # deps can never run — all three count as satisfied, otherwise
+                # the redirect would never resolve. - Claude Generated
+                if (
+                    dep_step is None
+                    or not dep_step.enabled
+                    or dep == "reflection"
+                    or dep in steps_run
+                ):
+                    continue
+                return walk(dep, seen) or dep
+            return None
+
+        target = walk(step_id, set())
+        # A dependency cycle resolves back to the step itself — unresolvable, so
+        # leave the planner's choice alone rather than redirect to a no-op.
+        return None if target == step_id else target
+
+    @classmethod
+    def _pending_step(cls, workflow: WorkflowDef, context: Any) -> Optional[str]:
         """First enabled, not-yet-run step whose dependencies are satisfied.
 
         Used to veto a premature finish: the planner/reflection must not end the
@@ -496,10 +562,7 @@ class MetaAgent:
         still pending. Returns None only when the step graph is exhausted (or the
         remaining steps' deps can never be met). - Claude Generated
         """
-        if hasattr(context, "execution_history"):
-            steps_run = {h["step"] for h in context.execution_history}
-        else:
-            steps_run = set(getattr(context, "step_results", {}).keys())
+        steps_run = cls._steps_run(context)
         for s in workflow.steps:
             if not s.enabled or s.id == "reflection" or s.id in steps_run:
                 continue

@@ -382,3 +382,86 @@ def format_classification(system: str, code: str) -> str:
 def classification_system(value: str) -> str:
     """Return just the system of a classification string (``""`` if unprefixed)."""
     return split_classification_code(value)[0]
+
+
+# ── Form and provenance notations ──────────────────────────────────────────
+# Notations that describe the FORM or provenance of a publication rather than
+# its subject. They matter because the classification prompt ranks candidates by
+# how often they occur in the catalogue and tells the LLM that frequency is a
+# relevance indicator — and a holdings stock full of dissertations puts a form
+# notation at the top of that list. Measured over the 103 recorded pipeline runs
+# in ``~/Documents/ALIMA_Results``: DK 378.245 was the highest-frequency
+# candidate in 18 runs and among the top three in 36, on subjects as unrelated
+# as materials chemistry and soil contamination.
+#
+# Each entry below was confirmed against the titles filed under it in the
+# Freiberg holdings, not taken from a schedule. Neighbouring notations that look
+# similar but carry real subject content are deliberately absent: bare ``378``
+# (Hochschulwesen) and ``004``/``006`` (Informatik, Normung) are subjects.
+#
+# The list does not gate anything — a form notation stays a legitimate choice
+# for a work that actually has that form. It is used to mark an assignment so a
+# cataloguer sees what was assigned. - Claude Generated
+FORM_NOTATIONS: Dict[str, Dict[str, str]] = {
+    "DK": {
+        "059": "Jahrbuch, Kalender",
+        "061.3": "Kongress-, Tagungsband",
+        "378.14": "Studien-, Prüfungsordnung, Modulhandbuch",
+        "378.22": "Studien-, Prüfungsordnung, Modulhandbuch",
+        "378.244": "Diplom-, Masterarbeit",
+        "378.245": "Hochschulschrift, Dissertation",
+    },
+}
+
+
+def form_notation_label(system: str, code: str) -> Optional[str]:
+    """Name the publication form a notation stands for, else ``None``.
+
+    ``("DK", "378.245")`` → ``"Hochschulschrift, Dissertation"``. Matching is
+    exact on the normalised code: ``378.2451`` is a different notation and is
+    not treated as a form. - Claude Generated
+    """
+    sys_norm = normalize_system(system)
+    if not sys_norm:
+        return None
+    return FORM_NOTATIONS.get(sys_norm, {}).get(str(code or "").strip())
+
+
+# ── Core vs. additional notation ───────────────────────────────────────────
+# A classification either carries the work (the shelf-determining notation a
+# cataloguer files it under) or supplements it. The distinction is per system:
+# DK, DDC and RVK each have their own core, and an RVK core does not replace
+# the DK one. The classification LLM names it in a ``rank`` field; a model that
+# omits it leaves the list unranked, which consumers render flat as before —
+# no core is invented here. - Claude Generated
+RANK_CORE = "core"
+RANK_ADDITIONAL = "additional"
+
+_RANK_ALIASES = {
+    "core": RANK_CORE,
+    "kern": RANK_CORE,
+    "kernnotation": RANK_CORE,
+    "primary": RANK_CORE,
+    "haupt": RANK_CORE,
+    "hauptnotation": RANK_CORE,
+    "additional": RANK_ADDITIONAL,
+    "zusatz": RANK_ADDITIONAL,
+    "zusatznotation": RANK_ADDITIONAL,
+    "secondary": RANK_ADDITIONAL,
+    "nebennotation": RANK_ADDITIONAL,
+}
+
+
+def normalize_rank(value: Any) -> Optional[str]:
+    """Map a model's rank wording to ``"core"``/``"additional"``, else ``None``.
+
+    Unknown wording returns ``None`` rather than a guess: an entry with no
+    usable rank stays unranked instead of being silently filed as additional.
+    - Claude Generated
+    """
+    return _RANK_ALIASES.get(str(value or "").strip().lower()) or None
+
+
+def rank_sort_key(entry: Dict[str, Any]) -> int:
+    """Sort key putting core notations first, unranked ones last."""
+    return {RANK_CORE: 0, RANK_ADDITIONAL: 1}.get(entry.get("rank"), 2)

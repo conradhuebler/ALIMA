@@ -1,5 +1,6 @@
 name: "ALIMA Pipeline v5.1 (UB Freiberg 105)"
 version: "5.1.105"
+status: "tested"
 description: |
   Freiberg-local variant of ALIMA Pipeline v5.1.
   Identical to alima_v51 except for the classification prompt:
@@ -48,7 +49,7 @@ meta_agent:
     rules: |
       ALIMA-Verschlagwortung — Phasen-Routing:
       - Phasenkette: extraction → search → selection_chunks → selection →
-        dk_collect → classification → dk_postprocess.
+        dk_collect → classification → rvk_guard → dk_postprocess.
       - Noch keine Keywords extrahiert → 'extraction'.
       - Keywords vorhanden, aber keine GND-Suche gelaufen → 'search'.
       - GND-Einträge vorhanden, aber keine Auswahl → 'selection_chunks' bzw. 'selection'.
@@ -81,7 +82,8 @@ meta_agent:
       - Nach initialisation: Keywords sinnvoll, deutsch, zerlegt
         (z.B. 'Dampfschifffahrt | Kapitän')?
       - Nach search: GND-Einträge vorhanden, Keywords aussagekräftig?
-      - Nach selection: final_keywords (15-20)? missing_concepts vorhanden?
+      - Nach selection: final_keywords (15-20)? core_keywords (2-5, der
+        RSWK-Kern) benannt? missing_concepts vorhanden?
       - Nach dk_collect: Katalogdaten — >20 Notationen UND >30 Titel → genug
         (action=continue).
       - Nach classification: DK-Codes vorhanden (Feld 'DK-Codes (Ist)')? Die
@@ -357,6 +359,8 @@ steps:
       keyword_chains: "response.keyword_chains"
       missing_concepts: "response.missing_concepts"
       extra.final_keywords: "response.keywords"
+      extra.core_keywords: "response.core_keywords"
+      extra.form_keywords: "response.form_keywords"
 
     llm:
       temperature: 0.5
@@ -374,7 +378,7 @@ steps:
 
       **Deine Kernregeln:**
       - **Präzision vor Kreativität**: Nutze *nur* vorgegebene GND-Schlagworte (keine Synonyme/Alternativen).
-      - **Hierarchie beachten**: Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen (z. B. "KI (GND-ID) → Machine Learning (GND-ID)").
+      - **Ketten verbinden Facetten, nicht Hierarchiestufen**: Eine Kette stellt den Gegenstand neben einen Aspekt, eine Anwendung oder ein Verfahren (z. B. "Gesichtserkennung (GND-ID) → Datenschutz (GND-ID)"). Sie geht NICHT eine Ober-/Unterbegriffsfolge hinunter: "Künstliche Intelligenz → Machine Learning" ist keine Kette, sondern zweimal dasselbe Thema in zwei Tiefen.
       - **Fehlende Konzepte dokumentieren**: Falls ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor oder diskutiere in der Analyse.
       - **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
 
@@ -419,7 +423,8 @@ steps:
       2. Kein Oberbegriff in derselben Kette: Oberbegriffe sind automatisch mitabgedeckt — nenne NICHT einen Begriff und seinen Oberbegriff in derselben Schlagwortkette.
       3. Ein Schlagwort ist der kürzeste verbale Ausdruck für den Inhalt; vermeide unnötige Zusammensetzungen.
       4. Ketten-Reihenfolge nach RSWK ("Piraten gehen selten zum Friseur"): Person → Geographikum → Sachschlagwort → Zeit → Form (p-g-s-z-f; Ausnahmen z. B. |f|Kongress, |g|Shanghai <2008>).
-      5. Formschlagwörter (RDA) separat erkennen: z. B. Aufsatzsammlung, Biografie, Lehrbuch, Konferenzschrift/Kongress.
+      5. Formschlagwörter (RDA) separat erkennen: z. B. Aufsatzsammlung, Biografie, Lehrbuch, Konferenzschrift/Kongress. Sie gehören in `form_keywords`, nicht unter die Sachschlagwörter.
+      6. Gesamtdarstellung: Behandelt das Werk ein **Fachgebiet in seiner Breite** (Überblick, Lehrbuch, Handbuch, Einführung), dann beschlagworte das **Fachgebiet**, nicht jedes im Text aufgezählte Teilgebiet. Die Aufzählung von Stoff-, Fach- oder Materialklassen in einem Klappentext ist das Inhaltsverzeichnis, keine Liste von Beschlagwortungsgegenständen. Ein Überblick zur Materialchemie bekommt „Werkstoffkunde", nicht je ein Schlagwort für Keramik, Glas, Polymere, Halbleiter und Legierungen.
 
       **Hintergrund Erfassungskontext (NICHT Teil der JSON-Ausgabe):**
       Verbale SW werden in Kat. 5550 erfasst; bei mehr als sechs Schlagworten neue Schlagwortreihen (5551, 5552 …), max. 6 SW pro Kette. RDA-Indikator 1505 $erda; Formschlagworte stehen in 1131 (verlinkt), nicht in 555x. K10plus (seit 2019): pro Kette $ADE-105 als Quelle der verbalen SW; FR-Kürzel und Feld 4700 entfallen (Altdaten bleiben erhalten). Deutsche/englische Titel ab 1987 sind durch die DNB verschlagwortet (erkennbar an der 3er-ISBN xxx-3-xxx-xxxxx-x) — hier ist keine erneute verbale Erschließung nötig.
@@ -429,7 +434,8 @@ steps:
       Analysiere den folgenden **Abstract** und wende einen **systematischen GND-Schlagwortungsprozess** an. Dein Ziel ist es:
       1. **Themen zu identifizieren** und hierarchisch zu strukturieren.
       2. **Nur** die vorgegebenen GND-Schlagworte zu verwenden (keine Ergänzungen!). Finde bis zu 20 Schlagworte in der Liste, die für den Text passen.
-      3. **Schlagwortketten** zu bilden, um Spezifität zu erhöhen (z. B. "KI → Machine Learning → Medizinische Diagnostik").
+      2b. Aus diesen einen **Kern** zu bestimmen: `core_keywords` sind die **2 bis 5** Sachschlagwörter, die den Gegenstand des Werks nach RSWK tatsächlich tragen — das, was in einen Katalogsatz gehört. `keywords` bleibt die vollständige Liste für die Recherche. Formschlagwörter kommen in `form_keywords` (0 bis 2) und nicht in den Kern.
+      3. **Schlagwortketten** zu bilden, die den Gegenstand mit einem Aspekt oder einer Anwendung verbinden (z. B. "Gesichtserkennung → Öffentlicher Raum → Datenschutz") — nicht eine Ober-/Unterbegriffsfolge hinunterzugehen.
       4. **Fehlende Konzepte** zu dokumentieren und Oberbegriffe vorzuschlagen.
       5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.
 
@@ -446,6 +452,12 @@ steps:
         "keyword_chains": [
           {"chain": ["Schlagwort1", "Schlagwort2", "Schlagwort3"], "reason": "Begründung der Kette"},
           {"chain": ["Schlagwort4", "Schlagwort5"], "reason": "Begründung der Kette"}
+        ],
+        "core_keywords": [
+          {"keyword": "Schlagwort1", "gnd_id": "GND-ID1"}
+        ],
+        "form_keywords": [
+          {"keyword": "Lehrbuch", "gnd_id": "GND-ID"}
         ],
         "missing_concepts": ["Konzept1", "Konzept2"]
       }
@@ -469,6 +481,11 @@ steps:
           {"chain": ["Künstliche Intelligenz", "Gesichtserkennung"], "reason": "KI-Technologie für die Gesichtserkennung"},
           {"chain": ["Datenschutz", "Ethik"], "reason": "Ethische Aspekte des Datenschutzes"}
         ],
+        "core_keywords": [
+          {"keyword": "Gesichtserkennung", "gnd_id": "987654321"},
+          {"keyword": "Ethik", "gnd_id": "444444444"}
+        ],
+        "form_keywords": [],
         "missing_concepts": ["Quantenmechanik"]
       }
       ```
@@ -552,6 +569,7 @@ steps:
       abstract: "${abstract}"
       keywords: "${extra.dk_prompt_text}"
       final_keywords: "${extra.final_keywords}"
+      core_keywords: "${extra.core_keywords}"
 
     outputs:
       dk_classifications: "response.classifications"
@@ -584,12 +602,21 @@ steps:
         - **Bestehende Klassifikationen** aus dem Bibliotheksbestand validieren/ergänzen.
       3. **Klassifikationsregeln**:
         - **Es gibt keine Priorisierung** der Klassifikatoren selbst. Verwende jedoch nur solche, die mit der Titelliste auftauchen.
-        - **Typischerweise sind die Häufigkeiten ein guter Indikator für die Relevanz der Klassifikation.** Gib ggf. zu den 10 Klassifikatoren noch 5 weitere potentielle Klassifikatoren an, die eine geringe Häufigkeit aufweisen.
+        - **Die Häufigkeiten sind ein Indikator für die Relevanz, kein Beweis.** Prüfe die obersten Einträge zuerst darauf, ob sie überhaupt eine Sachaussage treffen. Gib ggf. zu den gewählten Klassifikatoren noch 5 weitere potentielle an, die eine geringe Häufigkeit aufweisen.
+        - **Formnotationen sind keine Sachnotationen.** Notationen für die *Publikationsform* oder die Herkunft eines Titels — Hochschulschrift/Dissertation, Diplom- und Masterarbeit, Kongress- und Tagungsband, Jahrbuch, Studien- und Prüfungsordnung — stehen im Bestandsauszug häufig **ganz oben**, weil der Bestand viele Dissertationen und Tagungsbände enthält, nicht weil sie zum Thema passen. Vergib eine solche Notation **nur dann**, wenn die vorliegende Publikation selbst diese Form hat. DK 378.245 (Hochschulschrift) gehört nicht auf ein Lehrbuch.
       4. **Iterativer Prozess**: Überprüfe jede Klassifikation auf:
         - **Thematische Passung** (deckt der Code das Kernkonzept ab?),
         - **Hierarchische Konsistenz** (passt der Code zur übergeordneten Ebene?),
         - **Redundanz** (vermeide doppelte Abdeckung desselben Themas).
-      5. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
+      5. **Kern und Zusatz trennen**: Jede Klassifikation bekommt ein Feld `rank`.
+        - `"core"` = **Kernnotation**: eine Stelle, unter der das **ganze Werk** steht — nicht eine, die einen seiner Aspekte abdeckt. Wie viele es sind, ergibt das Werk und die Praxis des Hauses: Notationen, die im Bestandsauszug regelmäßig **gemeinsam an denselben Titeln** hängen, bilden ein Paar und dürfen beide Kern sein. Die DK-Kernnotation ist die regalstandortbestimmende und steht an erster Stelle der Liste.
+        - **`additional` ist der Normalfall.** Eine Notation wird nicht dadurch zum Kern, dass sie gut passt; sie muss das Werk als ganzes tragen. Ist mehr als die Hälfte deiner Notationen `core`, hast du zu großzügig eingeteilt. Nicht aufteilen, um eine zweite Fachrichtung unterzubringen oder ein Wort aus dem Titel zu bedienen.
+        - **Prüfe die Kernnotation an ihren Titeln**: Unter der Kernnotation müssen im Bestandsauszug Werke **derselben Art** stehen. Für ein Überblickswerk sind das Einführungen, Lehrbücher und Handbücher desselben Fachs; stehen dort nur Spezialuntersuchungen zu einem Teilaspekt, ist die Notation zu eng und gehört nach `additional`. Eine Notation mit auffällig wenigen Titeln ist selten die Kernstelle eines Überblickswerks.
+        - **Zu weit ist genauso falsch wie zu eng**: die oberste Klasse eines Fachs (z. B. die Gesamtklasse „Chemie") ist keine Kernnotation, auch wenn das Fach im Titel steht. Sie sammelt im Bestand meist das, was anderswo nicht unterkam.
+        - `"additional"` = **Zusatznotation**: deckt einen Nebenaspekt ab und ergänzt die Recherche, bestimmt aber nicht den Standort.
+        - Die Trennung gilt **je System getrennt**: DK und RVK haben jeweils ihren eigenen Kern. Eine RVK-Kernnotation ersetzt die DK-Kernnotation nicht.
+        - Im Zweifel `"additional"`. Eine zu großzügig vergebene Kernnotation ist schlechter als eine fehlende.
+      6. **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.
 
       **DK-Aspekt-Abdeckung (v5.1):**
       - DECKE ALLE thematischen Aspekte des Werks ab, nicht nur den Hauptaspekt.
@@ -601,6 +628,20 @@ steps:
       - DENKE AN DEN NUTZER: Welche DK-Codes würde ein Nutzer durchblättern,
         der nach diesem Thema sucht? Nicht nur "Wo gehört es hin?", sondern
         auch "Wo würde jemand danach suchen?"
+
+      **Gesamtdarstellung vs. Spezialwerk (v5.1):**
+      Die Aspekt-Abdeckung oben gilt für ein Werk über **mehrere abgegrenzte**
+      Gegenstände. Behandelt ein Werk dagegen ein **Fachgebiet in seiner Breite**
+      — Überblickswerk, Lehrbuch, Handbuch, Einführung —, dann sind die im Text
+      aufgezählten Teilgebiete **keine eigenen Aspekte**, sondern die Kapitel
+      des einen Gegenstands. Vergib dann die Notation des **Fachgebiets**, nicht
+      je eine pro Teilgebiet (Regel 2 des DK-Regelwerks unten: übergeordnete
+      Klasse statt mehrerer Einzelstellen).
+      Ein Überblick zur Materialchemie bekommt die Werkstoffkunde-Notation, nicht
+      je eine für Keramik, Glas, Polymere, Halbleiter und Legierungen.
+      Erkennungsmerkmale: „survey", „introduction", „overview", „Lehrbuch",
+      „Einführung", oder „covers subjects on …" gefolgt von einer langen
+      Aufzählung von Stoff-, Fach- oder Materialklassen.
 
       **Werkzeuge & Limits**:
       - DK: Nutze **nur** die im Bibliotheksbestand enthaltenen DK-Klassifikationen als Referenz – erfinde keine.
@@ -670,7 +711,9 @@ steps:
         - Wähle ausschließlich DK-Codes, die im bereitgestellten Bibliotheksbestand aufgeführt sind. Erfinde keine Codes.
       2b. **RVK-Ermittlung (WiWi inkl. Wirtschaftsbezug, Werkzeug `rvk_lookup`)**:
         - Wenn das Werk WiWi ist oder einen erkennbaren Wirtschaftsbezug hat: rufe **`rvk_lookup`** mit `keywords` (die GND-Schlagworte unten) und `abstract` auf; übergib die gewählten DK-Codes als `dk_codes`.
+        - Übergib als `keywords` **nur Sachschlagwörter**. Formschlagwörter (Lehrbuch, Einführung, Aufsatzsammlung, Kongressschrift, Biografie) beschreiben die Publikationsform, nicht das Fach, und führen zu fachfremden RVK-Ästen.
         - Übernimm **ausschließlich** die von `rvk_lookup` zurückgegebenen RVK-Notationen, die thematisch passen. Bei reinen Nicht-WiWi-Werken ohne Wirtschaftsbezug: kein Tool-Call, keine RVK.
+        - Die Rückgabe ist eine **Vorschlagsliste, keine Übernahmeliste**. Prüfe jede Notation einzeln an ihrem `label`: Sammelstellen wie „Allgemeines" oder „Allgemeine Lehrbücher" sind Regalstellen, keine Sacherschließung — nimm sie nicht, auch wenn sie weit oben stehen. Die `score`-Reihenfolge ist eine Ranganzeige der Suche, kein Urteil über die inhaltliche Passung. In der Regel passt **eine** Notation, selten mehr als zwei.
       3. **Validierung**:
         - Prüfe jede Klassifikation auf:
           - **Präzision** (deckt sie das Konzept exakt ab?),
@@ -689,8 +732,8 @@ steps:
       **Schema**:
       {
         "classifications": [
-          {"code": "DK 616.89", "type": "DK"},
-          {"code": "DK 006.3", "type": "DK"}
+          {"code": "DK 616.89", "type": "DK", "rank": "core"},
+          {"code": "DK 006.3", "type": "DK", "rank": "additional"}
         ],
         "analyse": "Kurze Zusammenfassung der wichtigsten Klassifikationen und deren Begründung."
       }
@@ -706,19 +749,20 @@ steps:
       **Ausgabe** (plain JSON):
       {
         "classifications": [
-          {"code": "DK 541.14", "type": "DK"},
-          {"code": "DK 530.145", "type": "DK"},
-          {"code": "DK 54", "type": "DK"}
+          {"code": "DK 541.14", "type": "DK", "rank": "core"},
+          {"code": "DK 530.145", "type": "DK", "rank": "additional"},
+          {"code": "DK 54", "type": "DK", "rank": "additional"}
         ],
-        "analyse": "DK 541.14 (Photochemie), DK 530.145 (Quantenchemie), DK 54 (Oberbegriff)."
+        "analyse": "DK 541.14 (Photochemie) trägt das Werk; DK 530.145 (Quantenchemie) und DK 54 (Oberbegriff) ergänzen."
       }
 
       **Wichtige Hinweise**:
       1. **Priorisiere bestehende Klassifikationen** aus dem Bibliotheksbestand – ergänze nur bei Lücken.
       2. **Vermeide Überlappungen**: Stelle sicher, dass jede Klassifikation ein **eindeutiges Thema** abdeckt.
       3. **Hierarchie beachten**: Wähle spezifischere Codes (z. B. `DK 616.89` statt `DK 616`), wenn verfügbar.
-      4. **Maximal 10 Klassifikationen**: Selbst wenn mehr passen würden, beschränke dich auf die **wichtigsten**.
-      5. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit `classifications` und `analyse` Feldern.
+      4. **Maximal 10 Klassifikationen**: Zehn ist die **Obergrenze, nicht das Ziel**. Für ein klar umrissenes Werk sind **drei bis fünf** Notationen die Regel, für eine Gesamtdarstellung oft **zwei bis drei**. Fülle die Liste nicht auf; eine zusätzliche Notation, die dasselbe Thema ein zweites Mal abdeckt, verschlechtert das Ergebnis.
+      5. **Kern zuerst**: Setze die Kernnotation(en) an den Anfang der Liste und markiere sie mit `"rank": "core"`. Bei einer Gesamtdarstellung ist die Kernnotation die des Fachgebiets; die Notationen der einzelnen Teilgebiete sind `"additional"` — oder entfallen.
+      6. **JSON-Format**: Die Ausgabe muss ein valides JSON-Objekt sein mit `classifications` und `analyse` Feldern.
 
       **Jetzt starte mit der Analyse!**
 
@@ -728,8 +772,33 @@ steps:
       **Ausschnitt aus dem Bibliotheksbestand (DK):**
       {keywords}
 
-      **GND-Schlagworte (bei WiWi an `rvk_lookup` übergeben):**
+      **Kernschlagworte (der Gegenstand des Werks; ist der Block leer, wurde kein Kern bestimmt — nutze dann die vollständige Liste):**
+      {core_keywords}
+
+      **Alle GND-Schlagworte (bei WiWi Kandidaten für `rvk_lookup`, nur Sachschlagwörter übergeben):**
       {final_keywords}
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 6b: RVK guard — drop notations rvk_lookup did not return
+  # Agentic twin of the classic _filter_final_rvk_classifications. The
+  # authority is the tool's own JSON in the classification step's tool_log,
+  # not the model's retyping of it.
+  # ──────────────────────────────────────────────────────────────────
+  - id: rvk_guard
+    type: deterministic
+    function: filter_unauthorized_rvk
+    description: "Drop RVK notations the classification step did not get from rvk_lookup"
+    enabled: true
+    depends_on: [classification]
+
+    inputs: {}
+
+    outputs:
+      dk_classifications: "result.classifications"
+
+    config:
+      source_step: classification
+      tool: rvk_lookup
 
   # ──────────────────────────────────────────────────────────────────
   # Step 7: DK postprocess — merge catalog entries with LLM classifications
@@ -740,11 +809,11 @@ steps:
     function: build_dk_search_results
     description: "Merge DK catalog entries with LLM classifications into GUI format"
     enabled: true
-    depends_on: [classification]
+    depends_on: [rvk_guard]
 
     inputs:
       dk_entries: "${extra.dk_entries}"
-      dk_classifications: "${steps.classification.dk_classifications}"
+      dk_classifications: "${dk_classifications}"
 
     outputs:
       dk_search_results_flattened: "result.results"

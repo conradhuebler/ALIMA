@@ -6,6 +6,277 @@
 
 ## 2026
 
+### Schritt-Reihenfolge, Formnotationen und ein RSWK-Kern (September 3, 2026)
+
+Zwei Läufe über denselben Materialchemie-Klappentext, einer mit
+`mistral-small-2603`, einer mit `gemma4:31b-cloud`, lieferten stark verschiedene
+Ergebnisse: Gemma vergab RVK und DDC, Mistral nur DK. Die Ursache lag nicht im
+Klassifikationswissen der Modelle, sondern in der Reihenfolge der Schritte.
+
+**Der Planer war nicht an `depends_on` gebunden.** `WorkflowExecutor.run(
+only_step=…)` führt aus, was der Planer nennt; die Abhängigkeiten wurden nur in
+`_pending_step` gelesen, also allein für das Finish-Veto. Im Mistral-Lauf sprang
+der Planer von `selection_chunks` direkt auf `dk_collect`, `selection` lief erst
+nach `classification` als Nachzügler des Sicherheitsnetzes
+(`alima.log:13734`/`:14412`). Folgen: `${extra.final_keywords}` war beim
+Klassifizieren leer, der Promptblock „GND-Schlagworte (an `rvk_lookup`
+übergeben)" ebenfalls, das Modell rief kein Werkzeug (`0 tool-calls`) und gab
+keine RVK aus; `dk_collect` baute seinen Katalogpool zudem aus den 30 groben
+Chunk-Schlagworten statt aus den 20 kuratierten. Über beide Logs: 3 von 26
+Mistral-Läufen, 0 von 6 Läufen anderer Modelle; Mistral ruft `rvk_lookup`
+normalerweise (18 Aufrufe). Neu bindet `MetaAgent._unmet_dependency` den
+Planer-Vorschlag an den Graphen und leitet tiefensuchend auf den ersten
+lauffähigen Vorgänger um. Nebeneffekt: `verify_keywords` läuft jetzt vor
+`dk_collect` statt als Nachzügler (31 Läufe in den beiden Logs).
+
+**Formnotationen führten die Häufigkeitsrangliste an.** Der
+Klassifikations-Prompt sortiert die Kandidaten nach Häufigkeit und nennt
+Häufigkeit einen Relevanzindikator. In einem Bestand voller Dissertationen steht
+damit `DK 378.245` (Hochschulschrift) oben: in 18 von 103 gespeicherten Läufen
+als Spitzenkandidat, in 36 unter den ersten drei, quer über unverwandte Fächer.
+Neu: Prompt-Regel in beiden Workflows, Registry
+`classification_systems.FORM_NOTATIONS` (sechs Einträge, jeder an den Titeln des
+Bestands geprüft, Nachbarn mit echtem Sachgehalt wie `378` bewusst nicht
+enthalten) und eine Markierung in `build_structured_classifications` plus Badge
+in der geteilten Klassifikationskarte. Die Notation wird nicht gefiltert — sie
+bleibt richtig für eine Vorlage, die diese Form hat.
+
+**Über-Verschlagwortung bei Gesamtdarstellungen.** Beide Läufe zählten alle
+zwölf Stoffklassen des Überblickswerks als eigene Schlagwörter auf und vergaben
+zehn Notationen, weil der Prompt zehn forderte („um **10 passende** … zu
+ermitteln") und „DECKE ALLE thematischen Aspekte ab" sagte. Neu: der
+`selection`-Step benennt zusätzlich `core_keywords` (2–5, der RSWK-Kern) und
+`form_keywords`; `verify_keywords` richtet beide am verifizierten GND-Pool aus;
+`KeywordAnalysisState.core_keywords`/`form_keywords` tragen sie bis in
+Ergebnis-JSON und `render_pipeline_result`. Dazu die Regel „Gesamtdarstellung vs.
+Spezialwerk", „zehn ist Obergrenze, nicht Ziel", und `rvk_lookup` bekommt nur
+Sachschlagwörter (Gemmas `RVK UQ 8000 „Allgemeine Lehrbücher"` kam über das
+Schlagwort „Lehrbuch" herein). `alima_v51` bekam die schon in der 105-Variante
+vorhandene Formulierung „bis zu 10"; die TUBAF-Zeilen des allgemeinen Workflows
+sind als Beispiel einer Institution gekennzeichnet, da dort DDC zulässig bleibt.
+
+Nicht erfunden waren Gemmas Zusatzsysteme: `DDC 540` stand als
+`DDC: 540 (Häufigkeit: 12)` im Bestandsauszug, die beiden RVK kamen über den
+`rvk_lookup`-Aufruf und sind von der RVK-API als `standard` bestätigt.
+
+Tests: `tests/test_meta_agent_dependency_gate.py` (10) und
+`tests/test_form_notations_and_core_keywords.py` (20), beide per Mutation
+geprüft.
+
+**Vergleichslauf danach** (10:04, beide Modelle, derselbe Klappentext). Das Gate
+griff dreimal, einmal davon auf genau den Fehler von oben: `MetaAgent:
+'dk_collect' requires 'selection', which has not run` (`alima.log:17754`). Beide
+Läufe fahren jetzt die deklarierte Reihenfolge inklusive `verify_keywords` an
+seiner Stelle. `core_keywords` ist in beiden Ergebnissen befüllt (Mistral 3,
+Gemma 2), `form_keywords` in keinem. Gemma ging von 10 auf 6 Notationen zurück;
+Mistral blieb bei 10 und schrieb dabei in seine eigene `analyse`: „Das Werk ist
+ein Überblickswerk zur Materialchemie/Werkstoffkunde" — die Gesamtdarstellung
+also erkannt und die Zahl trotzdem aufgefüllt. Seine Schlagwortliste wuchs von
+20 auf 22 und wurde feiner (Eisenlegierung, Titanlegierung, Dentalwerkstoff).
+Die Formnotations-Markierung blieb ungetestet: `DK 378.245` stand in allen vier
+Kandidatenpools, wurde aber von keinem Modell je vergeben, auch nicht vor der
+Regel.
+
+### Kern- und Zusatznotation je System (September 3, 2026)
+
+Konsequenz aus dem Vergleichslauf: einem Modell wie Mistral ist die Anzahl per
+Prompt nicht abzugewöhnen. Statt die Regel zu verschärfen, trägt jede
+Klassifikation jetzt ein `rank`-Feld, **je System getrennt** — DK, DDC und RVK
+haben jeweils ihren eigenen Kern, eine RVK-Kernnotation ersetzt die DK-Kern-
+notation nicht. Damit ist die Zehnerliste ein Vorschlagspool und die
+Kernzuweisung explizit, statt beides zu vermischen.
+
+Vokabular in `classification_systems.normalize_rank` (nimmt `core`/`kern`/
+`primary`/`haupt` und `additional`/`zusatz`/`secondary`; unbekannte Formulierung
+bleibt **ungerankt** statt geraten) plus `rank_sort_key`. Getragen wird der Rang
+von `KeywordAnalysisState.classification_entries`: die flache
+`dk_classifications`-Stringliste bleibt für alle bestehenden Konsumenten, der
+Rang würde beim Re-Parsen der Strings verloren gehen. Sichtbar in der geteilten
+Badge-Karte (GUI-Log + Webapp), im Webapp-Ergebnispanel, in der
+Pipeline-Tab-Confidence-Karte, im Klartext-Zwilling der DK-Karte und in beiden
+LaTeX-Vorlagen (`ub_freiberg` bekam eine Rang-Spalte und einen
+Kernschlagwörter-Abschnitt). Läufe ohne `rank` rendern flach wie bisher.
+
+Dazu: `AgentLoop` schreibt Werkzeug-**Ergebnisse** ins Log (auf 500 Zeichen
+gekappt, wie die Prompt-Dumps daneben). Vorher ging das Ergebnis nur an den
+GUI-Status-Callback, weshalb „hat `rvk_lookup` diese Notation vorgeschlagen oder
+das Modell?" nach dem Lauf nicht mehr beantwortbar war — genau die Frage, die
+`RVK UQ 8000 „Allgemeine Lehrbücher"` im Vergleichslauf offen ließ.
+
+**Erster Lauf mit den Rängen** (10:26, Gemma): 7 statt 10 Notationen, davon 3
+`core`. Zwei Befunde daraus.
+
+Erstens ist „pro System höchstens zwei" wie zuvor die Zehn als Ziel gelesen
+worden: Gemma vergab `DK 620.1` **und** `DK 539.2` als Kern. 620.1 trägt im
+Bestand 79 Treffer und darunter genau die Einführungswerke („Einführung in die
+Werkstoffkunde", „Schatt Werkstoffwissenschaft"); 539.2 hat 9 Treffer und
+darunter Spezialtitel zur Festkörperchemie. Die Regel bekam daraufhin drei
+nachprüfbare Kriterien statt einer Zahl: eine Kernnotation trägt das **ganze**
+Werk und nicht einen seiner Aspekte; unter ihr müssen Werke derselben Art
+stehen; und die oberste Klasse eines Fachs ist keine Kernnotation, auch wenn das
+Fach im Titel steht (`DK 54` sammelt im Freiberger Bestand Angewandte
+Mineralogie, Umweltchemie und pharmazeutische Kristallographie, ist also die
+Restklasse, nicht die Chemie-Stelle eines Überblickswerks). Die Zahl bleibt
+offen — ein fester Wert stünde gegen die Hauspraxis, siehe das Notationspaar
+unten —, gegen zu großzügiges Einteilen steht eine relative Schranke: ist mehr
+als die Hälfte der Notationen `core`, ist die Einteilung falsch.
+
+Zweitens hat das neue Tool-Log sofort zwei Fragen beantwortet. `rvk_lookup`
+liefert die generischen Notationen selbst — die Shortlist war `ZM 3000` (score
+63), `VE 9300` (53), `UQ 8000` (49) —, das Modell nimmt also die Spitze der
+Liste; die frühere Vermutung, das Formschlagwort „Lehrbuch" ziehe `UQ 8000`
+herein, war falsch. Und im Lauf um 10:29 kam `{"rvk": [], "count": 0}` zurück,
+weil `anchors` Strings wie `"{'keyword': 'Werkstoffkunde', 'gnd_id': …}"`
+enthielt: `_handle_rvk_lookup` stringifizierte die Keyword-**Objekte**, die der
+Prompt dem Modell als JSON-Array zeigt. Der Handler nimmt jetzt beides und baut
+daraus `"Term (GND-ID: id)"`. Der Fehlschlag war vorher unsichtbar — das Werkzeug
+gab eine leere Liste ohne Fehler zurück.
+
+**Erster Lauf unter der verschärften Regel** (10:31, Mistral): 7 statt 10
+Notationen und **genau eine** Kernnotation, `DK 620.22` — der Spitzenkandidat des
+eigenen Pools (87 Treffer), dessen erster Titel „Einführung in die
+Werkstoffwissenschaft" ist. Das neue Titel-Kriterium zeigt also auf dieselbe
+Stelle, die auch ein Mensch nähme. `DK 620.1` steht als `additional` daneben, und
+das ist keine Dopplung: 32 der Titel tragen im Freiberger Bestand beide
+Notationen, darunter „Allgemeine Werkstoffkunde für Ingenieurschulen" — das Paar
+ist dort Hauspraxis, und Kern/Zusatz drückt es korrekt aus. Die
+Schlagwortliste ging von 22 auf 19 zurück, die feingranularen Ausreißer
+(Eisenlegierung, Titanlegierung, Dentalwerkstoff, Aluminium) sind weg.
+
+Derselbe Lauf bestätigt den `rvk_lookup`-Fehler von oben aus der anderen
+Richtung: Mistral **rief** das Werkzeug (10:29:16), übergab die Keyword-Objekte
+und bekam die leere Liste zurück. Das fehlende RVK in diesem Lauf hat damit eine
+vollständig belegte Ursache, und es war nie „Mistral ruft das Werkzeug nicht".
+Der Lauf liegt vor dem Fix.
+
+**Erster Lauf unter der kriterienbasierten Regel** (10:39, Gemma): 6 Notationen,
+`DK 620.22` als Kern und `DK 620.1` als Zusatz — das Freiberger Notationspaar
+also in der Reihenfolge, die der Bestand vorgibt (620.22 führt mit 61 Treffern
+und „Einführung in die Werkstoffwissenschaft" als erstem Titel). `DK 539.2`
+rutschte von Kern auf Zusatz, `DK 54` fiel ganz heraus, und von der
+`rvk_lookup`-Shortlist übernahm das Modell nur `ZM 3000` statt zusätzlich der
+„Allgemeines"-Stellen. Drei von sechs Notationen sind Kern, also genau auf der
+Schranke, nicht darüber.
+
+Derselbe Lauf bestätigt den `rvk_lookup`-Fix: Mistral übergab um 10:41:52 wieder
+Keyword-Objekte und bekam diesmal eine gefüllte Shortlist zurück
+(`ZM 3000` count 13), wo dieselbe Aufrufform vor dem Fix `{"rvk": [], "count": 0}`
+lieferte.
+
+Das Gate griff an diesem Tag neunmal, dreimal davon auf den `selection`-Sprung,
+alle drei bei Mistral. `form_keywords` blieb in allen sechs Läufen leer: kein
+Modell hat je ein Formschlagwort benannt.
+
+**Der erste Mistral-Lauf mit funktionierendem RVK** (10:43) zeigte die nächste
+Schicht: `DK 620.22` als Kern und `DK 620.1` als Zusatz sitzen richtig, und der
+Schlagwortkern ist mit „Werkstoffkunde, Recycling" der beste des Tages — aber
+das Modell übernahm die **komplette** `rvk_lookup`-Shortlist, alle fünf, darunter
+`VE 9300 „Allgemeines"`, `UQ 7000 „Allgemeines"` und `UQ 8000 „Allgemeine
+Lehrbücher"`.
+
+Der Grund steht in der Werkzeugausgabe: die Kandidaten kamen **ohne Label**
+(`"label": null`), weil die katalogseitigen Treffer keines tragen. Das Modell
+konnte die thematische Passung also gar nicht beurteilen, es sah nur Notation und
+Score — Gemma nahm daraufhin die Spitze, Mistral die ganze Liste, und keine der
+beiden Entscheidungen war informiert. `rvk_lookup` füllt die Labels jetzt über
+denselben gecachten `rvk_validate`-Pfad, den die klassische Pipeline und das
+`rvk_validate`-Tool benutzen (`ToolRegistry._rvk_notation_labels`, WP2-Raw-Cache,
+gleicher Schlüssel). Ist das `rvk_api`-Plugin aus oder scheitert der Aufruf,
+bleibt das Label leer und der Kandidat wird trotzdem geliefert. Dazu die
+Prompt-Regel: die Rückgabe ist eine Vorschlags-, keine Übernahmeliste, jede
+Notation wird einzeln an ihrem Label geprüft, Sammelstellen wie „Allgemeines"
+sind Regalstellen und keine Sacherschließung.
+
+### Schlagwortketten: die Beispiele widersprachen der Regel (September 3, 2026)
+
+Ein **klassischer** Lauf (10:51, gemma4) lieferte vier Ketten, von denen zwei
+Taxonomiepfade sind: `Festkörperchemie → Kristallstruktur → Gitterbaufehler` und
+`Werkstoffkunde → Metall → Legierung`. Die anderen beiden sind richtige
+Facettenketten (`Werkstoffkunde → Stoffeigenschaft`, `Recycling → Grüne Chemie`).
+
+Die Ursache steht im Prompt selbst. Regel 2 des RSWK-Blocks sagt „Kein
+Oberbegriff in derselben Kette", und drei Zeilen darüber steht als Anleitung
+„Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen (z. B. „KI (GND-ID) →
+Machine Learning (GND-ID)")" — also genau ein Oberbegriff-Unterbegriff-Paar. In
+der Aufgabenliste noch einmal als „KI → Machine Learning → Medizinische
+Diagnostik", und in der Formatzeile ein drittes Mal. Das Modell folgte den
+Beispielen, nicht der Regel; die beiden guten Ketten folgen den JSON-Beispielen
+desselben Prompts (`Künstliche Intelligenz, Gesichtserkennung` und
+`Datenschutz, Ethik`), die Facetten kombinieren.
+
+Ersetzt in **allen vier** Prompt-Quellen — klassisch liest `prompts.yaml`
+(gewinnt) und `prompts.json`, agentisch die beiden Workflow-YAMLs: Ketten
+verbinden jetzt ausdrücklich Facetten (Gegenstand + Aspekt/Anwendung/Verfahren)
+und gehen keine Ober-/Unterbegriffsfolge hinunter, mit
+„Gesichtserkennung → Datenschutz" als Beispiel und dem alten KI-Beispiel als
+benanntem Gegenbeispiel. `prompts.yaml` wurde über einen YAML-Round-Trip
+geändert, der auf dieser Datei byte-identisch ist, also ohne Formatierungsrauschen.
+
+**Parität**: der klassische Lauf hat `core_keywords`/`form_keywords` leer, weil
+sämtliche Erschließungsregeln dieses Tages nur in den agentischen Workflows
+stehen. Die Kettenregel ist die erste, die in beide Modi ging.
+
+### Agentische Schlagwortketten kamen nie im Ergebnis an (September 3, 2026)
+
+Beim Prüfen der Ketten fiel auf, dass der klassische Lauf vier hat und **jeder**
+der zehn agentischen Läufe des Tages null — bei allen dreien Modellen, und
+zwar auch in den Läufen von morgens, also unabhängig von den Änderungen des
+Tages. `to_keyword_analysis_state` rendert die Ketten als Prosa in
+`response_full_text` und setzte sie nie auf `final_llm_analysis.keyword_chains`
+oder auf den State; `results["keyword_chains"]` blieb daher leer. In der GUI fiel
+es nicht auf, weil `render_pipeline_result` den Antworttext nach Zeilen mit „→"
+absucht — die Anzeige stimmte, Export, Reportvorlagen und jeder andere Konsument
+bekamen nichts. Behoben, die Prosa-Darstellung bleibt unverändert.
+
+### RVK-Labels: das Plugin ist optional, der Fallback fehlte (September 3, 2026)
+
+Die Label-Anreicherung von vorhin lieferte im ersten echten Lauf `"label": ""`
+für jeden Kandidaten. Grund: `build_lookup(config, "rvk_api")` gibt in dieser
+Installation `None` zurück, das Lookup-Plugin ist abgeschaltet, und der Helfer
+stieg dann still aus. Zweite Quelle ergänzt: die offizielle RVK-API über
+denselben `lru_cache`-gestützten Helfer, den der Result-Serializer für seine
+Validierungslabels ohnehin benutzt. Ein Live-Check liefert jetzt Label **und**
+Ancestor-Path — `UQ 8000` → „Physik > Materialwissenschaft > Allgemeine
+Lehrbücher" —, und gerade der Pfad macht den falschen Fachast sichtbar, den zwei
+Modelle heute blind übernommen haben.
+
+### `rvk_guard`: RVK kommt aus dem Werkzeug oder gar nicht (September 3, 2026)
+
+`ornith-1.5:35b` machte im Klassifikationsschritt **null** Tool-Aufrufe und gab
+trotzdem `QD 805`, `QD 810`, `T 215` und `T 216` aus — alle vier von der RVK-API
+als `non_standard` zurückgewiesen, also Notationen, die es nicht gibt. Der Prompt
+verbietet das zweimal ausdrücklich; durchgesetzt hat es im agentischen Pfad
+nichts. Die Validierung markierte sie und die Pipeline lieferte sie aus.
+
+Neu `filter_unauthorized_rvk`, als Step `rvk_guard` zwischen `classification` und
+`dk_postprocess` in beiden Workflows. Autorität ist die JSON-Ausgabe des
+Werkzeugs im `tool_log` (`result_full`, von `agent_loop` genau dafür
+mitgeschrieben), nicht die Abschrift des Modells — dieselbe Begründung wie bei
+`extract_catalog_hits_from_tool_log`. Kein Tool-Aufruf heißt kein autorisiertes
+RVK, was der Prompt mit „Passt keine, gib keine RVK aus" ohnehin verlangt. DK und
+DDC laufen unberührt durch, `rank` und die übrigen Felder überleben,
+Notationsschreibweisen werden über `canonicalize_rvk_notation` verglichen.
+Verworfenes geht als WARNING ins Log und als Meldung in den Stream. Das
+klassische Gegenstück `_filter_final_rvk_classifications` gab es seit
+je — das ist sein agentischer Zwilling.
+
+`dk_postprocess` hängt jetzt an `rvk_guard` und liest `${dk_classifications}`
+statt der ungefilterten Step-Ausgabe. Den Schritt zieht der Dependency-Gate von
+heute früh automatisch ein, sobald der Planer `dk_postprocess` wählt.
+
+### Stiller Rückfall bei kaputter Selection-Ausgabe (September 3, 2026)
+
+`glm-5.3-flash` stellte seiner Selection-Antwort Prosa voran („Let me analyze
+this abstract carefully…"), obwohl der Prompt „direkt mit `{` beginnen" verlangt.
+Der Parse scheiterte, `extra.final_keywords` blieb leer, und
+`to_keyword_analysis_state` fiel **still** auf die komplette Chunk-Auswahl
+zurück: 56 Schlagworte statt der kuratierten ~20, von außen nicht von einem
+guten Lauf zu unterscheiden. Der Rückfall loggt jetzt eine Warnung mit der
+Anzahl und dem Hinweis, dass das Ergebnis nicht die Endauswahl des Modells ist.
+
+Tests: `tests/test_classification_rank.py` (36) und `tests/test_rvk_guard.py`
+(12), beide per Mutation geprüft. Suite 1942.
+
 ### Standard-Budget auf 32768 (August 29, 2026)
 
 Die 4096 aus den v5.1-Workflows waren die Ursache der leeren Schritte: ein

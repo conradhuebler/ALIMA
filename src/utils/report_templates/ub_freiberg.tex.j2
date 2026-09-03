@@ -38,6 +38,19 @@ Die initialen Pipeline-Keywords vor der GND-Anreicherung:
 \end{itemize}
 ((* endif *))
 
+((* if core_keywords *))
+\section{Kernschlagwörter}
+Der Gegenstand des Werks nach RSWK:
+\begin{itemize}[leftmargin=*]
+((* for kw in core_keywords *))
+  \item ((( kw | tex )))
+((* endfor *))
+\end{itemize}
+((* if form_keywords *))
+\noindent Formschlagwörter: ((( form_keywords | join(', ') | tex )))
+((* endif *))
+((* endif *))
+
 ((* if final_keywords *))
 \section{GND-Schlagwörter}
 Nach Pipeline-Verarbeitung gegen Gemeinsame Normdatei (GND):
@@ -50,11 +63,11 @@ Nach Pipeline-Verarbeitung gegen Gemeinsame Normdatei (GND):
 
 ((* if classifications *))
 \section{Klassifikationen (DK/RVK)}
-\begin{longtable}{p{3cm} p{4cm} p{7cm}}
-\textbf{System} & \textbf{Code} & \textbf{Anzeige} \\
+\begin{longtable}{p{2.2cm} p{3cm} p{5.6cm} p{2.4cm}}
+\textbf{System} & \textbf{Code} & \textbf{Anzeige} & \textbf{Rang} \\
 \hline\endhead
 ((* for cls in classifications *))
-((( cls.system | tex ))) & ((( cls.code | tex ))) & ((( cls.display | tex ))) \\
+((( cls.system | tex ))) & ((( cls.code | tex ))) & ((( cls.display | tex )))((* if cls.form_notation *)) \newline \textit{Formnotation: ((( cls.form_notation | tex )))}((* endif *)) & ((( cls.rank_label | tex ))) \\
 ((* endfor *))
 \end{longtable}
 ((* endif *))

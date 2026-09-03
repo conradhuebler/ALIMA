@@ -233,6 +233,19 @@ class SharedContext(BaseSharedContext):
             kw_titles = [kw.get("title", kw.get("gnd_id", ""))
                          for kw in self.selected_keywords
                          if kw.get("title") or kw.get("gnd_id")]
+            # This fallback used to be silent, so a run whose selection step
+            # returned unparsable output looked like a normal one — it just
+            # carried the whole chunk selection instead of the curated list
+            # (56 keywords instead of ~20, glm-5.3-flash on 2026-09-03 11:05,
+            # which prefixed its JSON with prose). A degraded run must say so.
+            # - Claude Generated
+            if kw_titles:
+                logger.warning(
+                    f"to_keyword_analysis_state: keine kuratierten final_keywords "
+                    f"aus 'selection' — nutze die ungefilterte Auswahl "
+                    f"({len(kw_titles)} Schlagworte). Das Ergebnis ist nicht "
+                    f"die Endauswahl des Modells."
+                )
 
         # --- DK codes as plain strings ---
         dk_codes = [cls.get("code", "") for cls in self.dk_classifications if cls.get("code")]
@@ -410,6 +423,13 @@ class SharedContext(BaseSharedContext):
             response_full_text="\n".join(response_parts),
             extracted_gnd_keywords=kw_titles,
             missing_concepts=self.missing_concepts,
+            # The chains were rendered into `response_full_text` as prose only,
+            # so `results["keyword_chains"]` came out empty on every agentic run
+            # while the classic pipeline filled it. The GUI still showed them
+            # because `render_pipeline_result` scrapes the text for "→" lines —
+            # which hid the loss from view but left export, report rendering and
+            # every other consumer without the structured data. - Claude Generated
+            keyword_chains=list(self.keyword_chains or []),
         )
 
         # --- dk_llm_analysis: classification step → dk_analysis_tab ---
@@ -463,6 +483,47 @@ class SharedContext(BaseSharedContext):
         if rvk_provenance:
             state.rvk_provenance = rvk_provenance
         state.report_markdown = (self.extra or {}).get("report_markdown", "") or ""
+
+        # RSWK core + form headings named by the selection step, rendered like
+        # the full list so consumers can display them side by side. Absent for
+        # runs whose model did not name them. - Claude Generated
+        def _as_titles(field: str) -> list:
+            return [
+                f"{kw.get('keyword', '')} (GND-ID: {kw.get('gnd_id', '')})"
+                if kw.get("gnd_id") else kw.get("keyword", "")
+                for kw in ((self.extra or {}).get(field) or [])
+                if isinstance(kw, dict) and kw.get("keyword")
+            ]
+
+        state.keyword_chains = list(self.keyword_chains or [])
+        state.core_keywords = _as_titles("core_keywords")
+        state.form_keywords = _as_titles("form_keywords")
+
+        # Structured classifications: the flat `dk_codes` above loses the
+        # per-system core/additional rank the classification step assigns, and
+        # re-parsing the strings downstream cannot recover it. - Claude Generated
+        from src.utils.classification_systems import (
+            normalize_rank,
+            split_classification_code,
+        )
+
+        entries: List[Dict[str, Any]] = []
+        for cls in self.dk_classifications:
+            raw_code = str(cls.get("code", "") or "").strip()
+            if not raw_code:
+                continue
+            system, code = split_classification_code(raw_code)
+            system = system or str(cls.get("type", "") or "").strip().upper()
+            entry = {
+                "system": system,
+                "code": code,
+                "display": f"{system} {code}".strip() if system else code,
+            }
+            rank = normalize_rank(cls.get("rank"))
+            if rank:
+                entry["rank"] = rank
+            entries.append(entry)
+        state.classification_entries = entries
         return state
 
     @classmethod

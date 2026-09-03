@@ -17,6 +17,15 @@
 ((( abstract | tex )))
 ((* endif *))
 
+((* if core_keywords *))
+\section*{Kernschlagwörter}
+\begin{itemize}[leftmargin=*]
+((* for kw in core_keywords *))
+  \item ((( kw | tex )))
+((* endfor *))
+\end{itemize}
+((* endif *))
+
 ((* if final_keywords *))
 \section*{GND-Schlagwörter}
 \begin{itemize}[leftmargin=*]
@@ -30,7 +39,7 @@
 \section*{Klassifikationen}
 \begin{itemize}[leftmargin=*]
 ((* for cls in classifications *))
-  \item ((( cls.display | tex )))
+  \item ((( cls.display | tex )))((* if cls.rank_label *)) — ((( cls.rank_label | tex )))((* endif *))
 ((* endfor *))
 \end{itemize}
 ((* endif *))

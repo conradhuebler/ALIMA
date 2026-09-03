@@ -2,6 +2,18 @@
 
 YAML-driven workflows consumed by `WorkflowExecutor`.
 
+## `status:` — operator-assigned maturity
+
+Every workflow YAML carries a top-level `status:`. The loader ignores it (it
+survives in `WorkflowDef.raw`); `alima_cli.py workflows list` prints it.
+
+- `tested` — the operator has run it on real material. **Only the operator sets
+  this**, never an agent, and never on the strength of a green test suite.
+- `research` — everything else: usable, not signed off.
+
+Currently `tested`: `alima_v51.yaml`, `alima_v51_105.yaml`. Adding a workflow
+means adding `status: "research"`.
+
 ## Core Workflows
 
 - **`alima_classic.yaml`** — Classic linear pipeline (5 rigid steps).
@@ -28,10 +40,42 @@ YAML-driven workflows consumed by `WorkflowExecutor`.
   `max_iterations`, `final_keywords` input) is identical in both files; only
   the RVK prompt block differs (general vs. WiWi-only).
 
+## Erschließungsregeln (both v51 + v51_105)
+
+- **Gesamtdarstellung**: ein Fach in seiner Breite → Notation/Schlagwort des
+  **Fachgebiets**, nicht je eines pro aufgezähltem Teilgebiet.
+- **Zehn ist Obergrenze, nicht Ziel** — 3–5 Notationen die Regel, 2–3 bei
+  Überblickswerken.
+- **Formnotationen** (DK 378.245 & Co.) sind keine Sachnotationen: Prompt-Regel
+  im `classification`-Step, Registry in `classification_systems.FORM_NOTATIONS`,
+  Markierung in `build_structured_classifications`.
+- **`core_keywords`/`form_keywords`**: der `selection`-Step benennt zusätzlich
+  einen RSWK-Kern (2–5) und die Formschlagwörter; `keywords` bleibt die
+  Retrieval-Liste. `verify_keywords` richtet beide am verifizierten Pool aus.
+- **`rvk_lookup`** bekommt nur Sachschlagwörter — „Lehrbuch" holt sonst den
+  Lehrbuch-Ast des falschen Fachs. Die Rückgabe trägt Label + Ancestor-Path
+  (Plugin `rvk_api`, sonst RVK-API direkt) und ist eine Vorschlags-, keine
+  Übernahmeliste.
+- **`rvk_guard`** (Step 6b, deterministisch) verwirft RVK, die `rvk_lookup` in
+  diesem Lauf nicht geliefert hat — Autorität ist `tool_log[].result_full`, nicht
+  die Abschrift des Modells. Agentisches Gegenstück zu
+  `_filter_final_rvk_classifications`. Kein Tool-Aufruf ⇒ kein autorisiertes RVK.
+  `dk_postprocess` liest danach `${dk_classifications}`, nicht mehr die
+  Step-Ausgabe.
+- **`rank: core|additional`** je Notation, **je System getrennt** (DK, DDC und
+  RVK haben je einen Kern). Vokabular + Sortierung in
+  `classification_systems.normalize_rank`/`rank_sort_key`, getragen von
+  `KeywordAnalysisState.classification_entries`. Fehlt das Feld, bleibt die
+  Liste unsortiert — es wird kein Kern erfunden.
+
 ## MetaAgent: generic core + YAML domain rules
 
 - The MetaAgent (PLAN→EXECUTE→REFLECT) is always active in agentic mode. It
   serializes the `steps:` workers (planner) and checks results (reflection).
+- **`depends_on` gates the planner's pick**: a step whose prerequisite has not
+  run is redirected to that prerequisite (`MetaAgent._unmet_dependency`). Before
+  that gate a planner could run `classification` before `selection`, leaving
+  `${extra.final_keywords}` empty.
 - **The planner + reflection cores are GENERIC (ALIMA-branded) in code** — they
   carry no GND/DK/phase assumptions. Each prompt has a `{workflow_rules}` slot.
   Domain rules live in the **workflow YAML** and are injected there by

@@ -456,7 +456,7 @@ class PipelineResultFormatter:
 
     @staticmethod
     def format_dk_classifications_html(
-        dk_classifications: List[str],
+        dk_classifications: List[Any],
         dk_search_results: List[Dict[str, Any]],
         max_titles_per_code: int = 5,
     ) -> str:
@@ -466,15 +466,35 @@ class PipelineResultFormatter:
         renders identically via ``QTextEdit.setHtml`` (Pipeline-Tab) and
         ``QTextCursor.insertHtml`` (Agentic-Chat). Confidence is colour-coded by the
         number of catalog hits.
+
+        Accepts plain code strings or the structured entries carrying a
+        ``rank``; the core/additional split is then shown in the heading.
+        - Claude Generated
         """
         if not dk_classifications:
             return "Keine DK/RVK-Klassifikationen generiert"
 
+        from src.utils.classification_systems import normalize_rank
+
+        _RANK_TEXT = {"core": "Kern", "additional": "Zusatz"}
+
         html_parts: List[str] = []
-        for idx, dk_code in enumerate(dk_classifications, 1):
+        for idx, item in enumerate(dk_classifications, 1):
+            if isinstance(item, dict):
+                dk_code = (
+                    str(item.get("display") or "").strip()
+                    or f"{item.get('system', '')} {item.get('code', '')}".strip()
+                )
+                rank_text = _RANK_TEXT.get(normalize_rank(item.get("rank")) or "", "")
+            else:
+                dk_code = str(item)
+                rank_text = ""
+            # Look the titles up by the bare code; the rank is display only.
             titles, total_count = PipelineResultFormatter.get_titles_for_notation_code(
                 dk_code, dk_search_results
             )
+            if rank_text:
+                dk_code = f"{dk_code} · {rank_text}"
 
             # Color-coding based on frequency (confidence)
             if total_count > 50:
@@ -576,6 +596,8 @@ class PipelineResultFormatter:
         catalog titles + total hit count are attached when ``dk_search_results``
         is given. Shared by the GUI and webapp badge card (WP12).
         """
+        from src.utils.classification_systems import normalize_rank
+
         entries: List[Dict[str, Any]] = []
         for item in dk_classifications or []:
             if isinstance(item, dict):
@@ -588,16 +610,31 @@ class PipelineResultFormatter:
                 validation_status = item.get("validation_status")
                 label = item.get("label")
                 validation_message = item.get("validation_message")
+                form_notation = item.get("form_notation")
+                rank = item.get("rank")
             else:
                 display = str(item or "").strip()
                 system = ""
                 validation_status = label = validation_message = None
+                form_notation = rank = None
             if not display:
                 continue
             # Honour an inline "DK "/"RVK " prefix; else infer.
             prefix_system, _code = PipelineResultFormatter.split_classification_code(display)
             if not system:
                 system = prefix_system or PipelineResultFormatter._infer_classification_system(display)
+            # Form/provenance notations are marked upstream in
+            # build_structured_classifications; a plain string reaching here
+            # never passed through it, so resolve the label from the code.
+            # - Claude Generated
+            if not form_notation:
+                from src.utils.classification_systems import form_notation_label
+                code = (
+                    str(item.get("code") or "").strip()
+                    if isinstance(item, dict)
+                    else ""
+                ) or _code
+                form_notation = form_notation_label(system, code)
             titles, total_count = PipelineResultFormatter.get_titles_for_notation_code(
                 display, dk_search_results or []
             )
@@ -607,6 +644,8 @@ class PipelineResultFormatter:
                 "validation_status": validation_status,
                 "label": label,
                 "validation_message": validation_message,
+                "form_notation": form_notation,
+                "rank": normalize_rank(rank),
                 "titles": titles,
                 "total_count": total_count,
             })
@@ -644,8 +683,19 @@ class PipelineResultFormatter:
                 )
             summary = f'<div class="classification-validation-summary">{"".join(parts)}</div>'
 
-        rows: List[str] = []
+        # Core notations first within each system; systems keep the order they
+        # first appear in, so a DK-led list stays DK-led. - Claude Generated
+        from src.utils.classification_systems import rank_sort_key
+
+        system_order = {}
         for e in entries:
+            system_order.setdefault(e["system"], len(system_order))
+        ordered = sorted(
+            entries, key=lambda e: (system_order[e["system"]], rank_sort_key(e))
+        )
+
+        rows: List[str] = []
+        for e in ordered:
             system = e["system"]
             sys_class = {
                 "RVK": "classification-badge--rvk",
@@ -662,6 +712,21 @@ class PipelineResultFormatter:
                 head.append('<span class="classification-badge classification-badge--non-standard">nicht standard</span>')
             elif system == "RVK" and vs == "validation_error":
                 head.append('<span class="classification-badge classification-badge--unknown">API-Fehler</span>')
+            rank = e.get("rank")
+            if rank == "core":
+                head.append(
+                    '<span class="classification-badge classification-badge--standard">Kern</span>'
+                )
+            elif rank == "additional":
+                head.append(
+                    '<span class="classification-badge classification-badge--dk">Zusatz</span>'
+                )
+            form_notation = e.get("form_notation")
+            if form_notation:
+                head.append(
+                    '<span class="classification-badge classification-badge--non-standard">'
+                    f'Formnotation: {esc(str(form_notation))}</span>'
+                )
             total = e.get("total_count") or 0
             if total > 0:
                 bar = "🟩" * min(5, (total // 10) + 1)
@@ -735,7 +800,12 @@ class PipelineResultFormatter:
         ``format_dk_classifications_html`` confidence card. Returns ``("", "")``
         when no classifications exist.
         """
-        dk_classifications = getattr(analysis_state, "dk_classifications", None)
+        # The ranked entries when the run produced them — the flat string list
+        # cannot carry the core/additional split. - Claude Generated
+        dk_classifications = (
+            getattr(analysis_state, "classification_entries", None)
+            or getattr(analysis_state, "dk_classifications", None)
+        )
         if not dk_classifications:
             return "", ""
         flat = PipelineResultFormatter.select_dk_title_source(
@@ -744,7 +814,22 @@ class PipelineResultFormatter:
         )
         entries = PipelineResultFormatter.normalize_classifications(dk_classifications, flat)
         html = PipelineResultFormatter.format_classification_badge_card_html(entries)
-        return html, ", ".join(e["display"] for e in entries)
+
+        # Plain-text twin of the card: same order, core marked, so the CLI and
+        # the clipboard copy carry the split too. - Claude Generated
+        from src.utils.classification_systems import rank_sort_key
+
+        system_order: Dict[str, int] = {}
+        for e in entries:
+            system_order.setdefault(e["system"], len(system_order))
+        ordered = sorted(
+            entries, key=lambda e: (system_order[e["system"]], rank_sort_key(e))
+        )
+        plain = ", ".join(
+            f"{e['display']} (Kern)" if e.get("rank") == "core" else e["display"]
+            for e in ordered
+        )
+        return html, plain
 
     @staticmethod
     def _confidence_bucket(count: int) -> Tuple[str, str]:
@@ -1006,12 +1091,26 @@ def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str]
         f"\U0001f389 Pipeline vollständig abgeschlossen{duration_suffix}!", "success"
     )
 
+    # The RSWK core first, then the full list. The core is what goes into a
+    # catalogue record; the full list serves retrieval. Runs whose model did not
+    # name a core show the full list alone, as before. - Claude Generated
+    core_kws = list(getattr(analysis_state, "core_keywords", []) or []) if analysis_state else []
+    form_kws = list(getattr(analysis_state, "form_keywords", []) or []) if analysis_state else []
+    if core_kws:
+        core_line = f"\U0001f3af Kernschlagworte ({len(core_kws)}):\n" + ", ".join(core_kws)
+        if form_kws:
+            core_line += "\nForm: " + ", ".join(form_kws)
+        renderer.render_pipeline_log(core_line, "success")
+
     if analysis_state and getattr(analysis_state, "final_llm_analysis", None):
         kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
         if kw_list:
             kw_display = ", ".join(kw_list)
+            label = (
+                "GND-Schlagworte gesamt" if core_kws else "GND-Schlagworte ausgewählt"
+            )
             renderer.render_pipeline_log(
-                f"\U0001f4cc {len(kw_list)} GND-Schlagworte ausgewählt:\n{kw_display}",
+                f"\U0001f4cc {len(kw_list)} {label}:\n{kw_display}",
                 "success",
             )
         response_text = analysis_state.final_llm_analysis.response_full_text or ""

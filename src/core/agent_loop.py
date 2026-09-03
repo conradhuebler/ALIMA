@@ -372,6 +372,17 @@ class AgentLoop:
                     }
                     tool_log.append(log_entry)
 
+                    # The result went only to the status callback, so a run's
+                    # log recorded that a tool ran but never what it returned —
+                    # which left "did rvk_lookup propose this notation, or did
+                    # the model?" unanswerable after the fact. Capped like the
+                    # prompt dumps around it. - Claude Generated
+                    logger.info(
+                        f"  ↩️ {tc.name} → {result_str[:500]}"
+                        + (f" … ({len(result_str)} chars total)" if len(result_str) > 500 else "")
+                        + f" [{tool_duration:.1f}s]"
+                    )
+
                     # Show result summary for transparency.
                     # Phase F: same as the call-line above — when
                     # ``on_tool_call`` is set, the hook/bus already carries

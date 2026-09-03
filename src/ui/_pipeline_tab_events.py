@@ -611,11 +611,17 @@ class PipelineTabEventsMixin:
                         "Katalog-Recherche view"
                     )
 
-            # DK classification tab — state.dk_classifications may be List[Dict]
+            # DK classification tab — state.dk_classifications may be List[Dict].
+            # The ranked entries when the run produced them: they carry the
+            # per-system core/additional split, which the flat codes drop.
+            # - Claude Generated
             if state.dk_classifications and hasattr(self, "dk_classification_results"):
-                codes = self._dk_class_codes(state.dk_classifications)
+                entries = (
+                    getattr(state, "classification_entries", None)
+                    or self._dk_class_codes(state.dk_classifications)
+                )
                 html_display = self._format_dk_classifications_with_titles(
-                    codes,
+                    entries,
                     dk_rich,
                 )
                 self.dk_classification_results.setHtml(html_display)

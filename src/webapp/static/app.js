@@ -1431,6 +1431,8 @@ class AlimaWebapp {
                         label: item.label || null,
                         validation_message: item.validation_message || null,
                         validation_source: item.validation_source || null,
+                        rank: item.rank || null,
+                        form_notation: item.form_notation || null,
                     };
                 }
                 return null;
@@ -1447,6 +1449,8 @@ class AlimaWebapp {
             label: null,
             validation_message: null,
             validation_source: null,
+            rank: null,
+            form_notation: null,
         }));
     }
 
@@ -1527,7 +1531,23 @@ class AlimaWebapp {
                 </div>`
                 : '';
 
-            const itemsHtml = classifications.map(cls => {
+            // Core notations first within each system, mirroring the shared
+            // badge card in pipeline_formatters. - Claude Generated
+            const rankOrder = { core: 0, additional: 1 };
+            const systemOrder = new Map();
+            classifications.forEach(cls => {
+                if (!systemOrder.has(cls.system)) systemOrder.set(cls.system, systemOrder.size);
+            });
+            const orderedClassifications = classifications.slice().sort((a, b) => {
+                const sa = systemOrder.get(a.system);
+                const sb = systemOrder.get(b.system);
+                if (sa !== sb) return sa - sb;
+                const ra = rankOrder[a.rank] !== undefined ? rankOrder[a.rank] : 2;
+                const rb = rankOrder[b.rank] !== undefined ? rankOrder[b.rank] : 2;
+                return ra - rb;
+            });
+
+            const itemsHtml = orderedClassifications.map(cls => {
                 const systemClass = cls.system === 'RVK'
                     ? 'classification-badge classification-badge--rvk'
                     : cls.system === 'DDC'
@@ -1545,6 +1565,16 @@ class AlimaWebapp {
                     }
                 }
 
+                let rankHtml = '';
+                if (cls.rank === 'core') {
+                    rankHtml = '<span class="classification-badge classification-badge--standard">Kern</span>';
+                } else if (cls.rank === 'additional') {
+                    rankHtml = '<span class="classification-badge classification-badge--dk">Zusatz</span>';
+                }
+                const formHtml = cls.form_notation
+                    ? `<span class="classification-badge classification-badge--non-standard">Formnotation: ${this.escapeHtml(cls.form_notation)}</span>`
+                    : '';
+
                 const metaParts = [];
                 if (cls.system === 'RVK' && cls.label) {
                     metaParts.push(this.escapeHtml(cls.label));
@@ -1557,7 +1587,7 @@ class AlimaWebapp {
                     <div class="classification-entry__head">
                         <span class="${systemClass}">${this.escapeHtml(cls.system || 'Code')}</span>
                         <span class="classification-entry__code">${this.escapeHtml(cls.display)}</span>
-                        ${validationHtml}
+                        ${validationHtml}${rankHtml}${formHtml}
                     </div>
                     ${metaParts.length > 0 ? `<div class="classification-entry__meta">${metaParts.join(' · ')}</div>` : ''}
                 </div>`;

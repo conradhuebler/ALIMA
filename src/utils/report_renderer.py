@@ -87,6 +87,11 @@ def _strip_gnd_id(keyword: str) -> str:
     return keyword.strip()
 
 
+# German labels for the per-system core/additional split, so the templates
+# stay free of vocabulary mapping. - Claude Generated
+_RANK_LABELS = {"core": "Kern", "additional": "Zusatz"}
+
+
 def _build_context(state: Dict[str, Any]) -> Dict[str, Any]:
     """Flatten the export payload into template-friendly vars."""
     results = _results(state)
@@ -102,12 +107,18 @@ def _build_context(state: Dict[str, Any]) -> Dict[str, Any]:
                 "display": entry.get("display") or entry.get("code") or "",
                 "system": entry.get("system") or "",
                 "code": entry.get("code") or "",
+                "rank": entry.get("rank") or "",
+                "rank_label": _RANK_LABELS.get(entry.get("rank") or "", ""),
+                "form_notation": entry.get("form_notation") or "",
             })
         else:
             text = str(entry)
             from .classification_systems import split_classification_code
             system, code = split_classification_code(text)
-            classifications.append({"display": text, "system": system, "code": code})
+            classifications.append({
+                "display": text, "system": system, "code": code,
+                "rank": "", "rank_label": "", "form_notation": "",
+            })
 
     return {
         "title": results.get("working_title") or inp.get("text_preview") or "ALIMA-Analyse",
@@ -115,6 +126,12 @@ def _build_context(state: Dict[str, Any]) -> Dict[str, Any]:
         "initial_keywords": [str(k) for k in (results.get("initial_keywords") or [])],
         "final_keywords": final_kws,
         "final_keywords_raw": final_kws_raw,
+        "core_keywords": [
+            _strip_gnd_id(str(k)) for k in (results.get("core_keywords") or [])
+        ],
+        "form_keywords": [
+            _strip_gnd_id(str(k)) for k in (results.get("form_keywords") or [])
+        ],
         "classifications": classifications,
         "session_id": state.get("session_id") or "",
         "exported_at": state.get("exported_at") or "",

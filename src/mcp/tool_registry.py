@@ -7,7 +7,10 @@ import json
 import logging
 import os
 import glob
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List, Callable
+
+from src.utils.error_visibility import log_caught
 from dataclasses import asdict
 
 from src.mcp.mcp_types import ToolDefinition
@@ -1012,7 +1015,26 @@ class ToolRegistry(ToolGenerationMixin):
         catalog layer caches per term. ``alima_manager`` is None → deterministic
         scoring only (no extra LLM call inside the tool).
         """
-        clean_keywords = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+        # The classification prompt shows the keywords as a JSON array of
+        # {keyword, gnd_id} objects, so a model passing objects back is the
+        # normal case, not an edge case. Stringifying a dict produced anchors
+        # like "{'keyword': 'Werkstoffkunde', 'gnd_id': '4079184-1'}", the
+        # catalog search found nothing under those, and the tool returned an
+        # empty shortlist with no error (observed 2026-09-03 10:29:19).
+        # - Claude Generated
+        clean_keywords: List[str] = []
+        for kw in keywords or []:
+            if isinstance(kw, dict):
+                term = str(kw.get("keyword") or kw.get("title") or "").strip()
+                gnd_id = str(kw.get("gnd_id") or "").strip()
+                if term:
+                    clean_keywords.append(
+                        f"{term} (GND-ID: {gnd_id})" if gnd_id else term
+                    )
+            else:
+                term = str(kw or "").strip()
+                if term:
+                    clean_keywords.append(term)
         if not clean_keywords:
             return json.dumps({"rvk": [], "count": 0})
 
@@ -1079,15 +1101,33 @@ class ToolRegistry(ToolGenerationMixin):
                 max_standard=max(1, int(max_results or 8)),
             )
 
+            picked = [
+                c for c in shortlist[: max(1, int(max_results or 8))]
+                if str(c.get("dk", "")).strip()
+            ]
+
+            # Catalog-derived candidates carry no label, so the classification
+            # LLM saw bare notations and had nothing to judge thematic fit with.
+            # On 2026-09-03 one model took only the top entry and another copied
+            # all five, including "UQ 8000 Allgemeine Lehrbücher" and two
+            # "Allgemeines" stellen of unrelated branches — neither decision was
+            # informed. Filled from the same cached `rvk_validate` path the
+            # pipeline uses; a disabled plugin or a failing call leaves the label
+            # empty and the candidate is still returned. - Claude Generated
+            labels = self._rvk_notation_labels(
+                executor, [str(c.get("dk", "")).strip() for c in picked]
+            )
+
             candidates = []
-            for cand in shortlist[: max(1, int(max_results or 8))]:
+            for cand in picked:
                 notation = str(cand.get("dk", "")).strip()
-                if not notation:
-                    continue
+                meta = labels.get(notation) or {}
                 candidates.append({
                     "notation": f"RVK {notation}",
-                    "label": cand.get("label", ""),
-                    "ancestor_path": cand.get("ancestor_path", ""),
+                    "label": cand.get("label") or meta.get("label") or "",
+                    "ancestor_path": (
+                        cand.get("ancestor_path") or meta.get("ancestor_path") or ""
+                    ),
                     "validation_status": cand.get("rvk_validation_status", "standard"),
                     "source": cand.get("source", "catalog"),
                     "count": int(cand.get("count", 0) or 0),
@@ -1102,6 +1142,75 @@ class ToolRegistry(ToolGenerationMixin):
         except Exception as exc:
             logger.error(f"rvk_lookup failed: {exc}")
             return json.dumps({"error": str(exc), "rvk": [], "count": 0})
+
+    @staticmethod
+    def _rvk_notation_labels(executor: Any, codes: list) -> Dict[str, Dict[str, Any]]:
+        """Official RVK labels for a shortlist, keyed by notation - Claude Generated.
+
+        Two sources, in order. The ``rvk_api`` lookup plugin goes through the
+        shared WP2 raw cache on the same ``rvk_validate`` key the classic
+        pipeline and the ``rvk_validate`` tool write, so a repeat costs nothing.
+        That plugin is optional and switched off in some installations — with it
+        off the shortlist went out label-less and the classification LLM again
+        had nothing to judge thematic fit with (observed 2026-09-03 10:56:18,
+        ``"label": ""`` for every candidate). The fallback is the official RVK
+        API through the same ``lru_cache``-backed helper the result serializer
+        already uses for its validation labels.
+
+        Returns ``{}`` when neither source yields anything: a missing label
+        degrades the shortlist, it must not fail it.
+        """
+        wanted = [c for c in dict.fromkeys(codes) if c]
+        if not wanted:
+            return {}
+
+        plugin = None
+        cached_call = lookup_cache_enabled = None
+        knowledge_manager = None
+        cache_on = False
+        try:
+            from src.utils.lookups.cache import cached_call, lookup_cache_enabled
+            from src.utils.lookups.resolve import build_lookup
+
+            config = executor._alima_config_for_cache()
+            plugin = build_lookup(config, "rvk_api")
+            if plugin is not None:
+                knowledge_manager = getattr(executor, "cache_manager", None)
+                cache_on = lookup_cache_enabled(config, "rvk_api")
+        except Exception as exc:
+            log_caught(logger, exc, "rvk_lookup: label plugin unavailable")
+            plugin = None
+
+        out: Dict[str, Dict[str, Any]] = {}
+
+        def _one(code: str) -> None:
+            if plugin is not None:
+                try:
+                    payload = cached_call(
+                        knowledge_manager, cache_on, "rvk_validate", code, {},
+                        lambda c=code: plugin.validate_notation(c),
+                    )
+                    result = (
+                        payload.get("result", payload)
+                        if isinstance(payload, dict) else payload
+                    )
+                    if isinstance(result, dict) and result.get("label"):
+                        out[code] = result
+                        return
+                except Exception as exc:
+                    log_caught(logger, exc, f"rvk_lookup: plugin label for '{code}'")
+            try:
+                from src.webapp.result_serialization import validate_rvk_notation
+
+                validation = validate_rvk_notation(code)
+                if validation.get("label"):
+                    out[code] = {"label": validation["label"], "ancestor_path": ""}
+            except Exception as exc:
+                log_caught(logger, exc, f"rvk_lookup: API label for '{code}'")
+
+        with ThreadPoolExecutor(max_workers=min(8, len(wanted))) as pool:
+            list(pool.map(_one, wanted))
+        return out
 
     # ============================================================
     # Registry Setup

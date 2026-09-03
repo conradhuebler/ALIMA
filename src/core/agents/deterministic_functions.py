@@ -684,6 +684,40 @@ def verify_final_keywords(
 
     if hasattr(context, "extra"):
         context.extra["final_keywords"] = verified_keywords
+        # The selection step also names a RSWK core and the form headings. Both
+        # are subsets of `keywords`, so they get the same treatment: keep only
+        # what survived verification and carry the authoritative GND-ID over.
+        # Otherwise the core — the list a cataloguer actually reads — could hold
+        # an ID the pool never confirmed. - Claude Generated
+        by_term = {kw["keyword"].lower(): kw for kw in verified_keywords}
+        for field in ("core_keywords", "form_keywords"):
+            subset = context.extra.get(field)
+            if not subset:
+                continue
+            aligned: List[Dict[str, str]] = []
+            dropped: List[str] = []
+            for kw in subset:
+                term = (
+                    (kw.get("keyword") or kw.get("title") or "")
+                    if isinstance(kw, dict)
+                    else str(kw or "")
+                ).strip()
+                match = by_term.get(term.lower())
+                if match:
+                    aligned.append(dict(match))
+                elif term:
+                    dropped.append(term)
+            context.extra[field] = aligned
+            if dropped:
+                logger.info(
+                    f"verify_final_keywords: {field} — {len(dropped)} nicht im "
+                    f"verifizierten Set, entfernt: {dropped}"
+                )
+                if stream_callback:
+                    stream_callback(
+                        f"⚠️ {field}: {len(dropped)} nicht verifizierbar, entfernt "
+                        f"({', '.join(dropped)})\n"
+                    )
 
     return {
         "verified_keywords": verified_keywords,
@@ -1347,6 +1381,106 @@ def extract_catalog_hits_from_tool_log(
             f"{len(hits)} catalog_hits\n"
         )
     return {"hits": hits}
+
+
+@register_tool_fn("filter_unauthorized_rvk")
+def filter_unauthorized_rvk(
+    *,
+    context: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Drop RVK notations the classification step did not get from its tool.
+
+    The classification prompt says twice to take RVK **only** from
+    ``rvk_lookup`` and never to invent one, and the agentic path had nothing
+    enforcing it: on 2026-09-03 ornith-1.5 made zero tool calls and emitted
+    ``QD 805``, ``QD 810``, ``T 215`` and ``T 216`` — all four rejected by the
+    RVK API as non-standard, i.e. notations that do not exist. The pipeline
+    knew (the validation marked them) and shipped them anyway.
+
+    The classic pipeline has this guard as
+    ``_filter_final_rvk_classifications``; this is its agentic twin. The
+    authority is the tool's own JSON in the step's ``tool_log``
+    (``result_full``, which agent_loop records for exactly this purpose), not
+    the model's retyping of it. No tool call means no authorised RVK, which is
+    what the prompt's "Passt keine, gib keine RVK aus" already asks for.
+
+    Config: ``source_step`` (default ``classification``) and ``tool``
+    (default ``rvk_lookup``) name where to look, so the coupling is visible in
+    the workflow YAML rather than hardcoded here.
+
+    Non-RVK classifications pass through untouched. - Claude Generated
+    """
+    if context is None:
+        raise RuntimeError("filter_unauthorized_rvk requires context")
+
+    cfg = config or {}
+    source_step = str(cfg.get("source_step") or "classification")
+    tool_name = str(cfg.get("tool") or "rvk_lookup")
+
+    classifications = list(getattr(context, "dk_classifications", None) or [])
+    step_result = (getattr(context, "step_results", None) or {}).get(source_step)
+    if step_result is None:
+        # The step never ran — nothing was claimed, nothing to check.
+        return {"classifications": classifications, "dropped": [], "allowed": []}
+
+    from src.utils.gnd_keyword_utils import canonicalize_rvk_notation
+
+    allowed: set = set()
+    for entry in step_result.get("tool_log") or []:
+        if not isinstance(entry, dict) or entry.get("tool") != tool_name:
+            continue
+        raw = entry.get("result_full") or entry.get("result_preview") or ""
+        try:
+            payload = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError) as exc:
+            log_caught(logger, exc, f"filter_unauthorized_rvk: {tool_name} result unparsable")
+            continue
+        for item in (payload or {}).get("rvk") or []:
+            notation = str((item or {}).get("notation") or "").strip()
+            if notation.upper().startswith("RVK "):
+                notation = notation[4:].strip()
+            if notation:
+                allowed.add(canonicalize_rvk_notation(notation))
+
+    kept: List[Any] = []
+    dropped: List[str] = []
+    for cls in classifications:
+        raw_code = (
+            str(cls.get("code", "") or "").strip() if isinstance(cls, dict) else str(cls or "").strip()
+        )
+        system = ""
+        if isinstance(cls, dict):
+            system = str(cls.get("type") or cls.get("system") or "").strip().upper()
+        if not system and raw_code.upper().startswith("RVK "):
+            system = "RVK"
+        if system != "RVK":
+            kept.append(cls)
+            continue
+
+        notation = raw_code[4:].strip() if raw_code.upper().startswith("RVK ") else raw_code
+        if canonicalize_rvk_notation(notation) in allowed:
+            kept.append(cls)
+        else:
+            dropped.append(raw_code or notation)
+
+    if dropped:
+        logger.warning(
+            f"filter_unauthorized_rvk: {len(dropped)} RVK-Notationen verworfen, die "
+            f"'{tool_name}' nicht geliefert hat: {dropped} "
+            f"(autorisiert waren: {sorted(allowed) or 'keine — kein Tool-Aufruf'})"
+        )
+        if stream_callback:
+            preview = ", ".join(dropped[:4])
+            if len(dropped) > 4:
+                preview += f", +{len(dropped) - 4} weitere"
+            stream_callback(
+                f"⚠️ Verwerfe {len(dropped)} nicht autorisierte RVK-Ausgabe(n): {preview}\n"
+            )
+
+    return {"classifications": kept, "dropped": dropped, "allowed": sorted(allowed)}
 
 
 @register_tool_fn("group_catalog_hits_by_title")

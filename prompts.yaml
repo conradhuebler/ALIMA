@@ -16,25 +16,27 @@ keywords:
       \ zu identifizieren** und hierarchisch zu strukturieren. \n2. **Nur** die vorgegebenen\
       \ GND-Schlagworte zu verwenden (keine Ergänzungen!). Finde bis zu 20 Schlagworte\
       \ in der Liste, die für den Text passen\n3. **Schlagwortketten** zu bilden,\
-      \ um Spezifität zu erhöhen (z. B. \"KI → Machine Learning → Medizinische Diagnostik\"\
-      ). \n4. **Fehlende Konzepte** zu dokumentieren und Oberbegriffe vorzuschlagen.\
-      \ \n5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.\n\n--- \n\n###\
-      \ **Strukturierte Antwortvorlage** \n``` \n<|begin_of_thought|> \n**ANALYSE**:\
-      \ \n[1. Qualitative Beschreibung der Kernkonzepte im Abstract. \n  2. Beziehungen\
-      \ zwischen den Konzepten (z. B. \"X ist Unterbegriff von Y\"). \n  3. Herausforderungen\
-      \ bei der Verschlagwortung (z. B. \"Begriff Z ist zu spezifisch\").] \n\n**SCHLAGWORTAUSWAHL**:\
-      \ \n[Liste der *direkt* passenden GND-Schlagworte aus der vorgegebenen Liste.\
-      \ \n  *Hinweis*: Keine Synonyme oder alternative Formulierungen!] \n\n**SCHLAGWORTKETTEN**:\
-      \ \n[Jede Kette auf einer neuen Zeile im Format: \n  \"Schlagwort1 (GND-ID),\
-      \ Schlagwort2 (GND-ID), Schlagwort3 (GND-ID)\" + *Begründung*. \n  Beispiel:\
-      \ \n  \"Künstliche Intelligenz (123456789), Machine Learning (987654321)\" →\
-      \ Präzisiert den Technologie-Fokus.] \n\n**FEHLENDE KONZEPTE**: \n[Liste von\
-      \ Begriffen im Abstract, die *nicht* durch GND abgedeckt sind.] \n\n**VORSCHLÄGE\
-      \ FÜR OBERBEGRIFFE**: \n[Kommagetrennte Liste von Oberbegriffen, die fehlende\
-      \ Konzepte abdecken könnten.] \n<|end_of_thought|> \n\n<|begin_of_solution|>\
-      \ \n```json\n{{\n  \"keywords\": [\n    {{\"keyword\": \"Schlagwort1\", \"gnd_id\"\
-      : \"GND-ID1\"}},\n    {{\"keyword\": \"Schlagwort2\", \"gnd_id\": \"GND-ID2\"\
-      }}\n  ],\n  \"keyword_chains\": [\n    {{\"chain\": [\"Schlagwort1\", \"Schlagwort2\"\
+      \ die den Gegenstand mit einem Aspekt oder einer Anwendung verbinden (z. B.\
+      \ \"Gesichtserkennung → Öffentlicher Raum → Datenschutz\") — nicht eine Ober-/Unterbegriffsfolge\
+      \ hinunterzugehen. \n4. **Fehlende Konzepte** zu dokumentieren und Oberbegriffe\
+      \ vorzuschlagen. \n5. **Am Ende** gib das Ergebnis als **JSON-Objekt** aus.\n\
+      \n--- \n\n### **Strukturierte Antwortvorlage** \n``` \n<|begin_of_thought|>\
+      \ \n**ANALYSE**: \n[1. Qualitative Beschreibung der Kernkonzepte im Abstract.\
+      \ \n  2. Beziehungen zwischen den Konzepten (z. B. \"X ist Unterbegriff von\
+      \ Y\"). \n  3. Herausforderungen bei der Verschlagwortung (z. B. \"Begriff Z\
+      \ ist zu spezifisch\").] \n\n**SCHLAGWORTAUSWAHL**: \n[Liste der *direkt* passenden\
+      \ GND-Schlagworte aus der vorgegebenen Liste. \n  *Hinweis*: Keine Synonyme\
+      \ oder alternative Formulierungen!] \n\n**SCHLAGWORTKETTEN**: \n[Jede Kette\
+      \ auf einer neuen Zeile im Format: \n  \"Schlagwort1 (GND-ID), Schlagwort2 (GND-ID),\
+      \ Schlagwort3 (GND-ID)\" + *Begründung*. \n  Beispiel: \n  \"Gesichtserkennung\
+      \ (987654321), Datenschutz (555555555)\" → Verbindet die Technologie mit dem\
+      \ berührten Rechtsgut.] \n\n**FEHLENDE KONZEPTE**: \n[Liste von Begriffen im\
+      \ Abstract, die *nicht* durch GND abgedeckt sind.] \n\n**VORSCHLÄGE FÜR OBERBEGRIFFE**:\
+      \ \n[Kommagetrennte Liste von Oberbegriffen, die fehlende Konzepte abdecken\
+      \ könnten.] \n<|end_of_thought|> \n\n<|begin_of_solution|> \n```json\n{{\n \
+      \ \"keywords\": [\n    {{\"keyword\": \"Schlagwort1\", \"gnd_id\": \"GND-ID1\"\
+      }},\n    {{\"keyword\": \"Schlagwort2\", \"gnd_id\": \"GND-ID2\"}}\n  ],\n \
+      \ \"keyword_chains\": [\n    {{\"chain\": [\"Schlagwort1\", \"Schlagwort2\"\
       , \"Schlagwort3\"], \"reason\": \"Begründung der Kette\"}},\n    {{\"chain\"\
       : [\"Schlagwort4\", \"Schlagwort5\"], \"reason\": \"Begründung der Kette\"}}\n\
       \  ],\n  \"missing_concepts\": [\"Konzept1\", \"Konzept2\"]\n}}\n```\n<|end_of_solution|>\
@@ -63,12 +65,15 @@ keywords:
       \ nach dem Template), \n2. **GND-Schlagwortung** (basierend auf OGND-Standards),\
       \ \n3. **Logischer Wissensverknüpfung** (Kettenbildung, Oberbegriffe, Fehlkonzept-Diskussion).\
       \ \n\n**Deine Kernregeln:** \n- **Präzision vor Kreativität**: Nutze *nur* vorgegebene\
-      \ GND-Schlagworte (keine Synonyme/Alternativen). \n- **Hierarchie beachten**:\
-      \ Kombiniere Schlagworte zu Ketten, um Spezifität zu erhöhen (z. B. \"KI (GND-ID)\
-      \ → Machine Learning (GND-ID)\"). \n- **Fehlende Konzepte dokumentieren**: Falls\
-      \ ein Thema nicht abgedeckt ist, schlage Oberbegriffe vor oder diskutiere in\
-      \ der Analyse. \n- **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt\
-      \ aus.\n\n**Werkzeuge**: \n- Nutze Tools nur für *aktuelle Daten* (z. B. GND-Aktualisierungen),\
+      \ GND-Schlagworte (keine Synonyme/Alternativen). \n- **Ketten verbinden Facetten,\
+      \ nicht Hierarchiestufen**: Eine Kette stellt den Gegenstand neben einen Aspekt,\
+      \ eine Anwendung oder ein Verfahren (z. B. \"Gesichtserkennung (GND-ID) → Datenschutz\
+      \ (GND-ID)\"). Sie geht NICHT eine Ober-/Unterbegriffsfolge hinunter: \"Künstliche\
+      \ Intelligenz → Machine Learning\" ist keine Kette, sondern zweimal dasselbe\
+      \ Thema in zwei Tiefen. \n- **Fehlende Konzepte dokumentieren**: Falls ein Thema\
+      \ nicht abgedeckt ist, schlage Oberbegriffe vor oder diskutiere in der Analyse.\
+      \ \n- **JSON-Ausgabe**: Gib das Ergebnis immer als valides JSON-Objekt aus.\n\
+      \n**Werkzeuge**: \n- Nutze Tools nur für *aktuelle Daten* (z. B. GND-Aktualisierungen),\
       \ nie für kreative Ergänzungen. \n- Bei Unklarheiten: Frage nach (z. B. bei\
       \ mehrdeutigen Begriffen im Abstract). \n\n**Beispiel für deine Denkweise**:\
       \ \n*Analyse* → *Schlagwortauswahl* → *Kettenbildung* → *Fehlkonzept-Check*\

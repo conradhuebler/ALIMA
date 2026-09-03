@@ -118,6 +118,23 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Erschließungsregeln, Planer-Gate, RVK-Guard ✅ DONE (Sep 3, Suite 1942):**
+  Sechs Befunde aus echten Läufen. (1) Der MetaAgent-Planer war nicht an
+  `depends_on` gebunden — `classification` lief vor `selection`,
+  `${extra.final_keywords}` leer, kein RVK; jetzt `MetaAgent._unmet_dependency`
+  (griff am selben Tag 9×). (2) Agentische Schlagwortketten kamen **nie** im
+  Ergebnis an, nur als Prosa im Antworttext. (3) `rvk_lookup` lieferte Kandidaten
+  **ohne Label** — die Modelle konnten die Passung nicht beurteilen und nahmen
+  „Allgemeines"-Stellen; jetzt Label via Plugin oder RVK-API. (4) `rvk_guard`
+  (Step 6b) verwirft RVK, die das Werkzeug nicht geliefert hat (ornith erfand
+  vier nicht existierende). (5) Eine kaputte Selection-Ausgabe fiel still auf die
+  ungefilterte Auswahl zurück (56 statt 20 Schlagworte) — jetzt mit Warnung.
+  (6) Die Ketten-Beispiele im Prompt widersprachen der Ketten-Regel, in allen
+  vier Prompt-Quellen ersetzt. Dazu die Erschließungsregeln: Gesamtdarstellung
+  (Fachgebiet statt je Teilgebiet), zehn ist Obergrenze statt Ziel,
+  Formnotationen (`FORM_NOTATIONS` + Badge, `DK 378.245` führte in 36 von 103
+  Läufen die Häufigkeitsliste an), `core_keywords`/`form_keywords`,
+  `rank: core|additional` je System. Details: `AIChangelog.md` (Sep 3).
 - **Chat-Rendering + Webapp-Log ✅ DONE (Aug 6, Suite 1711):** Bubble pro
   Iteration (`_segment_break`), Thinking als 💭-Collapsible
   (`AgentLoop(on_thinking=…)` + `ThinkStreamFilter`, `<think>` nie mehr im

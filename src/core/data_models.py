@@ -122,6 +122,19 @@ class KeywordAnalysisState:
     # verified keyword candidates injected into the search pool under the
     # "input_record" bucket (merge_record_gnd_subjects). - Claude Generated
     input_record_gnd_subjects: List[Dict[str, str]] = field(default_factory=list)
+    # The RSWK core of the keyword set (2-5 subject headings that carry the
+    # work's actual subject) and the form headings (Lehrbuch, Kongressschrift,
+    # …), both named separately by the selection step. The full keyword list
+    # stays in ``final_llm_analysis.extracted_gnd_keywords``: it serves
+    # retrieval, while the core is what goes into a catalogue record. Empty
+    # when the model did not name them. - Claude Generated
+    core_keywords: List[str] = field(default_factory=list)
+    form_keywords: List[str] = field(default_factory=list)
+    # Structured classifications carrying the per-system core/additional rank
+    # the classification step assigns. ``dk_classifications`` above stays the
+    # flat string list every existing consumer reads; this is the richer view
+    # the result payload prefers when present. - Claude Generated
+    classification_entries: List[Dict[str, Any]] = field(default_factory=list)
     report_markdown: str = ""  # Generic workflow-report Markdown (e.g. title_list_search's duplicate table), rendered as an HTML block in the GUI - Claude Generated
 
     # Iterative refinement support - Claude Generated
