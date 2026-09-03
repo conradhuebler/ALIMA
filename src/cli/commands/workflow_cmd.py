@@ -83,14 +83,18 @@ def handle_workflows_list(args, log: logging.Logger) -> int:
             print(f"  - {p}")
         return 1
 
-    print(f"{'NAME':<30} {'VERSION':<8} DESCRIPTION")
+    print(f"{'NAME':<30} {'VERSION':<8} {'STATUS':<9} DESCRIPTION")
     print("-" * 78)
     for path in files:
         try:
             wf = load_workflow(path, strict=False)
-            print(f"{path.stem:<30} {wf.version:<8} {wf.description[:60]}")
+            # `status` is operator-assigned metadata the loader keeps in `raw`;
+            # descriptions are block scalars, so collapse their newlines. - Claude Generated
+            status = str(wf.raw.get("status", "") or "")
+            desc = " ".join(wf.description.split())
+            print(f"{path.stem:<30} {wf.version:<8} {status:<9} {desc[:50]}")
         except Exception as e:
-            print(f"{path.stem:<30} {'?':<8} <parse error: {e}>")
+            print(f"{path.stem:<30} {'?':<8} {'?':<9} <parse error: {e}>")
     return 0
 
 

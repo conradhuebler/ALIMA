@@ -1,5 +1,6 @@
 name: "Main Agent Orchestrator"
 version: "1.0"
+status: "research"
 description: |
   Meta-Agent and Chief Orchestrator for ALIMA. Analyzes user requests,
   identifies the intent, and dispatches tasks to specialized sub-workflows.
@@ -40,7 +41,6 @@ steps:
       Du kannst mittels `execute_workflow` andere ALIMA-Workflows starten. Jeder Workflow hat ein spezifisches Ziel:
       - `research_deep`: Für komplexe investigative Recherchen, die eine "Discovery Chain" erfordern (Web $\rightarrow$ GND $\rightarrow$ Katalog). Ideal für Fragen wie "Wer publiziert aktuell noch?" oder "Wie ist die Entwicklung von Thema X in Institution Y?".
       - `catalog_search`: Für gezielte Suchen nach Titeln oder Autoren in den Katalogen (Lobid, SWB, FINC).
- la
       - `website_rag`: Für Fragen, die ausschließlich auf Basis einer indexierten Webseite beantwortet werden sollen.
       - `alima_classic` / `alima_v51`: Für die standardmäßige bibliographische Analyse und Klassifikation.
 
@@ -51,9 +51,7 @@ steps:
       ### Vorgehensweise:
       1. **Intent-Analyse**: Was will der Nutzer wirklich wissen? Ist es eine einfache Suche oder eine komplexe Recherche?
       2. **Workflow-Wahl**: Wähle den passenden Workflow basierend auf der Beschreibung in `list_workflows` oder den oben genannten Richtlinien.
- la
       3. **Delegation**: Rufe `execute_workflow` mit der `workflow_id` und den notwendigen `inputs` (meist `{"extra": {"user_question": "..."}}`) auf.
- la
       4. **Synthese**: Verarbeite den `ExecutionReport` des Sub-Workflows und gib die finale Antwort an den Nutzer zurück.
 
       Antworte präzise, professionell und transparent über die genutzten Pfade.

@@ -277,6 +277,32 @@ Anzahl und dem Hinweis, dass das Ergebnis nicht die Endauswahl des Modells ist.
 Tests: `tests/test_classification_rank.py` (36) und `tests/test_rvk_guard.py`
 (12), beide per Mutation geprüft. Suite 1942.
 
+### Workflow-Reifegrad als Datenfeld (September 3, 2026)
+
+Beim Schreiben des README-Abschnitts über Workflows zeigte `workflows list`,
+dass zwei der dreizehn YAMLs gar nicht laden: in `main_agent.yaml` (3x) und
+`research_deep.yaml` (1x) stand eine verirrte Zeile ` la` mitten in einem
+Prompt-Block. Ihre Einrückung beendet den Block-Skalar, danach ist die Datei
+kein gültiges Mapping mehr. Vier Zeilen gelöscht, alle dreizehn laden.
+
+Neu: ein Top-Level-Feld `status:` je Workflow. Der Loader liest es nicht, es
+überlebt in `WorkflowDef.raw`; `workflows list` gibt es in einer eigenen Spalte
+aus (dabei die Beschreibung entzeilt, vorher zerriss ein Block-Skalar die
+Tabelle). Vergeben hat der Betreiber: `tested` für `alima_v51` und
+`alima_v51_105`, `research` für die übrigen elf. Die Regel steht in
+`workflows/CLAUDE.md`: `tested` setzt nur der Betreiber, nie ein Agent und nie
+wegen einer grünen Suite.
+
+Die README beschreibt Workflows jetzt als eigenen Abschnitt (§3) mit beiden
+Listen. Suite 1874.
+
+Gelöscht: `model_recommendations.json` aus dem Wurzelverzeichnis. Die Datei
+empfahl Modelle je Aufgabe (`gpt-4-turbo-preview`, `claude-3-sonnet-20240229`,
+`llama2`) und wurde von keiner Zeile Code gelesen. Anlass war die Frage nach
+festen Modellen in Agenten-Steps: dort steht keines, `LLMAgentStep._llm_params`
+nimmt Provider und Modell allein aus dem Kontext. Modellnamen stehen nur in
+`prompts.json`, und zwar als Auswahlschlüssel mit Rückfall auf `default`.
+
 ### README gegen den Code geprüft (September 3, 2026)
 
 Auslöser war die Zeile "Katalog-Integration: K10+/WinIBW-Export für direktes

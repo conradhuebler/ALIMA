@@ -1,5 +1,6 @@
 name: "ALIMA Classic Pipeline"
 version: "4.0"
+status: "research"
 description: "ALIMA 4-step pipeline (extraction → search → selection → classification) in v4 schema"
 
 settings:

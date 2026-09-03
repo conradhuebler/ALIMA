@@ -1,5 +1,6 @@
 name: "Title List Catalog Search"
 version: "4.4"
+status: "research"
 description: "LLM extracts rich bibliographic records (title, authors, ISBN, publisher, year) from free text, an agent searches the catalog (finc first, Libero as fallback), LLM performs metadata-aware duplicate analysis, deterministic step renders a Markdown table."
 
 settings:

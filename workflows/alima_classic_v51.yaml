@@ -1,5 +1,6 @@
 name: "ALIMA Classic Pipeline v4.1"
 version: "4.1"
+status: "research"
 description: |
   ALIMA classic pipeline with glm5 prompt improvements.
   Title-first extraction, findability weighting, DK aspect coverage,

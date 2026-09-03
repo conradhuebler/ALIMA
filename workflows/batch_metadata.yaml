@@ -1,5 +1,6 @@
 name: "GND Batch Metadata"
 version: "4.0"
+status: "research"
 description: "Bulk-fetch metadata for a list of GND IDs (local DB + optional Lobid fallback)."
 
 settings:

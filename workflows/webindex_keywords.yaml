@@ -1,5 +1,6 @@
 name: "Webindex Keywords"
 version: "1.0"
+status: "research"
 description: |
   Per-page keyword extraction for the webindex crawl. A tool-less single-step
   workflow that turns one page's text into a JSON keyword list. Driven by the

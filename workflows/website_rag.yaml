@@ -1,5 +1,6 @@
 name: "Website RAG"
 version: "1.0"
+status: "research"
 description: |
   Website-content chatbot: answer a user question strictly from the pages of a
   crawled website (the webindex lookup plugin's keyword index). One agentic

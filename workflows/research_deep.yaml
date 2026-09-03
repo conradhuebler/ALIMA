@@ -1,5 +1,6 @@
 name: "Deep Research"
 version: "1.0"
+status: "research"
 description: |
   Advanced investigative research across web and library domains.
   Specializes in "Discovery Chains": finding entities on the web and
@@ -59,7 +60,6 @@ steps:
          *Ziel: Eine Liste von Kandidaten-Entitäten (z.B. Namen von Personen).*
 
       3. **Identitäts-Fixierung (Normalisierungs-Phase)**:
- la
          Überführe gefundene Namen über `aggregate_gnd_results` in GND-IDs. Dies ist der entscheidende Schritt, um Verwechslungen auszuschließen und eine präzise Katalogsuche zu ermöglichen.
 
       4. **Katalog-Validierung (Formale Phase)**:

@@ -1,5 +1,6 @@
 name: "ALIMA Pipeline"
 version: "5.0"
+status: "research"
 description: |
   Self-contained ALIMA pipeline. ALL prompts and settings inline.
   No prompts.json delegation. Single source of truth for every step.

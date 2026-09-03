@@ -1,5 +1,6 @@
 name: "Catalog Search"
 version: "4.0"
+status: "research"
 description: "Multi-source catalog lookup (SWB + Lobid + catalog) with optional LLM ranking."
 
 settings:

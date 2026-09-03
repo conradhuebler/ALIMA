@@ -1,5 +1,6 @@
 name: "Synonym & GND Expansion"
 version: "4.0"
+status: "research"
 description: "Single keyword → GND entry → synonyms + LLM expansion → validated GND candidates."
 
 settings:
