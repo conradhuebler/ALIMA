@@ -66,6 +66,12 @@ When documenting implemented features, the AI must apply these rules:
 - Document the *why* behind decisions, not the *what*.
 - Eliminate redundant info that doesn't add architectural value.
 - Significant improvements → [`AIChangelog.md`](AIChangelog.md).
+- **Describe what exists, not what is intended.** Every user-facing claim (README,
+  tooltips, docs) must be checkable against the code. No plans, no roadmap items and
+  no ideas dressed as working features, no "will be configurable later"; limits are
+  named as plainly as capabilities. Unfinished work may be *marked* unfinished here
+  (a repo doc is revised with the code), never *described* as if it worked. Ideas
+  belong in the Instructions Block or [`docs/open_workpackages.md`](docs/open_workpackages.md).
 
 ## Git Best Practices
 - **Only commit source files**: `git add <file>`, never `git add -A` without review.
@@ -151,8 +157,9 @@ When documenting implemented features, the AI must apply these rules:
   Title-Records kanonisch, `dk_*`-Sweep; Rest = Adoption: GUI/CLI-Eingabetypen
   `isbn`/`ppn`, DOI→Crosswalk-Anreicherung, Agentik-Priors, Vergleichslauf).
   Konsolidierungen offen: **K1** BusRenderBridge, **K2** Lobid-Label aus
-  gnd_local, **K3** DOI-Mirror-Abbau, **K4** Tool-Passthrough swb/catalog
-  (**K5 ✅** Aug 4); T-Reihe anlassbezogen (Gemini+LlmService-Split,
+  gnd_local, **K3** DOI-Mirror-Abbau, **K4** Tool-Passthrough swb/catalog,
+  **K6** Tagzeilen-Export vereinheitlichen (**K5 ✅** Aug 4); T-Reihe
+  anlassbezogen (Gemini+LlmService-Split,
   Session-Persistenz, Keyring, i18n); V1 Agentic Hauptagent.
 - **WP-D1 P0 ✅ DONE+VERIFIZIERT, `to_bibrecord()`+F-2 ✅ DONE (July 19+20, 11
   Commits ab `6991d57`):** EIN GND-Pool-Vokabular `{count, gnd_ids,

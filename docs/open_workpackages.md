@@ -170,6 +170,22 @@ Klassifikations-Spalte + lobid-Link, Pipeline-Mapping-Ansicht tatsächlich im
 Layout, tote Signale/Methoden/Legacy-Zweige raus (1512→977 Z.).
 Details: `AIChangelog.md` (August 4).
 
+### WP-K6 · Tagzeilen-Export — drei Erzeuger, drei Ergebnisse
+**Status:** 🚧 offen (gefunden bei der README-Prüfung, September 3, 2026).
+**Problem:** Drei Stellen erzeugen 5550/6700-Zeilen und weichen voneinander ab:
+`cli/formatters/protocol_formatters.py:395` setzt `DK` vor jede Notation,
+`ui/analysis_review_tab.py:598` übernimmt das System aus dem Code,
+`utils/exporters.py:136` verteilt Schlagwortketten auf 5550–5559 und ist der
+einzige, der Ketten überhaupt kennt. Auf einem Ergebnis vom Januar 2026 liefert
+die CLI dadurch `6700 DK RVK DK 02`. Keiner der drei prüft die Notation vor der
+Ausgabe.
+**Ansatz:** `generate_k10plus_lines` als einzige Quelle, CLI und GUI rufen sie
+über die kanonische Export-Payload. Vorher steht die fachliche Frage: welche
+Kategorien die UB Freiberg erfassen will (5550–5559 für Ketten, 6700 je System)
+— das entscheidet die Signatur.
+**Verifikation:** Golden-Test über zwei Ergebnisdateien, eine mit reinen
+DK-Codes und eine mit System-Präfix; beide Pfade müssen dieselben Zeilen liefern.
+
 ---
 
 ## T — Anlassbezogen / geparkt (decide-on-touch)

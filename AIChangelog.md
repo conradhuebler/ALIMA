@@ -277,6 +277,47 @@ Anzahl und dem Hinweis, dass das Ergebnis nicht die Endauswahl des Modells ist.
 Tests: `tests/test_classification_rank.py` (36) und `tests/test_rvk_guard.py`
 (12), beide per Mutation geprüft. Suite 1942.
 
+### README gegen den Code geprüft (September 3, 2026)
+
+Auslöser war die Zeile "Katalog-Integration: K10+/WinIBW-Export für direktes
+Einfügen in Bibliothekskataloge". Es gibt keine Katalogschnittstelle: der Export
+erzeugt Tagzeilen, die über die Zwischenablage oder eine Textdatei nach WinIBW
+gehen. `grep -rni winibw src/` trifft nur Formatnamen und Kommentare.
+
+Beim Prüfen der übrigen Angaben gefunden und korrigiert:
+
+- **Python 3.8 bis 3.12** war falsch. `numpy==2.4.3` verlangt >= 3.11,
+  `fastapi`/`uvicorn`/`Crawl4AI`/`typer` >= 3.10; zusätzlich stehen ausgewertete
+  Builtin-Generics ohne `from __future__ import annotations` im Code
+  (`config_models.py:601`, `pipeline_tab.py:247`, `routers/workflows.py:66`).
+- **`catalog_config`** stand als Hauptbereich im Konfigurationsbeispiel, wird
+  aber seit der Plugin-Konvergenz nur noch als Migrationseingabe gelesen
+  (`config_manager.py:405`).
+- **Konfidenzfarben**: dokumentiert waren drei Stufen (Grün/Teal/Orange),
+  `get_confidence_style` hat vier (>50/>20/>5/Rest) und andere Farben.
+- **`--format detailliert`** existiert nicht; gültig sind
+  `detailed|compact|k10plus`.
+- WebAPP verlangt nicht die GUI: `alima_cli.py setup` und `dnb-import` genügen.
+- Agentischer Modus, `--input-image`, `--siegel` und die Verwaltungsbefehle
+  fehlten vollständig; der Block "Manuelle Eingabe (GUI-Batch)" stand zweimal da.
+- Werbeformeln ohne Deckung entfernt ("Ersatz für manuelle Katalogisierung",
+  "Wahl des besten Modells", "100+ Dokumente", "nahtlose Integration"), ebenso
+  die Zusage, die Tags 5550/6700 seien "später in config.json konfigurierbar" —
+  einen Schlüssel `k10plus_export` gibt es nirgends.
+
+Neu beschrieben, weil beides bisher fehlte: der Chat-Agent (GUI-Panel, CLI
+`agent`, WebAPP-Endpunkte, Werkzeugsatz, Bestätigungspflicht der
+Schreibwerkzeuge) und das Plugin-System (drei Kategorien mit ihren Instanz-IDs,
+Freigabe von Code-Plugins samt der Aussage, dass AST-Scan und Hash Hürden sind
+und keine Isolierung).
+
+Der Befund zu den drei Tagzeilen-Erzeugern ist als **WP-K6** ins Register
+gewandert (`docs/open_workpackages.md`): CLI setzt `DK` vor jede Notation
+(`protocol_formatters.py:395`), GUI übernimmt das System
+(`analysis_review_tab.py:598`), `exporters.py` verteilt Ketten auf 5550-5559.
+Auf einem Ergebnis vom Januar 2026 liefert die CLI dadurch
+`6700 DK RVK DK 02`.
+
 ### Standard-Budget auf 32768 (August 29, 2026)
 
 Die 4096 aus den v5.1-Workflows waren die Ursache der leeren Schritte: ein

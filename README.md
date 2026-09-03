@@ -1,6 +1,6 @@
 # ALIMA — Automated Library Indexing and Metadata Assignment
 
-**Intelligente Sacherschließung mit Large Language Models** — Ein leistungsstarkes Werkzeug zur **automatisierten Generierung von GND-konformen Schlagwörtern und DK/RVK-Klassifikationen** basierend auf KI-Analyse von Dokumentinhalten.
+**Sacherschließung mit Large Language Models.** ALIMA erzeugt GND-konforme Schlagwörter und DK/RVK-Klassifikationen aus Dokumentinhalten.
 
 Entwickelt an der Universitätsbibliothek "Georgius Agricola" der TU Bergakademie Freiberg.
 
@@ -14,26 +14,29 @@ ALIMA sowie die Dokumentation sind größtenteils mit Claude erstellt. LLM sind 
 
 ## Überblick
 
-ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Indexing)** mit künstlicher Intelligenz. Sie analysiert Dokumente vollautomatisch und generiert standardisierte, GND-konforme Schlagwörter sowie DK/RVK-Klassifikationen — ohne manuelle Katalogisierung.
+ALIMA ist eine Python-basierte Anwendung für **Sacherschließung (Library Indexing)** mit künstlicher Intelligenz. Sie analysiert Dokumente und schlägt standardisierte, GND-konforme Schlagwörter sowie DK/RVK-Klassifikationen vor. Die Vorschläge werden in der Oberfläche geprüft und von dort in den Katalog übernommen.
 
-**Sacherschließung** (auch "Indexierung" oder "Metadaten-Zuweisung" genannt) ist der bibliothekarische Prozess, ein Dokument durch standardisierte Schlagwörter und Klassifikationssysteme zu beschreiben, damit es optimal auffindbar wird. ALIMA automatisiert diesen Prozess mittels großer Sprachmodelle (LLMs).
+**Sacherschließung** (auch "Indexierung" oder "Metadaten-Zuweisung" genannt) ist der bibliothekarische Prozess, ein Dokument durch standardisierte Schlagwörter und Klassifikationssysteme zu beschreiben, damit es optimal auffindbar wird. ALIMA erzeugt diese Beschreibung mit großen Sprachmodellen (LLMs).
 
 ## Hauptfunktionen
 
-*   **🎯 Automatische Sacherschließung:** Vollautomatische Generierung von GND-Schlagwörtern und DK/RVK-Klassifikationen aus Dokumentinhalten — Ersatz für manuelle Katalogisierung
-*   **🔄 Intelligente 5-Schritt Pipeline:** Input → Freie Keywords → GND-Suche → Verifikation → DK-Klassifikation — eine optimierte Abfolge für präzise Metadaten
+*   **🎯 Sacherschließungsvorschläge:** GND-Schlagwörter und DK/RVK-Klassifikationen aus Dokumentinhalten, in einem Lauf ohne Zwischeneingriff erzeugt
+*   **🔄 Klassische 5-Schritt-Pipeline:** `input` → `initialisation` (freie Schlagwörter) → `search` (GND-Suche) → `keywords` (Abgleich gegen die GND) → `dk_classification`
+*   **🧩 Agentischer Modus:** statt der festen Schrittfolge ein YAML-Workflow aus `workflows/` (`--agentic`)
 *   **📥 Flexible Dateneingabe:** Texte, DOI/URL-Auflösung, PDF-Extraktion, OCR von Bildern und gescannten Dokumenten
 *   **🤖 Multi-Provider LLM-Support:** Funktioniert mit Ollama, Claude, Gemini, OpenAI und kompatiblen APIs
-*   **⚡ Intelligente Provider-Auswahl:** Automatische Wahl des besten Modells basierend auf Aufgabe und Nutzerpräferenzen
-*   **📦 Batch-Verarbeitung:** 100+ Dokumente automatisch analysieren und Ergebnisse exportieren
+*   **⚡ Modellwahl je Aufgabe:** Prioritätenliste pro Pipeline-Schritt (`task_preferences`), Rückfall auf `provider_priority`
+*   **📦 Batch-Verarbeitung:** Listen von Quellen nacheinander analysieren, Ergebnisse als JSON ablegen
     *   Batch-Datei: Textdatei mit Quellen (DOI:..., ISBN:..., etc.)
     *   **Manuelle Eingabe:** DOIs/ISBNs direkt per Copy-Paste eingeben
-    *   Paketsiegel: K10Plus-Sigel für Batch-DOI-Abfrage
+    *   Paketsigel: K10plus-Sigel (`--siegel`), wird zu einer DOI-Liste expandiert
     *   Datei-Auswahl: Einzelne PDFs/Bilder direkt auswählen
     *   Verzeichnis-Scan: Alle Dateien eines Ordners automatisch erfassen
-*   **🖥️ GUI (PyQt6):** Desktop-Anwendung mit visuellem Pipeline-Workflow und detallierter Ergebnisanalyse
-*   **🌐 WebAPP:** Server-basierte Schnittstelle für webbasierte Nutzung — gleiche Konfiguration wie GUI und CLI
-*   **📤 Katalog-Integration:** K10+/WinIBW-Export für direktes Einfügen in Bibliothekskataloge
+*   **🖥️ GUI (PyQt6):** Desktop-Anwendung mit visuellem Pipeline-Workflow und detaillierter Ergebnisanalyse
+*   **🌐 WebAPP:** Server-basierte Schnittstelle mit derselben Konfiguration wie GUI und CLI
+*   **💬 Chat-Agent:** derselbe Werkzeugsatz in GUI, CLI (`agent`) und WebAPP; liest den Analysezustand, schlägt Änderungen zur Bestätigung vor, startet Läufe
+*   **🔌 Plugin-System:** Suchquellen, Nachschlagedienste und Eingabequellen als konfigurierbare Instanzen im Abschnitt `plugins`
+*   **📤 Tagzeilen-Export:** Ergebnisse als PICA-Tagzeilen (Zwischenablage oder Textdatei) zum Einfügen in WinIBW
 
 Hinweis zum Mehrbenutzerbetrieb:
 - Für lokale Entwicklung und Einzelplatznutzung reicht SQLite.
@@ -44,7 +47,7 @@ Hinweis zum Mehrbenutzerbetrieb:
 
 ### Voraussetzungen
 
-*   Python 3.8 bis 3.12 **wichtig** Python 3.13 funktioniert nicht, wenn Webseiten via crawl4ai ausgelesen werden sollen
+*   Python 3.11 oder 3.12. Die Untergrenze stammt aus den Pins in `requirements.txt` (`numpy` verlangt >= 3.11, `fastapi`/`uvicorn`/`Crawl4AI` >= 3.10). Unter Python 3.13 schlägt das Auslesen von Webseiten über crawl4ai fehl.
 *   PyQt6
 *   diverse Pakete (openai, ollama, crawl4ai, playwright) siehe requirements.txt
 
@@ -74,18 +77,19 @@ Die Konfiguration von ALIMA erfolgt über die Datei `config.json` im `~/.config/
 
 Die Konfiguration der LLM-Provider ist im `unified_config`-Abschnitt zentralisiert und ermöglicht eine detaillierte Steuerung von Providern, Modellen und Aufgaben-Präferenzen.
 
-Für eine Konfiguration ohne lokalen SRU-Katalog, aber mit **Lobid** für die Schlagwortsuche und **GVK/GBV-SRU** für DK/RVK-Klassifikationen, gibt es ein Beispiel in `config.example.lobid-gbv.json`. Wichtig: Der SRU-Preset heißt in ALIMA `gbv` und verweist auf den GVK-Endpunkt.
+Für eine Konfiguration ohne lokalen SRU-Katalog, aber mit **Lobid** für die Schlagwortsuche und **GVK/GBV-SRU** für DK/RVK-Klassifikationen, gibt es ein Beispiel in `config.example.lobid-gbv.json`. Der SRU-Preset heißt in ALIMA `gbv` und verweist auf den GVK-Endpunkt (`https://sru.gbv.de/gvk`). Die Beispieldatei liegt in der älteren `catalog_config`-Form vor und wird beim ersten Laden in Plugin-Instanzen überführt.
 
 ### Struktur der `config.json`
 
-Die `config.json` ist in mehrere Hauptbereiche unterteilt. Der wichtigste Abschnitt für die Steuerung der KI-Analyse ist `unified_config`.
+Die `config.json` ist in mehrere Hauptbereiche unterteilt. Der wichtigste Abschnitt für die Steuerung der KI-Analyse ist `unified_config`. Suchquellen und Kataloge stehen als Plugin-Instanzen unter `plugins`; Konfigurationen mit dem älteren Abschnitt `catalog_config` werden beim Laden einmalig migriert.
 
 ```json
 {
     "database_config": { ... },
-    "catalog_config": { ... },
     "prompt_config": { ... },
     "system_config": { ... },
+    "ui_config": { ... },
+    "plugins": [ ... ],
     "unified_config": {
         "providers": [
             {
@@ -140,6 +144,18 @@ Die `config.json` ist in mehrere Hauptbereiche unterteilt. Der wichtigste Abschn
 *   **`task_preferences`**: Hier können für spezifische Aufgaben (z.B. `keywords` für die Verifikation oder `initialisation` für die Erst-Analyse) feste Modell-Prioritäten definiert werden. ALIMA wird versuchen, die Modelle in der angegebenen Reihenfolge zu verwenden.
 *   **`provider_priority`**: Eine globale Rangfolge der Provider, die verwendet wird, wenn für eine Aufgabe keine spezifische `task_preference` definiert ist.
 
+### Plugins
+
+Suchquellen, Nachschlagedienste und Eingabequellen sind Plugin-Instanzen. Registriert sind drei Kategorien:
+
+*   **search** (`src/core/search/providers/`): `lobid`, `swb`, `catalog`, `finc`, `sru`, `kvk`, `gnd_local`.
+*   **lookup** (`src/utils/lookups/`): `k10plus`, `dnb`, `rvk_api`, `webindex`.
+*   **input** (`src/utils/input_sources/`): `text`, `file`, `pdf`, `image`, `doi_crossref`, `doi_openalex`, `doi_datacite`, `url_fetch`, `isbn`, `ppn`.
+
+Konfiguriert werden die Instanzen im Abschnitt `plugins` der `config.json` oder in der GUI unter Einstellungen im Tab "🔌 Plugins". Das MCP-Werkzeug `list_plugins` gibt den aktuellen Stand aus. Für die verteilte Installation an einer Einrichtung gibt es `python3 src/alima_cli.py bundle` (Plugins plus Konfigurationsprofil), beschrieben in [`docs/institutional_bundles.md`](docs/institutional_bundles.md).
+
+Plugins mit eigenem Python-Code muss der Betreiber einmal freigeben. Dabei läuft eine AST-Prüfung auf auffällige Konstrukte, und ein SHA-256 über die Plugin-Dateien erzwingt nach jeder Änderung eine erneute Freigabe. Beides sind Hürden, keine Isolierung: ein freigegebenes Plugin wird im selben Prozess mit denselben Rechten wie ALIMA ausgeführt. Einzelheiten in [`docs/plugin_system.md`](docs/plugin_system.md) und [`docs/plugin_authoring.md`](docs/plugin_authoring.md).
+
 ## Verwendung
 
 ALIMA kann über die grafische Benutzeroberfläche (GUI) oder die Kommandozeile (CLI) genutzt werden.
@@ -172,7 +188,7 @@ Nach der erfolgreichen Extraktion der Daten aus einer dieser Quellen können Sie
 
 ### 1.2 Nutzung der WebAPP
 
-Für die Nutzung der WebAPP muss die GUI einmal gestartet worden sein, bzw. die Konfiguration erstellt und die Datenbank einmal mit dem GND-Abzug initialisiert werden. Anschließend starten Sie mit
+Die WebAPP setzt eine vorhandene Konfiguration und eine mit dem GND-Abzug gefüllte Datenbank voraus. Beides erzeugt entweder der First-Start-Wizard der GUI oder die CLI (`python3 src/alima_cli.py setup` und `python3 src/alima_cli.py dnb-import`). Anschließend starten Sie mit
 ```bash
 python3 src/webapp/app.py
 ```
@@ -188,7 +204,7 @@ Die Pipeline-Ergebnisse können als Json heruntergeladen werden und anschließen
 
 ### 2. Kommandozeilen-Nutzung (CLI)
 
-Die ALIMA-CLI bietet zwei Hauptmodi für die Analyse: die `pipeline` für Einzelanalysen und `batch` für die Stapelverarbeitung.
+Für die Analyse gibt es zwei Befehle: `pipeline` für Einzelanalysen und `batch` für die Stapelverarbeitung. Daneben stellt die CLI Verwaltungsbefehle bereit, unter anderem `setup`, `dnb-import`, `search`, `list-models`, `list-providers`, `test-providers`, `db-config`, `provider` und `clear-cache`. `python3 src/alima_cli.py --help` listet alle auf.
 
 #### 2.1. Einzelanalyse (`pipeline`-Befehl)
 
@@ -197,6 +213,7 @@ Der `pipeline`-Befehl führt eine vollständige Analyse für eine einzelne Daten
 **Eingabe-Optionen (einer erforderlich):**
 *   `--input-text "..."`: Direkte Texteingabe.
 *   `--doi "..."`: Eingabe einer DOI oder einer URL (wird automatisch aufgelöst).
+*   `--input-image <pfad>`: Bilddatei, die per OCR ausgelesen wird.
 
 **Beispiel:**
 ```bash
@@ -206,6 +223,18 @@ python3 src/alima_cli.py pipeline --input-text "Ein Text über das Recycling von
 # Führt eine Analyse für eine DOI durch und speichert das Ergebnis
 python3 src/alima_cli.py pipeline --doi "10.1007/s00442-021-04908-x" --output-json ergebnis.json
 ```
+
+**Agentischer Modus:**
+Ohne weitere Angabe läuft die klassische Schrittfolge. `--agentic` ersetzt sie
+durch einen YAML-Workflow aus `workflows/`:
+
+```bash
+python3 src/alima_cli.py pipeline --doi "10.1007/s00442-021-04908-x" --agentic --workflow alima_v51
+```
+
+*   `--workflow <name>`: Workflow aus `workflows/` (Standard: `system_config.default_workflow`, ab Werk `alima_v51`).
+*   `--custom-workflow <pfad>`: Workflow-Datei außerhalb von `workflows/`.
+*   `--override <PROVIDER/MODELL>`: setzt Provider und Modell für alle LLM-Schritte.
 
 #### 2.2. Stapelverarbeitung (`batch`-Befehl)
 
@@ -244,23 +273,6 @@ ISBN:9783662123456          # ISBN
 PPN:1234567890              # PPN (K10Plus)
 ```
 
-**Manuelle Eingabe (GUI-Batch):**
-Im Batch-Verarbeitungsdialog kann man DOIs und andere Quellen auch direkt per Copy-Paste eingeben:
-
-1. Tab "✏️ Manuelles Eingeben" auswählen
-2. DOIs/ISBNs/PPNs in das Textfeld einfügen (eine pro Zeile oder Format `TYP:WERT`)
-3. "Vorschau" klicken → Quellen werden geparst
-4. Gewünschte Quellen per Checkbox auswählen
-5. "Start" klicken
-
-```
-# Beispiele für manuelle Eingabe
-10.1234/example-paper        # Wird automatisch als DOI erkannt
-DOI:10.5678/another-paper   # Explizites DOI-Format
-ISBN:9783662123456          # ISBN
-PPN:1234567890              # PPN (K10Plus)
-```
-
 **Beispiel-Aufruf:**
 ```bash
 # Führt eine Batch-Analyse im Smart-Modus durch
@@ -273,7 +285,7 @@ Der `show-protocol`-Befehl zeigt Pipeline-Ergebnisse aus JSON-Protokolldateien d
 
 **Argumente:**
 *   `json_file`: Pfad zur JSON-Protokolldatei (erforderlich)
-*   `--format <detailliert|compact>`: Ausgabeformat (Standard: `detailed`)
+*   `--format <detailed|compact|k10plus>`: Ausgabeformat (Standard: `detailed`)
 *   `--steps <step1> <step2>`: Auszugebende Pipeline-Schritte (Standard: alle)
 *   `--header`: CSV-Header ausgeben (nur mit `--format compact`)
 
@@ -307,7 +319,7 @@ python3 src/alima_cli.py show-protocol ergebnis.json --format compact
 # ergebnis.json,dk_classification,628.5|333.3
 ```
 
-**Batch-Verarbeitung von 100+ Dateien:**
+**Mehrere Dateien in eine CSV:**
 ```bash
 # Header + alle Ergebnisse in CSV-Datei
 python3 src/alima_cli.py show-protocol datei1.json --format compact --header > tabelle.csv
@@ -340,7 +352,7 @@ datei.json,dk_classification,628.5|333.3
 
 #### 2.4. DK-Klassifikation Transparenz
 
-Die ALIMA-Pipeline zeigt automatisch an, **welche Katalog-Titel** zu jeder DK-Klassifikation führten - für maximale Nachvollziehbarkeit der automatischen Verschlagwortung.
+Die Pipeline weist zu jeder DK-Klassifikation die **Katalog-Titel** aus, die zu ihr geführt haben.
 
 **GUI - Real-time während Pipeline-Ausführung:**
 ```
@@ -350,11 +362,12 @@ Die ALIMA-Pipeline zeigt automatisch an, **welche Katalog-Titel** zu jeder DK-Kl
 ```
 
 **GUI - Detaillierte Ansicht im Analysis Review Tab:**
-- Tab "DK/RVK-Klassifikationen" zeigt farbcodierte Klassifikationen
-- Grün (>50 Titel): Hohe Konfidenz
-- Teal (20-50): Mittlere Konfidenz
-- Orange (<20): Niedrige Konfidenz
-- Expandierbare Titellisten unter jeder Klassifikation
+- Tab "DK/RVK" zeigt die Klassifikationen farbcodiert nach Zahl der Titel
+- Grün, "Very High": mehr als 50 Titel
+- Blau, "High": mehr als 20
+- Gelb, "Medium": mehr als 5
+- Rot, "Low": 5 und weniger
+- Ausklappbare Titellisten unter jeder Klassifikation
 
 **CLI - Detaillierte Ausgabe:**
 ```bash
@@ -379,25 +392,28 @@ python3 src/alima_cli.py show-protocol ergebnis.json --format compact --steps dk
 file.json,dk_search,"628.5:45:Cadmium in der Umwelt...|Bodenverschmutzung...|..."
 ```
 
-#### 2.5. K10+/WinIBW Katalog-Export
+#### 2.5. Tagzeilen-Export für WinIBW
 
-Direkter Export von Analyseergebnissen im K10+/WinIBW-Format für nahtlose Integration in Bibliothekskataloge.
+ALIMA gibt die Analyseergebnisse als PICA-Tagzeilen aus. Die Zeilen gehen über
+die Zwischenablage oder eine Textdatei nach WinIBW; eine direkte Verbindung zum
+Katalog besteht nicht.
 
-**Format:**
+Die Kategorien folgen der Erfassungspraxis der UB Freiberg:
+
 ```
 5550 Schlagwort
 6700 DK CODE
 ```
 
-**GUI - K10+ Export Tab:**
-Die "Analysis Review" hat einen neuen Tab "K10+ Export" mit:
-- Automatisch generierte K10+/WinIBW-konforme Zeilen
-- "In Zwischenablage kopieren" Button für direktes Einfügen in WinIBW
-- GND-IDs entfernt, nur Begriffe und DK-Codes
+GND-Nummern werden entfernt, es bleiben Begriff und Notation.
 
-**CLI - K10+ Export:**
+**GUI:**
+Die "Analysis Review" enthält den Tab "K10+ Export" mit den erzeugten Zeilen und
+dem Button "📋 In Zwischenablage kopieren". Die Klassifikationszeile behält das
+System der Notation (`6700 DK 628.5`, `6700 RVK AR 25140`).
+
+**CLI:**
 ```bash
-# Einfacher Export für direktes Copy-Paste in WinIBW
 python3 src/alima_cli.py show-protocol ergebnis.json --format k10plus
 
 5550 Cadmium
@@ -407,26 +423,47 @@ python3 src/alima_cli.py show-protocol ergebnis.json --format k10plus
 6700 DK 333.3
 ```
 
-**Batch-Verarbeitung mit K10+ Export:**
+Die CLI-Ausgabe setzt vor jede Notation `DK`, unabhängig vom System der
+Klassifikation.
+
+**Mehrere Dateien:**
 ```bash
-# Für 100+ Dateien: Alle K10+ Zeilen in eine Textdatei
 for json in results/*.json; do
     python3 src/alima_cli.py show-protocol "$json" --format k10plus
 done > k10plus_export.txt
-
-# Dann in WinIBW einfügen: Copy → Paste → Speichern
 ```
 
-**Konfigurierbarkeit:**
-Die Tags (5550, 6700) können später in config.json konfiguriert werden:
-```json
-{
-  "k10plus_export": {
-    "keyword_tag": "5550",
-    "classification_tag": "6700"
-  }
-}
+### 3. Workflows
+
+Die agentischen Läufe sind YAML-Dateien in `workflows/`. Eine Datei beschreibt die Schritte, ihre Prompts, die erlaubten Werkzeuge und die Modellparameter. Schema: [`docs/workflow_yaml_spec.md`](docs/workflow_yaml_spec.md), Ausführung: [`docs/agentic_workflow.md`](docs/agentic_workflow.md).
+
+```bash
+python3 src/alima_cli.py workflows list
+python3 src/alima_cli.py workflow catalog_search --input-file anfrage.json --output bericht.json
 ```
+
+`workflow <name>` führt einen Workflow eigenständig aus, unabhängig von der Sacherschließungspipeline; `--only-step` beschränkt den Lauf auf einen Schritt. In der GUI liegt der Editor unter Bearbeiten → "📋 Workflow-Editor" und im Pipeline-Konfigurationsdialog. Die WebAPP liest die Liste über `GET /api/workflows`.
+
+Jede Datei trägt ein Feld `status`, das `workflows list` mit ausgibt. Vergeben wird es vom Betreiber:
+
+*   `tested`: `alima_v51` (allgemein) und `alima_v51_105` (Freiberger Variante, RVK nur für Wirtschaftswissenschaften). Diese beiden tragen die Sacherschließung und sind an echtem Material erprobt.
+*   `research`: alle übrigen, darunter `catalog_search`, `synonym_expansion`, `title_list_search`, `webindex_keywords`, `website_rag`, `batch_metadata`, `research_deep`, `main_agent` sowie die älteren Pipeline-Fassungen `alima`, `alima_classic` und `alima_classic_v51`. Sie sind nicht abgenommen; was sie vorhaben, steht in ihrer `description`.
+
+### 4. Chat-Agent
+
+Derselbe `AgentLoop` mit demselben Werkzeugsatz läuft an drei Stellen: im Chat-Panel rechts neben dem Pipeline-Tab der GUI, als CLI-Befehl `agent` und in der WebAPP (`POST /agent/run`, `POST /api/session/{id}/chat`).
+
+```bash
+python3 src/alima_cli.py agent --doi "10.1007/s00442-021-04908-x" --prompt "Prüfe die Schlagwörter gegen die GND"
+```
+
+*   `--doi`, `--input`, `--input-file`, `--input-image`: Quelle des Werks.
+*   `--mode <verschlagwortung|suche|general|auto>`: Systemprompt (Standard: `auto`).
+*   `--autonomous`: führt Änderungen und Pipeline-Starts ohne Rückfrage aus.
+*   `--output <datei>`: schreibt das JSON-Ergebnis in eine Datei statt nach stdout.
+*   `--max-iterations`: Obergrenze der Werkzeugaufrufe.
+
+**Werkzeuge.** Lesend auf den aktuellen Analysezustand (`get_keywords`, `get_gnd_entries`, `get_dk_classifications`, `get_dk_titles_for_code`, `search_in_gnd_pool` und weitere), dazu die MCP-Werkzeuge für Suche und Beschaffung (`search_gnd`, `rvk_lookup`, `resolve_doi`, `read_pdf`, `scrape_url`, `execute_workflow`, `export_results`). Schreibend gibt es `propose_keyword_replacement` und `propose_dk_change`: beide schreiben eine Zeile ins Änderungsprotokoll und warten auf die Zustimmung im Chat, solange `--autonomous` beziehungsweise `chat_config.autonomous_pipeline` nicht gesetzt ist. `run_pipeline` und `rerun_step` starten Läufe.
 
 ## Lizenz
 LGPL v3
