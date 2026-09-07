@@ -693,3 +693,52 @@ class TestProposalBar(unittest.TestCase):
         bar = self._bar()
         bar.show_proposal(1, "something_new", {"a": "b"})
         self.assertTrue(bar.title_label.text())
+
+
+class TestRuleScopePicker(unittest.TestCase):
+    """The rule dialog offers the real steps and round-trips a scope."""
+
+    _kept: list = []
+
+    def _dialog(self, rule=None):
+        from PyQt6.QtWidgets import QApplication, QWidget
+        from src.ui.dialogs.rules_dialog import RuleEditDialog
+
+        if not self._kept:
+            self._kept.append(QApplication.instance() or QApplication(["alima-tests"]))
+            self._kept.append(QWidget())
+        dlg = RuleEditDialog(rule=rule, parent=self._kept[1])
+        self._kept.append(dlg)
+        return dlg
+
+    def test_the_picker_lists_the_real_steps(self):
+        dlg = self._dialog()
+        ids = list(dlg._step_items)
+        self.assertIn("*", ids)
+        self.assertIn("reflection", ids)
+        self.assertIn("classification", ids)
+
+    def test_nothing_ticked_means_everywhere(self):
+        self.assertEqual(self._dialog()._selected_steps(), ["*"])
+
+    def test_an_existing_scope_round_trips(self):
+        from src.core.user_rules import UserRule
+
+        dlg = self._dialog(UserRule(id="r-1", text="T", steps=["reflection"]))
+        self.assertEqual(dlg._selected_steps(), ["reflection"])
+        self.assertEqual(dlg.result_rule().steps, ["reflection"])
+
+    def test_a_glob_that_is_no_single_step_lands_in_the_extra_field(self):
+        from src.core.user_rules import UserRule
+
+        dlg = self._dialog(UserRule(id="r-1", text="T", steps=["selection*"]))
+        self.assertEqual(dlg.steps_extra.text(), "selection*")
+        self.assertEqual(dlg._selected_steps(), ["selection*"])
+
+    def test_ticks_and_globs_combine(self):
+        from PyQt6.QtCore import Qt
+        from src.core.user_rules import UserRule
+
+        dlg = self._dialog(UserRule(id="r-1", text="T", steps=["selection*"]))
+        dlg._step_items["reflection"].setCheckState(Qt.CheckState.Checked)
+        self.assertEqual(sorted(dlg._selected_steps()), ["reflection", "selection*"])

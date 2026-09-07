@@ -6,6 +6,34 @@
 
 ## 2026
 
+### Zusatzregeln: der Geltungsbereich ist jetzt wählbar (September 7, 2026)
+
+Alle neun Regeln aus den ersten echten Läufen standen auf `steps: ['*']`, also in
+jedem der acht LLM-Prompts — auch die WinIBW-Regeln, die nur am Laufende etwas
+tun können. Der Grund war nicht Bequemlichkeit des Modells: es kannte die
+Step-Ids gar nicht. Die Tool-Beschreibung zählte fünf Namen in einem Nebensatz
+auf, und eine Regel auf einer Id, die es nicht gibt, greift stillschweigend nie.
+
+Neu `user_rules.available_scope_steps()`: die wählbaren Schritte kommen aus der
+Workflow-YAML (Step-Id + `description`), dazu die drei Pseudo-Schritte
+`planner`/`reflection`/`chat`. Eine Quelle, zwei Verbraucher —
+
+- **`propose_rule`** baut seine `steps`-Beschreibung pro Chat-Zug daraus, das
+  Modell sieht also die echten Ids mit ihrer Bedeutung. Die Beschreibung sagt
+  jetzt außerdem, dass der Geltungsbereich eine Entscheidung ist, dass `*`
+  Token in Schritten kostet, die nichts damit anfangen können, und dass eine
+  Regel über die fertige Ausgabe zu `reflection` gehört. Das Modell soll die
+  gewählte Zuordnung in seiner Antwort nennen, damit sie korrigierbar ist.
+- **Der Regeldialog** hat statt des Freitextfeldes eine Liste mit Häkchen (ein
+  Zusatzfeld bleibt für Glob-Muster wie `selection*`). Ein bestehender
+  Geltungsbereich wird übernommen und unverändert zurückgegeben.
+
+Dazu `set_rule_scope`: ändert, an welchen Stellen eine bestehende Regel gelesen
+wird, ohne den Wortlaut anzufassen — für die Regeln, die schon auf `*` stehen.
+Ohne Bestätigung, wie `set_rule_enabled`: umkehrbar und im Dialog sichtbar.
+
+Suite 2040.
+
 ### Zusatzregeln: die Ausgabe am Laufende kam nie an (September 7, 2026)
 
 Erster echter Lauf mit einer Regel, die am Ende WinIBW-Snippets verlangt: die

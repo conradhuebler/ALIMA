@@ -877,3 +877,146 @@ class JsonRepairTest(unittest.TestCase):
 
         self.assertEqual(repair_json_newlines(""), "")
         self.assertEqual(extract_tagged_block("", "final_output"), "")
+
+
+class ScopeVocabularyTest(unittest.TestCase):
+    """The scope choices must come from the workflow, not from a hardcoded list.
+
+    A rule scoped to a step id that does not exist never fires, and nothing says
+    so — so the ids the operator and the model choose from have to be the ones
+    that actually run.
+    """
+
+    def test_the_real_workflow_steps_are_offered(self):
+        from src.core.user_rules import available_scope_steps
+
+        ids = [sid for sid, _ in available_scope_steps("alima_v51")]
+        self.assertEqual(ids[0], "*")
+        for expected in ("extraction", "selection", "classification"):
+            self.assertIn(expected, ids)
+
+    def test_the_three_pseudo_steps_are_offered(self):
+        from src.core.user_rules import (
+            STEP_CHAT,
+            STEP_PLANNER,
+            STEP_REFLECTION,
+            available_scope_steps,
+        )
+
+        ids = [sid for sid, _ in available_scope_steps("alima_v51")]
+        for expected in (STEP_PLANNER, STEP_REFLECTION, STEP_CHAT):
+            self.assertIn(expected, ids)
+
+    def test_ids_are_unique_and_carry_a_description(self):
+        from src.core.user_rules import available_scope_steps
+
+        choices = available_scope_steps("alima_v51")
+        ids = [sid for sid, _ in choices]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(desc for _, desc in choices))
+
+    def test_an_unknown_workflow_falls_back_instead_of_raising(self):
+        from src.core.user_rules import STEP_REFLECTION, available_scope_steps
+
+        ids = [sid for sid, _ in available_scope_steps("does-not-exist")]
+        self.assertIn("*", ids)
+        self.assertIn(STEP_REFLECTION, ids)
+
+    def test_every_offered_id_actually_matches_that_step(self):
+        # Mutation check on the list itself: an id that no longer matches its
+        # own step would be a scope nobody can hit.
+        from src.core.user_rules import available_scope_steps
+
+        for sid, _ in available_scope_steps("alima_v51"):
+            if sid == "*":
+                continue
+            rule = _rule(steps=[sid])
+            self.assertEqual(
+                len(select_rules([rule], workflow="alima_v51", step=sid)), 1, sid
+            )
+
+
+class ScopeFromChatTest(unittest.TestCase):
+    """The chat must be able to name and to correct a rule's scope."""
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.store = RuleStore(Path(self._tmp.name) / "rules.yaml")
+        self.chat_config = Mock(autonomous_pipeline=False, rule_author="")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _tool(self, cls, gateway=None):
+        return cls(
+            gateway=gateway,
+            chat_config=self.chat_config,
+            session_id="sess-1",
+            kb_manager=None,
+            store=self.store,
+        )
+
+    def test_the_propose_schema_lists_the_real_steps(self):
+        from src.ui.chat_tools.rules import ProposeRuleTool
+
+        schema = self._tool(ProposeRuleTool).to_tool_schema()
+        desc = schema["parameters"]["properties"]["steps"]["description"]
+        self.assertIn("reflection", desc)
+        self.assertIn("classification", desc)
+
+    def test_a_proposed_scope_is_stored_as_given(self):
+        from src.ui.chat_tools.rules import ProposeRuleTool
+
+        gateway = _Gateway(accepted=True)
+        self._tool(ProposeRuleTool, gateway).execute(
+            None, text="Am Ende die Snippets ausgeben.", steps=["reflection"]
+        )
+        (rule,) = self.store.load()
+        self.assertEqual(rule.steps, ["reflection"])
+
+    def test_the_scope_of_an_existing_rule_can_be_narrowed(self):
+        from src.ui.chat_tools.rules import SetRuleScopeTool
+
+        rule = self.store.add("Am Ende die Snippets ausgeben.")
+        self.assertEqual(rule.steps, ["*"])
+
+        out = json.loads(
+            self._tool(SetRuleScopeTool).execute(None, rule_id=rule.id, steps=["reflection"])
+        )
+        self.assertEqual(out["status"], "ok")
+        self.assertIn("*", out["changed_from"])
+        self.assertEqual(self.store.load()[0].steps, ["reflection"])
+
+    def test_workflows_can_be_narrowed_without_touching_steps(self):
+        from src.ui.chat_tools.rules import SetRuleScopeTool
+
+        rule = self.store.add("Regel.", steps=["selection"])
+        self._tool(SetRuleScopeTool).execute(
+            None, rule_id=rule.id, workflows=["alima_v51*"]
+        )
+        stored = self.store.load()[0]
+        self.assertEqual(stored.workflows, ["alima_v51*"])
+        self.assertEqual(stored.steps, ["selection"], "steps must be left alone")
+
+    def test_the_wording_is_never_touched(self):
+        from src.ui.chat_tools.rules import SetRuleScopeTool
+
+        rule = self.store.add("Wortlaut bleibt.")
+        self._tool(SetRuleScopeTool).execute(None, rule_id=rule.id, steps=["reflection"])
+        self.assertEqual(self.store.load()[0].text, "Wortlaut bleibt.")
+
+    def test_an_empty_change_is_refused(self):
+        from src.ui.chat_tools.rules import SetRuleScopeTool
+
+        rule = self.store.add("Regel.")
+        out = json.loads(self._tool(SetRuleScopeTool).execute(None, rule_id=rule.id))
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(self.store.load()[0].steps, ["*"])
+
+    def test_an_unknown_id_is_reported(self):
+        from src.ui.chat_tools.rules import SetRuleScopeTool
+
+        out = json.loads(
+            self._tool(SetRuleScopeTool).execute(None, rule_id="r-nope", steps=["chat"])
+        )
+        self.assertEqual(out["status"], "error")

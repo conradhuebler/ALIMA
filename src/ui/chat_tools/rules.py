@@ -21,7 +21,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.core.user_rules import RuleStore, UserRule
+from src.core.user_rules import RuleStore, UserRule, available_scope_steps
+from src.utils.error_visibility import log_caught
 from src.ui.chat_tools.mutations import _MutationToolBase
 
 logger = logging.getLogger(__name__)
@@ -189,12 +190,26 @@ class ProposeRuleTool(_RuleToolBase):
         "stored it is appended to the prompts of every matching run. "
         "Write `text` as one self-contained instruction in the user's own "
         "wording. Put a condition into `applies_when` as prose (e.g. 'bei "
-        "Überblickswerken') — it is judged by the model, not evaluated. Narrow "
-        "`steps` when the rule concerns one phase only (extraction, selection, "
-        "classification, planner, reflection, chat); leave it out for a rule "
-        "that always applies. Never call this without the user having said "
-        "something that should hold beyond the current case."
+        "Überblickswerken') — it is judged by the model, not evaluated.\n"
+        "DECIDE THE SCOPE: `steps` says at which point of the run the rule is "
+        "read. Work out where the rule actually acts and name those steps; the "
+        "`steps` parameter lists them with what each one does. '*' means the "
+        "rule is put into EVERY prompt — costs tokens in steps that cannot act "
+        "on it, so use it only for a rule that genuinely applies everywhere. A "
+        "rule about the finished output (a catalogue entry, an export format) "
+        "belongs to 'reflection', the last turn of the run. Say in your reply "
+        "which scope you chose and why, so the user can correct it.\n"
+        "Never call this without the user having said something that should "
+        "hold beyond the current case."
     )
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        # The step ids come from the workflow on disk, not from a hardcoded
+        # list: a rule scoped to a step that does not exist never fires, and a
+        # model with no list defaults everything to '*'. Built per chat turn, so
+        # an edited workflow is reflected without a restart. - Claude Generated
+        self.parameters_schema = _with_step_choices(type(self).parameters_schema)
+
     parameters_schema = {
         "type": "object",
         "properties": {
@@ -214,7 +229,7 @@ class ProposeRuleTool(_RuleToolBase):
             "steps": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Step id globs, e.g. ['selection*']. Default: all.",
+                "description": "Step ids the rule is read at. Globs allowed ('selection*').",
             },
             "reason": {
                 "type": "string",
@@ -327,6 +342,75 @@ class SetRuleEnabledTool(_RuleToolBase):
         )
 
 
+class SetRuleScopeTool(_RuleToolBase):
+    name = "set_rule_scope"
+    operation = "rule_scope"
+    description = (
+        "Change at which steps an existing rule is read, without touching its "
+        "wording. Use it when a rule turns out to be too broad ('*' but it only "
+        "matters for the final output) or too narrow. Reversible and shown in "
+        "the rule dialog, so it needs no confirmation. Find the id with "
+        "`list_rules`, then say in your reply what you changed."
+    )
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.parameters_schema = _with_step_choices(type(self).parameters_schema)
+
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "rule_id": {"type": "string", "description": "Rule id, e.g. 'r-20260903-01'."},
+            "steps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Step ids the rule is read at. Globs allowed ('selection*').",
+            },
+            "workflows": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Workflow name globs, e.g. ['alima_v51*']. Omit to keep.",
+            },
+        },
+        "required": ["rule_id"],
+    }
+
+    def execute(self, session: Any, **kwargs: Any) -> str:
+        rule_id = str(kwargs.get("rule_id") or "").strip()
+        rule = self.store.get(rule_id)
+        if rule is None:
+            return json.dumps(
+                {"status": "error", "message": f"Keine Regel mit der Id '{rule_id}'."},
+                ensure_ascii=False,
+            )
+        steps = _as_list(kwargs.get("steps"))
+        workflows = _as_list(kwargs.get("workflows"))
+        if not steps and not workflows:
+            return json.dumps(
+                {"status": "error", "message": "Weder steps noch workflows angegeben."},
+                ensure_ascii=False,
+            )
+        before = rule.scope_label()
+        if steps:
+            rule.steps = steps
+        if workflows:
+            rule.workflows = workflows
+        if not self.store.update(rule):
+            return json.dumps(
+                {"status": "error", "message": "Geltungsbereich konnte nicht gespeichert werden."},
+                ensure_ascii=False,
+            )
+        return json.dumps(
+            {
+                "status": "ok",
+                "rule": _rule_payload(rule),
+                "changed_from": before,
+                "message": "Geltungsbereich geändert; gilt ab dem nächsten Lauf.",
+            },
+            ensure_ascii=False,
+        )
+
+
 # ----------------------------------------------------------------------
 # Delete (confirmed)
 # ----------------------------------------------------------------------
@@ -374,6 +458,30 @@ class DeleteRuleTool(_RuleToolBase):
 # ----------------------------------------------------------------------
 
 
+def _with_step_choices(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy ``schema`` with the live step ids spelled out under ``steps``.
+
+    The model cannot guess a workflow's step ids, and a guessed one silently
+    never matches — so the choices, with what each step does, go into the
+    parameter description. - Claude Generated
+    """
+    import copy
+
+    out = copy.deepcopy(schema)
+    try:
+        choices = available_scope_steps()
+    except Exception as exc:
+        log_caught(logger, exc, "rules tool: building the step choice list")
+        return out
+    listing = "; ".join(f"'{sid}' = {desc}" if desc else f"'{sid}'" for sid, desc in choices)
+    steps = out.get("properties", {}).get("steps")
+    if isinstance(steps, dict):
+        steps["description"] = (
+            f"{steps.get('description', '')} Verfügbar: {listing}."
+        ).strip()
+    return out
+
+
 def _as_list(value: Any) -> List[str]:
     if value is None:
         return []
@@ -409,5 +517,6 @@ def rule_tools(
         ListRulesTool(**kwargs),
         ProposeRuleTool(**kwargs),
         SetRuleEnabledTool(**kwargs),
+        SetRuleScopeTool(**kwargs),
         DeleteRuleTool(**kwargs),
     ]

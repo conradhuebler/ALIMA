@@ -48,6 +48,14 @@ Lauf verhindern.
   Workflows gibt es drei Pseudo-Ids: `planner`, `reflection`, `chat`.
   `*` heißt „überall". Der Geltungsbereich ist das Mittel gegen Tokenkosten:
   eine Klassifikationsregel hat im Extraktions-Prompt nichts zu suchen.
+- **Die wählbaren Schritte kommen aus der Workflow-YAML**
+  (`available_scope_steps`), nicht aus einer gepflegten Liste — eine Regel auf
+  einer Step-Id, die es nicht gibt, greift nie, und nichts würde das melden.
+  Dieselbe Liste speist den Regeldialog (Häkchen statt Freitext) und die
+  `steps`-Beschreibung von `propose_rule`, damit das Modell die echten Ids kennt
+  und nicht mangels Wissen auf `*` ausweicht.
+- **Eine Regel über die fertige Ausgabe gehört zu `reflection`** — dem letzten
+  LLM-Turn eines Laufs. Nur dort kann sie etwas erzeugen.
 - Ein leerer Step-Name (ein Prompt, dessen Schritt sich nicht bestimmen lässt)
   erhält nur Regeln mit `steps: ["*"]`.
 
@@ -79,6 +87,7 @@ Regel ab dem nächsten Lauf aktiv.
 | `list_rules` | nein (liest nur) |
 | `propose_rule` | ja |
 | `set_rule_enabled` | nein — umkehrbar und im Regeldialog sichtbar |
+| `set_rule_scope` | nein — ändert nur, wo die Regel gelesen wird, nicht den Wortlaut |
 | `delete_rule` | ja — löscht die Herkunft mit |
 
 **`autonomous_pipeline` deckt Regeln nicht ab.** Für die übrigen

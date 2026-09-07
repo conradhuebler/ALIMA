@@ -29,6 +29,8 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -38,7 +40,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ...core.user_rules import STEP_CHAT, STEP_PLANNER, STEP_REFLECTION, RuleStore, UserRule
+from ...core.user_rules import RuleStore, UserRule, available_scope_steps
 
 _INTRO = (
     "Zusatzregeln werden an die Systemprompts der agentischen Schritte, des "
@@ -81,14 +83,35 @@ class RuleEditDialog(QDialog):
         self.workflows_edit.setToolTip("Glob-Muster, mehrere durch Komma getrennt.")
         form.addRow("Workflows:", self.workflows_edit)
 
-        self.steps_edit = QLineEdit()
-        self.steps_edit.setPlaceholderText("* (alle), oder z.B. selection*, classification")
-        self.steps_edit.setToolTip(
-            "Glob-Muster gegen die Step-Id; zusätzlich "
-            f"{', '.join((STEP_PLANNER, STEP_REFLECTION, STEP_CHAT))}. "
-            "Mehrere durch Komma getrennt."
+        # Steps are picked, not typed: a rule scoped to a step id that does not
+        # exist never fires, and nothing would say so. The list comes from the
+        # workflow on disk. - Claude Generated
+        self.steps_list = QListWidget()
+        self.steps_list.setMaximumHeight(150)
+        self.steps_list.setToolTip(
+            "An welchen Stellen die Regel gelesen wird. Eine Regel über die "
+            "fertige Ausgabe gehört zu 'reflection' — dem letzten Schritt eines "
+            "Laufs. Jeder Haken kostet Token in genau diesem Prompt."
         )
-        form.addRow("Schritte:", self.steps_edit)
+        self._step_items = {}
+        for step_id, desc in available_scope_steps():
+            label = f"{step_id} — {desc}" if desc else step_id
+            item = QListWidgetItem(label)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, step_id)
+            item.setToolTip(desc or step_id)
+            self.steps_list.addItem(item)
+            self._step_items[step_id] = item
+        form.addRow("Schritte:", self.steps_list)
+
+        self.steps_extra = QLineEdit()
+        self.steps_extra.setPlaceholderText("zusätzliche Glob-Muster, z.B. selection*")
+        self.steps_extra.setToolTip(
+            "Für Muster, die keinem einzelnen Schritt entsprechen. Mehrere durch "
+            "Komma getrennt; werden zu den Haken oben addiert."
+        )
+        form.addRow("", self.steps_extra)
 
         self.enabled_box = QCheckBox("aktiv — gilt ab dem nächsten Lauf")
         form.addRow("", self.enabled_box)
@@ -110,11 +133,32 @@ class RuleEditDialog(QDialog):
             self.text_edit.setPlainText(rule.text)
             self.when_edit.setText(rule.applies_when)
             self.workflows_edit.setText(", ".join(rule.workflows))
-            self.steps_edit.setText(", ".join(rule.steps))
+            self._preselect_steps(rule.steps)
             self.enabled_box.setChecked(rule.enabled)
             self.note_edit.setText(str(rule.origin.get("note", "") or ""))
         else:
             self.enabled_box.setChecked(True)
+
+    def _preselect_steps(self, steps: List[str]) -> None:
+        """Tick the known steps; anything else goes into the glob field."""
+        extra = []
+        for pattern in steps:
+            item = self._step_items.get(pattern)
+            if item is not None:
+                item.setCheckState(Qt.CheckState.Checked)
+            else:
+                extra.append(pattern)
+        self.steps_extra.setText(", ".join(extra))
+
+    def _selected_steps(self) -> List[str]:
+        picked = [
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self._step_items.values()
+            if item.checkState() == Qt.CheckState.Checked
+        ]
+        picked += self._split(self.steps_extra.text())
+        # No pick at all means "everywhere" — same default as the store.
+        return picked or ["*"]
 
     @staticmethod
     def _split(value: str) -> List[str]:
@@ -135,7 +179,7 @@ class RuleEditDialog(QDialog):
             text=text,
             applies_when=self.when_edit.text().strip(),
             workflows=self._split(self.workflows_edit.text()) or ["*"],
-            steps=self._split(self.steps_edit.text()) or ["*"],
+            steps=self._selected_steps(),
             enabled=self.enabled_box.isChecked(),
             origin=origin,
         )

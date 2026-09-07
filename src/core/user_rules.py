@@ -488,6 +488,58 @@ def _atomic_write_yaml(path: Path, payload: Dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------
+# Scope vocabulary
+# ----------------------------------------------------------------------
+
+#: What the three non-workflow prompts are for, in the operator's language.
+#: ``reflection`` matters most here: it is the only place where a rule that
+#: asks for something *at the end* of a run can still act.
+_PSEUDO_STEPS = (
+    (STEP_PLANNER, "Planer — entscheidet, welcher Schritt als nächstes läuft"),
+    (STEP_REFLECTION, "Reflexion — letzter LLM-Turn; hier entsteht eine Ausgabe am Laufende"),
+    (STEP_CHAT, "Chat — das Gespräch selbst"),
+)
+
+#: Used when the workflow file cannot be read. Deliberately short: a wrong list
+#: is worse than a short one, because a rule scoped to a step id that does not
+#: exist silently never fires.
+_FALLBACK_STEPS = (("*", "überall"),) + _PSEUDO_STEPS
+
+
+def available_scope_steps(workflow_name: str = "") -> List[Tuple[str, str]]:
+    """``(step_id, description)`` a rule can be scoped to, ``*`` first.
+
+    Read from the workflow YAML rather than hardcoded, so the list cannot drift
+    away from the steps that actually run. Shared by the rule dialog and by the
+    ``propose_rule`` tool schema — the model needs the real ids, otherwise it
+    defaults everything to ``*``. - Claude Generated
+    """
+    steps: List[Tuple[str, str]] = [("*", "überall — nur, wenn die Regel wirklich für jeden Schritt gilt")]
+    try:
+        from src.core.agents.workflow_loader import find_workflow_file, load_workflow
+
+        name = workflow_name
+        if not name:
+            from src.utils.config_manager import ConfigManager
+
+            cfg = ConfigManager().load_config()
+            name = getattr(cfg.system_config, "default_workflow", "") or "alima_v51"
+        path = find_workflow_file(name)
+        if path:
+            workflow = load_workflow(path)
+            for step in workflow.steps:
+                if not getattr(step, "enabled", True):
+                    continue
+                label = (getattr(step, "description", "") or "").strip().replace("\n", " ")
+                steps.append((step.id, label[:120]))
+    except Exception as exc:
+        log_caught(logger, exc, "user_rules: reading workflow steps for the scope list")
+        return list(_FALLBACK_STEPS)
+    steps.extend(_PSEUDO_STEPS)
+    return steps
+
+
+# ----------------------------------------------------------------------
 # Convenience for the injection points
 # ----------------------------------------------------------------------
 
