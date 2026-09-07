@@ -175,6 +175,13 @@ Die Liste sagt, welche Regeln **in einen Prompt gegangen** sind. Sie sagt nicht,
 dass ein Modell sie befolgt hat, und für eine Regel, die eine Aktion am Ende des
 Laufs verlangt, sagt sie nichts über deren Ausführung (siehe Grenze 0).
 
+## Offen: wie ein Regelsatz entsteht
+
+Das Ablegen funktioniert; der Erfassungs-Workflow ist noch nicht erprobt. Was in
+den ersten beiden Sitzungen auffiel — Regeln werden ergänzt statt überarbeitet,
+nicht jeder Wunsch ist eine Regel — steht als **T5** in
+[`open_workpackages.md`](open_workpackages.md).
+
 ## Grenzen
 
 0. **Eine Regel wirkt nur dort, wo ein Prompt gebaut wird.** Sie ist Text in

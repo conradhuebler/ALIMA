@@ -233,6 +233,27 @@ DK-Codes und eine mit System-Präfix; beide Pfade müssen dieselben Zeilen liefe
 - **T4 · i18n-Ausbau.** Settings-Widget für `UIConfig.ui_language` +
   Nicht-Chat-Oberflächen in den Katalog (Konvention: Memory
   `i18n-convention`; de+en immer synchron, Parity-Test vorhanden).
+- **T5 · Zusatzregeln: der Erfassungs-Workflow ist offen.** Das Ablegen
+  funktioniert ([`user_rules.md`](user_rules.md)), aber *wie* ein Regelsatz im
+  Gespräch entsteht, ist noch nicht erprobt. Beobachtet an den ersten beiden
+  echten Sitzungen (7. September, neun Regeln):
+  - **Regeln werden ergänzt statt überarbeitet.** `r-02` → `r-05` → `r-08` sind
+    drei aufeinanderfolgende Präzisierungen derselben Regel zur 555x-Nummerierung
+    — alle drei stehen aktiv nebeneinander im Prompt. `r-01` und `r-03` sind
+    wortgleich (die Dublettenprüfung kam danach). Ein „nein, eher so…" erzeugt
+    heute eine neue Regel neben der alten; ein Weg zum *Ändern* des Wortlauts
+    fehlt (es gibt add/toggle/scope/delete).
+  - **Nicht jeder Wunsch ist eine Regel.** „Am Ende soll der WinIBW-Eintrag
+    erstellt und **gepostet** werden" ist eine Funktionsanforderung; die Pipeline
+    zeigt den Block an, ein Posten nach WinIBW existiert nicht.
+  - **Der Geltungsbereich wurde nicht gewählt** — alle neun auf `*`. Ursache
+    behoben (die Schritt-Ids kommen jetzt aus der Workflow-YAML in Tool und
+    Dialog), Wirkung im Betrieb noch offen.
+  **Zu probieren, nicht entschieden:** ein `update_rule` mit Bestätigung
+  (Wortlaut ändern statt danebenlegen); ob der Agent beim Vorschlagen erst
+  `list_rules` lesen und eine Präzisierung als solche erkennen soll; ob ein
+  Regelsatz überhaupt im Fluss entstehen sollte oder besser in einer eigenen
+  Durchsicht am Ende einer Sitzung.
 - **Shims (F-11-Politik)** und **F-7/F-8** (Worker-Cancellation,
   ProviderModelSelector): nur bei Berührung —
   [`cleanup_findings.md`](cleanup_findings.md).
