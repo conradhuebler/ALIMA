@@ -78,6 +78,10 @@ USER_RULES_FINAL_GATE = (
     "weiterer Schritt. Verlangt eine Regel eine Ausgabe am Ende (einen Eintrag, "
     "ein Format, ein Snippet), erzeuge sie jetzt selbst — kündige sie nicht an, "
     "sondern schreibe sie hin.\n"
+    "- **Nimm die Daten aus dem Zustand oben, erfinde nichts.** Ketten,\n"
+    "  Schlagworte und Notationen stehen dort ausgeschrieben; gruppiere die\n"
+    "  Schlagworte nicht selbst neu und ordne keinem Schlagwort eine Kette zu,\n"
+    "  in der es nicht steht.\n"
     "- Die Ausgabe gehört NICHT ins JSON. Hänge sie NACH dem JSON so an:\n"
     "  <final_output>\n"
     "  …die fertige Ausgabe, mehrzeilig, genau im geforderten Format…\n"
@@ -98,7 +102,9 @@ DEFAULT_REFLECTION_USER_PROMPT = (
     "- GND-Einträge: {gnd_entries_count}\n"
     "- Ausgewählte Keywords: {selected_keywords_count}\n"
     "- Finale Schlagworte: {final_keywords}\n"
-    "- Schlagwortketten: {keyword_chains_count}\n"
+    "- Schlagwortketten ({keyword_chains_count}):\n{keyword_chains}\n"
+    "- Kernschlagworte (RSWK-Kern): {core_keywords}\n"
+    "- Formschlagworte: {form_keywords}\n"
     "- DK-Klassifikationen: {dk_classifications_count}\n"
     "- DK-Codes (Ist): {dk_codes}\n"
     "- Hat tiefe DK-Codes (≥4 Ziffern, deterministisch geprüft): {has_deep_dk}\n"
@@ -116,6 +122,31 @@ DEFAULT_REFLECTION_USER_PROMPT = (
     "Wenn fehlende Konzepte schon gesucht wurden, wähle 'continue' oder 'finish'.\n\n"
     "Welche Phase ist erreicht und was fehlt noch?"
 )
+
+
+def _format_chains(chains: Any) -> str:
+    """The Schlagwortketten as indented ``A → B → C`` lines. - Claude Generated"""
+    lines = []
+    for entry in chains or []:
+        if not isinstance(entry, dict):
+            continue
+        terms = [str(t).strip() for t in (entry.get("chain") or []) if str(t).strip()]
+        if terms:
+            lines.append("    " + " → ".join(terms))
+    return "\n".join(lines) if lines else "    keine"
+
+
+def _format_keyword_list(context: Any, field: str) -> str:
+    """A KAS-style keyword bucket as a comma list, or ``keine``."""
+    values = (getattr(context, "extra", None) or {}).get(field) or []
+    names = [
+        str(item.get("keyword", "")).strip()
+        for item in values
+        if isinstance(item, dict) and str(item.get("keyword", "")).strip()
+    ]
+    if not names:
+        names = [str(v).strip() for v in values if isinstance(v, str) and v.strip()]
+    return ", ".join(names) if names else "keine"
 
 
 def _user_rules_values(context: Any) -> Dict[str, str]:
@@ -205,6 +236,14 @@ class ReflectionStep(BaseStep):
             "dk_codes": dk_codes_str,
             "final_keywords": final_kws_str,
             "keyword_chains_count": len(getattr(context, "keyword_chains", []) or []),
+            # The chains themselves, not just how many. A rule that asks for the
+            # output to be grouped by chain cannot be followed from a count: the
+            # model then partitions the flat keyword list into plausible-looking
+            # groups that are not the chains. Observed on September 7 — the block
+            # looked right and was wrong. - Claude Generated
+            "keyword_chains": _format_chains(getattr(context, "keyword_chains", None)),
+            "core_keywords": _format_keyword_list(context, "core_keywords"),
+            "form_keywords": _format_keyword_list(context, "form_keywords"),
             "analyse_excerpt": analyse_excerpt,
             "catalog_total_titles": catalog_total_titles,
             "catalog_unique_notations": catalog_unique_notations,

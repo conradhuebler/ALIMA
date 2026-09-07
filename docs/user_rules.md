@@ -145,6 +145,12 @@ werden"). Dafür gibt es keinen eigenen Abschluss-Schritt; zuständig ist die
 - Die Ausgabe steht **nach** dem JSON in `<final_output>…</final_output>`. Der
   Prompt sagt ausdrücklich, dass danach kein weiterer Schritt folgt — ein Modell
   kündigte sie sonst nur an.
+- **Die Reflexion kann nur ausgeben, was sie sieht.** Ihr Zustandsbericht führt
+  die Schlagwortketten, den RSWK-Kern und die Formschlagworte ausgeschrieben auf,
+  nicht nur ihre Anzahl: eine Regel „nach Ketten gruppiert ausgeben" ist aus
+  einer Zahl nicht erfüllbar, und ein Modell zerlegt dann die flache
+  Schlagwortliste in plausibel aussehende Gruppen, die keine Ketten sind. Der
+  Gate-Text verbietet zusätzlich ausdrücklich, eine Gruppierung zu erfinden.
 - **Warum nicht als JSON-Feld:** ein mehrzeiliger Eintrag in einem JSON-String
   braucht escapte Zeilenumbrüche. Ein Modell schreibt dort rohe Umbrüche, das
   JSON wird ungültig, und dann ist nicht nur die Ausgabe weg, sondern die ganze

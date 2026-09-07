@@ -1110,3 +1110,75 @@ class ScopeFromChatTest(unittest.TestCase):
             self._tool(SetRuleScopeTool).execute(None, rule_id="r-nope", steps=["chat"])
         )
         self.assertEqual(out["status"], "error")
+
+
+class ReflectionStateDumpTest(unittest.TestCase):
+    """The gate can only produce a correct output from data it actually sees.
+
+    Observed September 7: a rule asked for the output grouped by Schlagwortkette.
+    The reflection prompt carried only the chain *count*, so the model
+    partitioned the flat keyword list into four plausible-looking groups that
+    were not the chains — the block looked right and was wrong.
+    """
+
+    def test_the_chains_are_spelled_out_not_just_counted(self):
+        from src.core.agents.steps.reflection_step import (
+            DEFAULT_REFLECTION_USER_PROMPT,
+            _format_chains,
+        )
+
+        self.assertIn("{keyword_chains}", DEFAULT_REFLECTION_USER_PROMPT)
+        rendered = _format_chains(
+            [
+                {"chain": ["Cadmium", "Boden-Pflanze-System", "Bioakkumulation"]},
+                {"chain": ["Schwermetallbelastung", "Risikoanalyse"], "reason": "x"},
+            ]
+        )
+        self.assertIn("Cadmium → Boden-Pflanze-System → Bioakkumulation", rendered)
+        self.assertIn("Schwermetallbelastung → Risikoanalyse", rendered)
+
+    def test_no_chains_says_so_instead_of_rendering_nothing(self):
+        from src.core.agents.steps.reflection_step import _format_chains
+
+        self.assertEqual(_format_chains([]).strip(), "keine")
+        self.assertEqual(_format_chains(None).strip(), "keine")
+
+    def test_malformed_chain_entries_are_skipped(self):
+        from src.core.agents.steps.reflection_step import _format_chains
+
+        rendered = _format_chains([{"chain": []}, "kaputt", {"chain": ["A"]}])
+        self.assertEqual(rendered.strip(), "A")
+
+    def test_core_and_form_keywords_reach_the_prompt(self):
+        from src.core.agents.steps.reflection_step import (
+            DEFAULT_REFLECTION_USER_PROMPT,
+            _format_keyword_list,
+        )
+
+        self.assertIn("{core_keywords}", DEFAULT_REFLECTION_USER_PROMPT)
+        self.assertIn("{form_keywords}", DEFAULT_REFLECTION_USER_PROMPT)
+
+        class Ctx:
+            extra = {"core_keywords": [{"keyword": "Cadmiumbelastung"}], "form_keywords": []}
+
+        self.assertEqual(_format_keyword_list(Ctx(), "core_keywords"), "Cadmiumbelastung")
+        self.assertEqual(_format_keyword_list(Ctx(), "form_keywords"), "keine")
+
+    def test_the_gate_forbids_inventing_a_grouping(self):
+        from src.core.agents.steps.reflection_step import USER_RULES_FINAL_GATE
+
+        self.assertIn("erfinde nichts", USER_RULES_FINAL_GATE.lower())
+
+    def test_no_placeholder_survives_into_the_rendered_prompt(self):
+        """A typo'd slot would silently ship '{keyword_chains}' to the model."""
+        import re
+
+        from src.core.agents.steps.reflection_step import (
+            DEFAULT_REFLECTION_USER_PROMPT,
+            ReflectionStep,
+        )
+
+        slots = set(re.findall(r"\{(\w+)\}", DEFAULT_REFLECTION_USER_PROMPT))
+        values = {name: "x" for name in slots}
+        rendered = ReflectionStep._render(DEFAULT_REFLECTION_USER_PROMPT, values)
+        self.assertNotIn("{", rendered)

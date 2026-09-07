@@ -34,6 +34,31 @@ Ohne Bestätigung, wie `set_rule_enabled`: umkehrbar und im Dialog sichtbar.
 
 Suite 2040.
 
+### Zusatzregeln: die Reflexion sah die Ketten gar nicht (September 7, 2026)
+
+Der erste Lauf, in dem der Block ankam, lieferte ein Ergebnis, das richtig
+aussah und falsch war. Eine Regel verlangt die WinIBW-Ausgabe **nach
+Schlagwortketten gruppiert**, je Kette eine Feldnummer. Der Zustandsbericht der
+Reflexion enthielt aber nur `Schlagwortketten: 4` — die Zahl, nicht die Ketten.
+Das Modell zerlegte daraufhin die flache Liste der zwanzig Schlagworte in vier
+Gruppen zu 4/5/4/7 und schloss jede mit `$ADE-105` ab. Die echten Ketten
+(Cadmium → Boden-Pflanze-System → Bioakkumulation) standen quer über drei dieser
+Gruppen verteilt, und Schlagworte ohne Kette bekamen den Abschluss-Indikator,
+den die Regel ihnen ausdrücklich verwehrt.
+
+Der Zustandsbericht führt jetzt die Ketten ausgeschrieben auf
+(`A → B → C`, eine je Zeile), dazu `core_keywords` und `form_keywords` — ohne
+die ist auch die Lehrbuch-Regel (Feld 1131) nicht anwendbar. Der Gate-Text
+verbietet zusätzlich ausdrücklich, eine Gruppierung zu erfinden oder ein
+Schlagwort einer Kette zuzuordnen, in der es nicht steht. Ein Test prüft, dass
+kein Platzhalter des Zustandsberichts ungefüllt beim Modell landet — ein
+vertippter Slot hätte `{keyword_chains}` wörtlich verschickt.
+
+Das ist der Prompt-seitige Teil. Ob ein Modell die Ketten dann korrekt gruppiert,
+sagt keiner dieser Tests.
+
+Suite 2052.
+
 ### Zusatzregeln: Ausgabe einmal statt in jedem Zyklus (September 7, 2026)
 
 Die Ausgabe kam an — und dann zweimal. Die Reflexion läuft einmal pro Zyklus,
