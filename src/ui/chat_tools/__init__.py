@@ -26,6 +26,8 @@ def build_chat_toolset(
     pipeline_manager: Any = None,
     kb_manager: Any = None,
     proposal_gateway: Any = None,
+    llm_service: Any = None,
+    on_model_switch: Any = None,
 ) -> ChatToolRegistry:
     """Assemble a ChatToolRegistry for the given chat session.
 
@@ -39,7 +41,13 @@ def build_chat_toolset(
          the writing ones only with a ``proposal_gateway`` (they ask the user
          through it). They need no ``pipeline_manager``: a rule can be
          formulated without a loaded result.
-      5. MCP read-only adapter           (`mcp_adapter.py`)
+      5. LLM switch                      (`llm_switch.py`) — ONLY when
+         ``chat_config.allow_model_switch`` is on AND the host passed an
+         ``llm_service``. With the switch off the model never sees the tool at
+         all, which is the point: a capability the operator did not enable
+         should not be advertised. The second condition keeps it out of the
+         headless runner, whose session does not survive the call.
+      6. MCP read-only adapter           (`mcp_adapter.py`)
 
     Tools whose ``available_for(session)`` returns False are skipped, so
     the agent never sees options that would no-op on empty state.
@@ -85,6 +93,19 @@ def build_chat_toolset(
         )
     else:
         candidates.append(ListRulesTool(chat_config=chat_config))
+
+    # Two conditions, both necessary: the operator enabled it, and the host can
+    # actually honour it. ``llm_service`` is how the tool checks that a model
+    # exists, and a host that passes one is a host that keeps its session across
+    # turns — the headless runner builds a fresh ChatSession per call, so a
+    # switch there would be forgotten before it could apply. Offering a tool
+    # that cannot work is worse than not offering it. - Claude Generated
+    if bool(getattr(chat_config, "allow_model_switch", False)) and llm_service is not None:
+        from src.ui.chat_tools.llm_switch import llm_switch_tools
+
+        candidates.extend(
+            llm_switch_tools(llm_service=llm_service, on_switch=on_model_switch)
+        )
 
     for tool in candidates:
         if tool.available_for(session):

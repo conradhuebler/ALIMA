@@ -375,6 +375,18 @@ class ComprehensiveSettingsDialog(QDialog):
         rules_row.addStretch()
         chat_layout.addRow("Zusatzregeln:", rules_row)
 
+        self.chat_allow_model_switch = QCheckBox(
+            "Agent darf Provider/Modell selbst wechseln"
+        )
+        self.chat_allow_model_switch.setToolTip(
+            "Gibt dem Chat-Agenten das Werkzeug, sein eigenes Modell für den Rest "
+            "der Sitzung zu wechseln — z.B. auf ein stärkeres für eine schwierige "
+            "Klassifikation. Aus: das Werkzeug wird gar nicht erst angeboten.\n"
+            "Der Wechsel gilt ab der nächsten Antwort, wird nie gespeichert und "
+            "endet, sobald Du die LLM-Auswahl in der Werkzeugleiste anfasst."
+        )
+        chat_layout.addRow("Modellwechsel:", self.chat_allow_model_switch)
+
         chat_group.setLayout(chat_layout)
         layout.addWidget(chat_group)
 
@@ -565,6 +577,9 @@ class ComprehensiveSettingsDialog(QDialog):
         chat_cfg = getattr(config, "chat_config", None)
         self.chat_institution_context.setPlainText(
             getattr(chat_cfg, "institution_context", "") if chat_cfg else ""
+        )
+        self.chat_allow_model_switch.setChecked(
+            bool(getattr(chat_cfg, "allow_model_switch", False)) if chat_cfg else False
         )
 
 
@@ -879,6 +894,7 @@ class ComprehensiveSettingsDialog(QDialog):
             from ..utils.config_models import ChatConfig
             config.chat_config = ChatConfig()
         config.chat_config.institution_context = self.chat_institution_context.toPlainText().strip()
+        config.chat_config.allow_model_switch = self.chat_allow_model_switch.isChecked()
 
         # UI configuration - Claude Generated (Webcam Feature)
         from ..utils.config_models import UIConfig, RepetitionDetectionConfig

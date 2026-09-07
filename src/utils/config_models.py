@@ -917,6 +917,14 @@ class ChatConfig:
     # analysis. Empty = disabled. Relative paths resolve against the config
     # directory. - Claude Generated
     session_log_db: str = ""
+    # When True the chat agent may switch its own provider/model for the rest of
+    # the session (tool ``switch_llm_model``), e.g. to a stronger model for a
+    # hard classification. Off by default and deliberately a config switch, not
+    # a per-call confirmation: an agent that can pick its own model without the
+    # operator having enabled it once is exactly the runaway this guards
+    # against. The pick never persists — it lives on the ChatSession and any
+    # manual change in the toolbar clears it. - Claude Generated
+    allow_model_switch: bool = False
 
 
 @dataclass

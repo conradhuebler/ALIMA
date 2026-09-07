@@ -30,10 +30,21 @@ class ChatSession:
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     messages: List[Dict[str, str]] = field(default_factory=list)
     last_shared_context: Optional[Any] = None  # SharedContext (avoid circular import)
+    # Provider/model the agent asked for via ``switch_llm_model`` (only reachable
+    # when ``ChatConfig.allow_model_switch`` is on). Applies from the next turn —
+    # the running turn's loop is already bound to its model — and is cleared when
+    # the operator changes the toolbar pick. Never persisted. - Claude Generated
+    requested_provider: str = ""
+    requested_model: str = ""
 
     def append(self, role: str, content: str) -> None:
         """Append a turn. ``role`` should be 'user' or 'assistant'."""
         self.messages.append({"role": role, "content": content})
+
+    def clear_requested_model(self) -> None:
+        """Drop an agent-requested model — the operator picked one. - Claude Generated"""
+        self.requested_provider = ""
+        self.requested_model = ""
 
     def reset(self) -> None:
         """Clear the transcript. Keeps session_id + last_shared_context."""

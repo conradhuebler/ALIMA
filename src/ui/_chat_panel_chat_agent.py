@@ -68,10 +68,34 @@ class ChatAgentMixin:
         else:
             self.model_status_label.setText("→ (kein Modell)")
 
-    def _on_model_selection_changed(self, _provider: str, _model: str) -> None:
+    def _on_agent_model_switch(self, provider: str, model: str, reason: str) -> None:
+        """Announce a model the agent picked for itself.
+
+        A switch that only shows up in the tool log is a change nobody notices;
+        it belongs in the conversation. - Claude Generated
+        """
+        suffix = f" — {reason}" if reason else ""
+        try:
+            self._append_system_message(
+                f"🤖 Modellwechsel ab der nächsten Antwort: {provider} | {model}{suffix}"
+            )
+            self._refresh_model_status()
+        except Exception:
+            self.logger.exception("PipelineChatPanel: announcing model switch failed")
+
+    def set_llm_override(self, provider: str, model: str) -> None:
+        """Adopt the pipeline toolbar's LLM pick for the chat as well.
+
+        Called by the embedding pipeline tab whenever its selector changes. An
+        empty pair means "-- Standard --" and falls through to the configured
+        chat default. - Claude Generated
+        """
+        self._llm_override = (provider or "", model or "")
+        session = getattr(self, "session", None)
+        if session is not None and hasattr(session, "clear_requested_model"):
+            # The operator acted — that outranks whatever the agent picked.
+            session.clear_requested_model()
         self._refresh_model_status()
-        if self.persist_combo_toggle.isChecked():
-            self._persist_combo_to_chat_config()
 
     @pyqtSlot(int)
     def _on_autonomous_toggle_changed(self, _state: int) -> None:
@@ -96,7 +120,12 @@ class ChatAgentMixin:
             )
 
     def _persist_combo_to_chat_config(self) -> None:
-        provider, model = self.provider_selector.get_selection()
+        """Store the effective provider/model as the ChatConfig default.
+
+        No longer wired to a header control (the chat has no picker of its own);
+        kept as the single write path for the chat default. - Claude Generated
+        """
+        provider, model = self._resolve_provider_model()
         if not (provider and model):
             return
         try:
@@ -121,56 +150,37 @@ class ChatAgentMixin:
             )
 
     def _populate_model_combo(self):
-        """Populate the provider picker from the enabled providers.
+        """Show which model the chat resolves to.
 
-        Safe to call again on config changes (fixes the old staleness where the
-        combo was only built once in setup_ui). The per-provider model list is
-        loaded lazily from the shared cache by the selector itself.
+        Kept under its old name because the embedding tab calls it; there is no
+        combo to populate any more — the pipeline toolbar owns the pick.
+        - Claude Generated
         """
-        try:
-            from ..utils.config_manager import ConfigManager
-
-            unified_config = ConfigManager().get_unified_config()
-            names = [p.name for p in unified_config.get_enabled_providers()]
-            # refresh=False: a set_selection follows, so don't kick off a
-            # throwaway model load for the index-0 provider first.
-            self.provider_selector.set_providers(names, refresh=False)
-            # Show the effective saved default live (ChatConfig default →
-            # pipeline/general default → first enabled) instead of a bare
-            # "-- Auto --", so the combo reflects what the chat will actually use.
-            # set_selection is programmatic → silent, so it won't trigger a
-            # spurious persist via the 💾 toggle.
-            prov, model = self._resolve_provider_model()
-            if prov and model:
-                self.provider_selector.set_selection(prov, model)
-        except Exception as e:
-            self.logger.error(f"Error populating provider selector: {e}")
+        self._refresh_model_status()
 
     def refresh_providers(self) -> None:
-        """Refresh the provider list after a Settings change (provider added or
-        removed) without resetting the user's current pick.
+        """Re-resolve after a settings change (provider added or removed).
 
-        Unlike _populate_model_combo this does NOT re-select the resolved default
-        — set_providers preserves the current provider/model selection when it
-        still exists, so a live chat choice survives the refresh. Called by the
-        embedding pipeline tab's on_config_changed. - Claude Generated
+        Called by the embedding pipeline tab's on_config_changed. - Claude Generated
         """
-        try:
-            from ..utils.config_manager import ConfigManager
-
-            names = [p.name for p in
-                     ConfigManager().get_unified_config().get_enabled_providers()]
-            self.provider_selector.set_providers(names, refresh=False)
-        except Exception as e:
-            self.logger.error(f"Error refreshing chat provider selector: {e}")
+        self._refresh_model_status()
 
     def _resolve_provider_model(self) -> tuple[str, str]:
-        # Shared chain (CLI/HTTP/GUI): combo override → ChatConfig default →
+        # Shared chain (CLI/HTTP/GUI): explicit override → ChatConfig default →
         # pipeline global override → unified agentic default → pipeline default →
         # general default → first enabled provider → llm_service.current.
-        # Combo override = the explicit (provider, model) pick; "-- Auto --"
-        # yields ("", "") which falls through to the resolution chain below.
-        ov_provider, ov_model = self.provider_selector.get_selection()
+        # The explicit override is the pipeline toolbar's pick, handed over by
+        # the embedding tab; "-- Standard --" yields ("", "") and falls through.
+        # A model the agent asked for (only reachable with
+        # ChatConfig.allow_model_switch on) wins over the toolbar pick until the
+        # operator touches the toolbar again — otherwise the switch would be
+        # undone by the very control it was meant to adapt. - Claude Generated
+        ov_provider, ov_model = getattr(self, "_llm_override", ("", ""))
+        session = getattr(self, "session", None)
+        req_provider = str(getattr(session, "requested_provider", "") or "")
+        req_model = str(getattr(session, "requested_model", "") or "")
+        if req_provider and req_model:
+            ov_provider, ov_model = req_provider, req_model
         provider, model = resolve_provider_model(
             ov_provider or None, ov_model or None,
             chat_config=self._get_chat_config(),
@@ -346,6 +356,8 @@ class ChatAgentMixin:
                 pipeline_manager=self.pipeline_manager,
                 kb_manager=kb_manager,
                 proposal_gateway=self.proposal_gateway,
+                llm_service=self.llm_service,
+                on_model_switch=self._on_agent_model_switch,
             )
         except Exception:
             self.logger.exception(

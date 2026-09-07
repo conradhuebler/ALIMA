@@ -34,6 +34,49 @@ Ohne Bestätigung, wie `set_rule_enabled`: umkehrbar und im Dialog sichtbar.
 
 Suite 2040.
 
+### Eine LLM-Auswahl je Tab, und ein Modellwechsel für den Agenten (September 7, 2026)
+
+**Zwei Auswahlfelder für dieselbe Entscheidung.** Der Pipeline-Tab hat eine
+LLM-Auswahl in der Werkzeugleiste, und das darin eingebettete Chat-Panel hatte
+eine zweite im Kopf. Beide bauten auf demselben `ProviderModelSelector` auf —
+doppelt war die Bedienung, nicht der Code. Schlimmer als die Redundanz war die
+stille Rangfolge: die Chat-Combo ging als expliziter Override in
+`resolve_provider_model` und stand damit über `ChatConfig` **und** über
+`PipelineConfig.global_*_override`; die Werkzeugleiste hatte auf den Chat
+praktisch keinen Einfluss.
+
+Die Chat-Combo ist weg. Der Tab reicht seine Auswahl über
+`stream_widget.set_llm_override` weiter, der Chat-Kopf zeigt das Ergebnis nur
+noch als Text (`model_status_label`, mit Tooltip, woher es kommt). Ein anderer
+Chat-Default bleibt möglich — `ChatConfig` greift, sobald die Werkzeugleiste auf
+„-- Standard --" steht. Der 💾-Schalter zum Merken der Combo-Wahl entfiel mit der
+Combo; `_persist_combo_to_chat_config` schreibt jetzt das aufgelöste Paar und ist
+der eine Schreibpfad für den Chat-Default. `tests/test_chat_combo_persistence.py`
+→ `test_chat_llm_selection.py`.
+
+**Der Agent darf sein Modell wechseln — wenn man es einschaltet.** Neu
+`switch_llm_model` (`src/ui/chat_tools/llm_switch.py`): der Chat kann für den
+Rest der Sitzung auf ein anderes Provider/Modell umstellen, etwa auf ein
+stärkeres für eine schwierige Klassifikation. Drei Grenzen, weil ein Agent, der
+sein eigenes Modell wählt, genau die Sorte Sache ist, die einem entgleitet:
+- **Aus, bis der Betreiber es einschaltet** (`ChatConfig.allow_model_switch`,
+  Häkchen in den Einstellungen). Aus heißt: das Werkzeug wird gar nicht erst
+  registriert, das Modell sieht die Fähigkeit nicht.
+- **Nur existierende Modelle.** Provider muss aktiv, Modell in dessen Liste sein;
+  sonst Ablehnung mit der Liste des Verfügbaren statt eines stillen Bruchs im
+  nächsten Zug. Ein Provider, der nicht abgefragt werden kann, wird als solcher
+  gemeldet und nicht mit „gibt es nicht" verwechselt.
+- **Sitzungsweit, nicht dauerhaft.** Der Wunsch liegt auf der `ChatSession`, wird
+  nie gespeichert, gilt ab der **nächsten** Antwort (die laufende Schleife hängt
+  am alten Modell) und verfällt, sobald der Betreiber die Werkzeugleiste anfasst.
+  Ein Wechsel erscheint als Systemzeile im Gespräch, nicht nur im Tool-Log.
+
+Der headless-Läufer bekommt das Werkzeug nicht: er legt pro Aufruf eine neue
+`ChatSession` an, ein Wechsel wäre vergessen, bevor er wirken könnte. Ein
+Werkzeug anzubieten, das nicht wirken kann, ist schlechter als keines.
+
+Suite 2073.
+
 ### Zusatzregeln: die Reflexion sah die Ketten gar nicht (September 7, 2026)
 
 Der erste Lauf, in dem der Block ankam, lieferte ein Ergebnis, das richtig

@@ -273,58 +273,25 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         title_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
         header_layout.addWidget(title_label)
 
-        # Shared provider+model picker (Phase 5): replaces the single combined
-        # "provider | model" combo. Model lists come from the shared TTL cache and
-        # refresh per provider; the clean model name lives in UserRole so display
-        # decoration can never leak into the value (the old phantom-model bug).
-        from .provider_model_selector import ProviderModelSelector
-        # Non-editable: a read-only model combo renders its text natively via the
-        # QComboBox color (no embedded QLineEdit that ignores the dark theme), and
-        # the model list is anyway fully covered by detection — free-text entry is
-        # not needed in the chat header.
-        self.provider_selector = ProviderModelSelector(
-            allow_empty=True,
-            editable_model=False,
-            empty_provider_label="-- Auto --",
-            empty_model_label="(Auto)",
-        )
-        _combo_qss = (
-            "QComboBox { font-size: 10px; padding: 2px 6px; border: 1px solid #555; "
-            "border-radius: 3px; background-color: #3d3d3d; color: #ccc; }"
-            # Make the drop-down affordance visible: the custom dark theme replaces
-            # the native rendering, so style the button area + draw a light arrow.
-            "QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; "
-            "width: 18px; border-left: 1px solid #555; background-color: #4a4a4a; "
-            "border-top-right-radius: 3px; border-bottom-right-radius: 3px; }"
-            "QComboBox::down-arrow { width: 0; height: 0; border-left: 4px solid transparent; "
-            "border-right: 4px solid transparent; border-top: 5px solid #ccc; }"
-            "QComboBox QAbstractItemView { background-color: #2b2b2b; color: #ccc; "
-            "selection-background-color: #005fcc; selection-color: white; border: 1px solid #555; }"
-        )
-        # set_combo_style (not setStyleSheet directly): the selector's validation
-        # pass composes onto this base, so the dark theme survives model loading.
-        self.provider_selector.set_combo_style(_combo_qss)
-        # Fixed widths: a long model name must not resize the header. The closed
-        # combo clips; the popup view gets a generous minimum so the full names
-        # stay readable when the dropdown is open.
-        self.provider_selector.provider_combo.setFixedWidth(130)
-        self.provider_selector.model_combo.setFixedWidth(210)
-        self.provider_selector.model_combo.view().setMinimumWidth(320)
-        self._populate_model_combo()
-        self.provider_selector.selectionChanged.connect(self._on_model_selection_changed)
-        header_layout.addWidget(self.provider_selector)
+        # No provider/model picker here on purpose: the pipeline toolbar has one,
+        # and this panel sits inside that toolbar's tab — two controls for the
+        # same decision, of which the chat's silently outranked the other. The
+        # toolbar now drives the chat too (``set_llm_override``), and the label
+        # below shows what that resolves to. A *different* default for the chat
+        # is still possible via ChatConfig in the settings; it applies whenever
+        # the toolbar is on "-- Standard --". - Claude Generated
+        self._llm_override: tuple = ("", "")
 
-        self.persist_combo_toggle = QCheckBox("💾")
-        self.persist_combo_toggle.setChecked(False)
-        self.persist_combo_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
-        self.persist_combo_toggle.setToolTip(
-            "Bei Combo-Wechsel als ChatConfig-Default speichern."
-        )
-        header_layout.addWidget(self.persist_combo_toggle)
-
+        # Read-only: which provider/model the chat will actually use, resolved
+        # through the same chain as the run itself. - Claude Generated
         self.model_status_label = QLabel("")
         self.model_status_label.setStyleSheet(
             "color: #8be9fd; font-size: 10px; padding-left: 4px;"
+        )
+        self.model_status_label.setToolTip(
+            "Modell des Chat-Agenten. Kommt aus der LLM-Auswahl der "
+            "Pipeline-Werkzeugleiste; bei \"-- Standard --\" gilt der in den "
+            "Einstellungen konfigurierte Chat-Default."
         )
         header_layout.addWidget(self.model_status_label)
 

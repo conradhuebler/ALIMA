@@ -231,6 +231,17 @@ class PipelineTab(
             parent=self,
         )
 
+        # One LLM pick for the whole tab: the toolbar selector drives the run
+        # AND the chat. The chat used to carry its own picker, which silently
+        # outranked this one. - Claude Generated
+        if hasattr(self, "global_override_selector"):
+            self.global_override_selector.selectionChanged.connect(
+                self.stream_widget.set_llm_override
+            )
+            self.stream_widget.set_llm_override(
+                *self.global_override_selector.get_selection()
+            )
+
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
         self.stream_widget.abort_generation_requested.connect(self.on_abort_current_step_requested)  # Claude Generated
