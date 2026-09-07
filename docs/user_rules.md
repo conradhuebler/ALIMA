@@ -181,6 +181,16 @@ Die Liste sagt, welche Regeln **in einen Prompt gegangen** sind. Sie sagt nicht,
 dass ein Modell sie befolgt hat, und für eine Regel, die eine Aktion am Ende des
 Laufs verlangt, sagt sie nichts über deren Ausführung (siehe Grenze 0).
 
+## Anzeige: einmal erzeugt, zweimal sichtbar
+
+Der Ausgabeblock erscheint im Log zweimal — einmal als Live-Strom der
+Reflexionsantwort, einmal als fertiger Ergebnisblock. Erzeugt wird er **einmal**:
+nur die letzte Reflexion bekommt den Produktionsauftrag. Ob der Strom die
+Rohfassung zeigen soll oder nicht, ist als **T6** in
+[`open_workpackages.md`](open_workpackages.md) vertagt — die Behandlung
+strukturierter Nutzlasten im Strom ist projektweit uneinheitlich, und das ist
+keine Frage, die man an dieser einen Stelle entscheidet.
+
 ## Offen: wie ein Regelsatz entsteht
 
 Das Ablegen funktioniert; der Erfassungs-Workflow ist noch nicht erprobt. Was in

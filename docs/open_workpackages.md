@@ -254,6 +254,26 @@ DK-Codes und eine mit System-Präfix; beide Pfade müssen dieselben Zeilen liefe
   `list_rules` lesen und eine Präzisierung als solche erkennen soll; ob ein
   Regelsatz überhaupt im Fluss entstehen sollte oder besser in einer eigenen
   Durchsicht am Ende einer Sitzung.
+- **T6 · Was aus dem Antwortstrom gefiltert wird, ist uneinheitlich.**
+  Entscheidung bewusst vertagt (7. September) — die Erfahrung, welche Ansicht im
+  Betrieb hilft, fehlt noch. Erhoben am laufenden System, drei Nutzlasten, drei
+  Behandlungen:
+  - **`<think>`** wird vom `ThinkStreamFilter` (`agent_loop.py`) aus dem
+    Antworttext geschnitten und als 💭-Collapsible gezeigt.
+  - **JSON** wird vom `_AgenticStreamFilter` (`_pipeline_agentic.py`)
+    strukturell zerlegt: Klammern weg, Werte zeilenweise. Deshalb liest sich
+    eine Klassifikationsantwort im Log als Spalte aus `DK 504.064` / `DK` /
+    `core`, und dieselbe Information erscheint danach nochmal als
+    DK-Karte. Die Reflexion zeigt ihr Urteil ebenso zweimal: als nackte Werte im
+    Strom und als `🔍 Reflection: status=…`.
+  - **`<final_output>`** (Zusatzregel-Ausgabe) passiert den Filter unberührt —
+    es sind gewöhnliche Textzeilen — steht also vollständig im Strom und danach
+    nochmal als Ergebnisblock „Aus einer Zusatzregel".
+  **Die Frage ist nicht „welches davon filtern", sondern was der Strom sein
+  soll:** Rohprotokoll zum Debuggen (dann nichts filtern und die gerenderte
+  Fassung ist die Doppelung) oder Lesefassung (dann konsequent alles
+  Strukturierte herausnehmen und nur gerendert zeigen). Heute ist es beides
+  halb. Vor einer Entscheidung ein paar Läufe beobachten.
 - **Shims (F-11-Politik)** und **F-7/F-8** (Worker-Cancellation,
   ProviderModelSelector): nur bei Berührung —
   [`cleanup_findings.md`](cleanup_findings.md).
