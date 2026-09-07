@@ -124,10 +124,17 @@ werden"). Dafür gibt es keinen eigenen Abschluss-Schritt; zuständig ist die
 **Reflexion** des MetaAgent, der letzte LLM-Turn eines agentischen Laufs.
 
 - Der Reflexions-Prompt bekommt die geltenden Regeln in einem eigenen Block
-  (`USER_RULES_GATE` in `reflection_step.py`) und ein zusätzliches JSON-Feld
-  `final_output`.
+  (`USER_RULES_GATE` in `reflection_step.py`).
 - Ist der Lauf fertig (`status: complete`) und verlangt eine Regel eine Ausgabe,
-  erzeugt die Reflexion sie und schreibt sie nach `final_output`.
+  erzeugt die Reflexion sie **nach** dem JSON in einem Block
+  `<final_output>…</final_output>`. Der Prompt sagt ausdrücklich, dass danach kein
+  weiterer Schritt folgt — ein Modell kündigte die Ausgabe sonst nur an.
+- **Warum nicht als JSON-Feld:** ein mehrzeiliger Eintrag in einem JSON-String
+  braucht escapte Zeilenumbrüche. Ein Modell schreibt dort rohe Umbrüche, das
+  JSON wird ungültig, und dann ist nicht nur die Ausgabe weg, sondern die ganze
+  Antwort — Status, Action und Begründung. Der Lauf endete daraufhin still auf
+  dem Standardwert `finish`. `repair_json_newlines` (`json_repair.py`) rettet
+  seither wenigstens das Urteil, wenn ein Modell die Ausgabe doch ins JSON legt.
 - `MetaAgent._capture_rule_output` legt sie auf dem Kontext ab, sie landet als
   `KeywordAnalysisState.rule_output` im Ergebnis und wird in GUI und Webapp
   unter „Aus einer Zusatzregel" angezeigt.

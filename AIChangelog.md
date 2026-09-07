@@ -6,6 +6,40 @@
 
 ## 2026
 
+### Zusatzregeln: die Ausgabe am Laufende kam nie an (September 7, 2026)
+
+Erster echter Lauf mit einer Regel, die am Ende WinIBW-Snippets verlangt: die
+Reflexion erkannte die Regel — ihre Begründung sagte wörtlich „Die Pipeline kann
+in die finale WinIBW-Ausgabe übergehen" — und erzeugte nichts. Zwei Ursachen,
+beide im Träger, nicht in der Regel.
+
+**Die Ausgabe zerstörte die Antwort.** `final_output` war ein JSON-Feld. Ein
+mehrzeiliger Katalogeintrag darin braucht escapte Zeilenumbrüche; das Modell
+schrieb rohe. Damit ist das JSON ungültig, und `_extract_json` liefert `{}` —
+verloren ist dann nicht nur die Ausgabe, sondern das ganze Urteil, also auch
+`status`, `action` und `reason`. Der MetaAgent fiel auf den Standardwert
+`action: "finish"` zurück und beendete den Lauf, als hätte die Reflexion nie
+gesprochen. Im Protokoll sichtbar als Reflexion mit 0,9 s und leerer Antwort.
+Nachgestellt: derselbe Text mit escapten Umbrüchen parst, mit rohen liefert er
+nichts.
+
+**Jetzt steht die Ausgabe außerhalb des JSON**, in `<final_output>…</final_output>`
+hinter dem Urteil — mehrzeiliger Text braucht dort kein Escaping. Neu
+`src/core/agents/json_repair.py`: `extract_tagged_block` liest den Block (auch
+ohne schließendes Tag, falls das Budget mitten hinein lief, und ohne Code-Fence),
+`repair_json_newlines` ist das Sicherheitsnetz für ein Modell, das die Ausgabe
+trotzdem ins JSON legt — es escapt die Steuerzeichen in String-Literalen, sodass
+wenigstens das Urteil überlebt. Beide `_extract_json`-Kopien (MetaAgent und
+ReflectionStep) nutzen den Rettungspfad und melden ihn als Warnung.
+
+**Und der Prompt war zu höflich.** „Führe sie aus, sobald status='complete' ist"
+las das Modell als Übergabe an einen späteren Schritt. Der Gate-Text sagt jetzt,
+dass nach der Reflexion kein Schritt mehr folgt, dass es keine Stelle gibt, an
+die übergeben werden könnte, und dass die Ausgabe hinzuschreiben statt
+anzukündigen ist.
+
+Suite 2023.
+
 ### Persönliche Zusatzregeln aus dem Gespräch (September 3, 2026)
 
 Die Erschließungsregeln desselben Tages entstanden aus echten Läufen und wurden

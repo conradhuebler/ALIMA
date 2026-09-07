@@ -720,13 +720,13 @@ class ReflectionRulesGateTest(unittest.TestCase):
             _user_rules_values(_Ctx()), {"user_rules_gate": "", "user_rules": ""}
         )
 
-    def test_with_a_rule_the_gate_names_it_and_the_final_output_field(self):
+    def test_with_a_rule_the_gate_names_it_and_where_the_output_goes(self):
         from src.core.agents.steps.reflection_step import _user_rules_values
 
         RuleStore(self.path).add("Am Ende den Katalogeintrag erzeugen.")
         values = _user_rules_values(_Ctx())
         self.assertIn("Am Ende den Katalogeintrag erzeugen.", values["user_rules_gate"])
-        self.assertIn("final_output", values["user_rules_gate"])
+        self.assertIn("<final_output>", values["user_rules_gate"])
 
     def test_every_step_type_still_resolves_to_a_step_class(self):
         """@register_step must sit on the class, not on a helper below it.
@@ -748,12 +748,11 @@ class ReflectionRulesGateTest(unittest.TestCase):
                 f"step type '{name}' resolves to {cls!r}, not a BaseStep subclass",
             )
 
-    def test_the_json_contract_offers_final_output(self):
+    def test_the_base_prompt_carries_the_gate_slot(self):
         from src.core.agents.steps.reflection_step import (
             DEFAULT_REFLECTION_SYSTEM_PROMPT,
         )
 
-        self.assertIn("final_output", DEFAULT_REFLECTION_SYSTEM_PROMPT)
         self.assertIn("{user_rules_gate}", DEFAULT_REFLECTION_SYSTEM_PROMPT)
 
     def test_produced_output_is_kept_on_the_context(self):
@@ -785,3 +784,96 @@ class ReflectionRulesGateTest(unittest.TestCase):
         from src.core.agents.shared_context import SharedContext
 
         self.assertEqual(SharedContext(abstract="Text").to_keyword_analysis_state().rule_output, "")
+
+
+class ReflectionOutputCarrierTest(_LiftLogDisable, unittest.TestCase):
+    """A multi-line output must survive the reflection answer.
+
+    Observed on a real run (September 7): the gate asked for a WinIBW block, the
+    model put it into a JSON string with raw newlines, and the parser returned
+    nothing — status, action and reason lost with it, so the run ended on the
+    default "finish" as if the gate had never spoken.
+    """
+
+    _VERDICT = '{"status": "complete", "action": "finish", "reason": "fertig"}'
+    _BLOCK = "5550 Cadmium\n5550 Bodenverschmutzung\n5550 $ADE-105\n\n6700 DK 504.064"
+
+    def test_raw_newlines_in_a_json_string_no_longer_destroy_the_verdict(self):
+        from src.core.agents.meta_agent import MetaAgent
+
+        broken = (
+            '{"status":"complete","action":"finish","reason":"fertig",'
+            '"final_output":"5550 Cadmium\n5550 $ADE-105"}'
+        )
+        with self.assertLogs("src.core.agents.meta_agent", level="WARNING"):
+            parsed = MetaAgent._extract_json(broken)
+        self.assertEqual(parsed["status"], "complete")
+        self.assertEqual(parsed["action"], "finish")
+        self.assertIn("5550 Cadmium", parsed["final_output"])
+
+    def test_valid_json_is_untouched_by_the_salvage_pass(self):
+        from src.core.agents.meta_agent import MetaAgent
+
+        parsed = MetaAgent._extract_json(self._VERDICT)
+        self.assertEqual(parsed["status"], "complete")
+        self.assertNotIn("final_output", parsed)
+
+    def test_the_block_after_the_json_is_read_and_the_json_still_parses(self):
+        from src.core.agents.json_repair import extract_tagged_block
+        from src.core.agents.meta_agent import MetaAgent
+
+        content = f"{self._VERDICT}\n\n<final_output>\n{self._BLOCK}\n</final_output>"
+        self.assertEqual(MetaAgent._extract_json(content)["action"], "finish")
+        self.assertEqual(extract_tagged_block(content, "final_output"), self._BLOCK)
+
+    def test_a_fenced_block_loses_its_fence(self):
+        from src.core.agents.json_repair import extract_tagged_block
+
+        content = "<final_output>\n```\n5550 A\n```\n</final_output>"
+        self.assertEqual(extract_tagged_block(content, "final_output"), "5550 A")
+
+    def test_an_unclosed_block_is_still_read(self):
+        # Truncated at the token budget — better a complete-looking block than
+        # nothing at all.
+        from src.core.agents.json_repair import extract_tagged_block
+
+        self.assertEqual(extract_tagged_block("<final_output>\n5550 A", "final_output"), "5550 A")
+
+    def test_no_block_yields_nothing(self):
+        from src.core.agents.json_repair import extract_tagged_block
+
+        self.assertEqual(extract_tagged_block(self._VERDICT, "final_output"), "")
+
+    def test_the_gate_asks_for_the_block_outside_the_json(self):
+        from src.core.agents.steps.reflection_step import (
+            DEFAULT_REFLECTION_SYSTEM_PROMPT,
+            USER_RULES_GATE,
+        )
+
+        self.assertIn("<final_output>", USER_RULES_GATE)
+        self.assertIn("kein weiterer Schritt", USER_RULES_GATE)
+        # The JSON contract must not advertise it as a field any more — that is
+        # what produced the unescaped newlines.
+        self.assertNotIn("final_output", DEFAULT_REFLECTION_SYSTEM_PROMPT)
+
+
+class JsonRepairTest(unittest.TestCase):
+    def test_document_newlines_are_left_alone(self):
+        from src.core.agents.json_repair import repair_json_newlines
+
+        pretty = '{\n  "a": "b"\n}'
+        self.assertEqual(repair_json_newlines(pretty), pretty)
+
+    def test_an_escaped_quote_does_not_end_the_string(self):
+        from src.core.agents.json_repair import repair_json_newlines
+        import json
+
+        src = '{"a": "sagt \\"hallo\\"\nweiter"}'
+        self.assertEqual(json.loads(repair_json_repaired := repair_json_newlines(src))["a"],
+                         'sagt "hallo"\nweiter')
+
+    def test_empty_input_survives(self):
+        from src.core.agents.json_repair import extract_tagged_block, repair_json_newlines
+
+        self.assertEqual(repair_json_newlines(""), "")
+        self.assertEqual(extract_tagged_block("", "final_output"), "")

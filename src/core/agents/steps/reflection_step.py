@@ -49,8 +49,7 @@ DEFAULT_REFLECTION_SYSTEM_PROMPT = (
     '  "status": "complete" | "incomplete" | "continue",\n'
     '  "gaps": [...],\n'
     '  "action": "finish" | "continue" | "search_missing" | "rerun_search" | "rerun_selection" | "rerun_classification" | "rerun_dk_collect",\n'
-    '  "reason": "...",\n'
-    '  "final_output": ""\n'
+    '  "reason": "..."\n'
     '}\n'
     "Keine Erläuterungen außerhalb des JSON."
 )
@@ -65,11 +64,19 @@ USER_RULES_GATE = (
     "- Prüfe den Stand auch gegen diese Regeln.\n"
     "- Betrifft eine Regel nur die AUSGABE, ist das kein Grund, einen Schritt zu "
     "wiederholen.\n"
-    "- Verlangt eine Regel etwas AM ENDE des Laufs (eine Ausgabe, ein Eintrag, ein "
-    "Format), dann führe sie aus, sobald status='complete' ist, und schreibe das "
-    "fertige Ergebnis nach 'final_output'. Dies ist der letzte Schritt, in dem das "
-    "möglich ist.\n"
-    "- Ist nichts zu erzeugen, lass 'final_output' leer.\n\n"
+    "- Verlangt eine Regel eine Ausgabe am Ende des Laufs (einen Eintrag, ein "
+    "Format, ein Snippet), dann erzeuge sie JETZT selbst, sobald status='complete' "
+    "ist. **Nach dir läuft kein weiterer Schritt, der das tun könnte** — es gibt "
+    "keine spätere Stelle, an die du übergeben kannst. Kündige die Ausgabe nicht "
+    "an, sondern schreibe sie hin.\n"
+    "- Die Ausgabe gehört NICHT ins JSON. Hänge sie NACH dem JSON so an:\n"
+    "  <final_output>\n"
+    "  …die fertige Ausgabe, mehrzeilig, genau im geforderten Format…\n"
+    "  </final_output>\n"
+    "  (Das ist die einzige erlaubte Ausnahme von 'keine Erläuterungen außerhalb "
+    "des JSON'. Zeilenumbrüche in einen JSON-String zu packen zerstört die "
+    "Antwort.)\n"
+    "- Ist nichts zu erzeugen, lass den Block ganz weg.\n\n"
 )
 
 DEFAULT_REFLECTION_USER_PROMPT = (
@@ -291,6 +298,14 @@ class ReflectionStep(BaseStep):
             # out of an unparseable warning and cycling on. - Claude Generated
             raise RuntimeError(f"Reflection LLM call failed: {result.error}")
         parsed = self._extract_json(result.content)
+        # A rule may ask for an output at the end of the run. The model writes it
+        # after the JSON (multi-line text needs no escaping there); an older
+        # answer may still carry it as a JSON field. - Claude Generated
+        from src.core.agents.json_repair import extract_tagged_block
+
+        tagged = extract_tagged_block(result.content, "final_output")
+        if tagged:
+            parsed["final_output"] = tagged
         logger.info(f"ReflectionStep '{self.step_id}': status={parsed.get('status')}, action={parsed.get('action')}")
 
         return {
@@ -342,4 +357,25 @@ class ReflectionStep(BaseStep):
                     return obj
             except json.JSONDecodeError:
                 continue
+        # Last resort: a model that wrote a formatted block into a JSON string
+        # left raw newlines in it. Without this the whole verdict is lost —
+        # status, action and reason with it — and the run ends on the default
+        # "finish" as if nothing had happened. - Claude Generated
+        from src.core.agents.json_repair import repair_json_newlines
+
+        repaired = repair_json_newlines(content)
+        if repaired != content:
+            for pattern in (r"```(?:json)?\s*(\{.*?\})\s*```", r"(\{.*\})"):
+                m = re.search(pattern, repaired, re.DOTALL)
+                if not m:
+                    continue
+                try:
+                    obj = json.loads(m.group(1))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict) and obj:
+                    logger.warning(
+                        "JSON answer had raw newlines inside a string — salvaged"
+                    )
+                    return obj
         return {}

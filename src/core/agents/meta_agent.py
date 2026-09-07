@@ -780,6 +780,27 @@ class MetaAgent:
                     return obj
             except json.JSONDecodeError:
                 continue
+        # Last resort: a model that wrote a formatted block into a JSON string
+        # left raw newlines in it. Without this the whole verdict is lost —
+        # status, action and reason with it — and the run ends on the default
+        # "finish" as if nothing had happened. - Claude Generated
+        from src.core.agents.json_repair import repair_json_newlines
+
+        repaired = repair_json_newlines(content)
+        if repaired != content:
+            for pattern in (r"```(?:json)?\s*(\{.*?\})\s*```", r"(\{.*\})"):
+                m = re.search(pattern, repaired, re.DOTALL)
+                if not m:
+                    continue
+                try:
+                    obj = json.loads(m.group(1))
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict) and obj:
+                    logger.warning(
+                        "JSON answer had raw newlines inside a string — salvaged"
+                    )
+                    return obj
         return {}
 
 
