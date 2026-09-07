@@ -216,46 +216,85 @@ class MainWindowSettingsMixin:
             logging.getLogger(__name__).debug("font-size refresh failed", exc_info=True)
         self._refresh_components()
 
+    @staticmethod
+    def _timed(label: str, logger, slow_s: float = 0.5):
+        """Context manager timing one refresh step. - Claude Generated
+
+        Saving the settings blocks the UI while this runs, and the six steps
+        below give no hint which of them costs the wait. Anything past
+        ``slow_s`` is named at INFO so a report can say *which* step, instead of
+        "it freezes".
+        """
+        import contextlib
+        import time
+
+        @contextlib.contextmanager
+        def _cm():
+            t0 = time.monotonic()
+            try:
+                yield
+            finally:
+                elapsed = time.monotonic() - t0
+                if elapsed >= slow_s:
+                    logger.info(f"⏱ Settings-Refresh: '{label}' {elapsed:.2f}s")
+                else:
+                    logger.debug(f"Settings-Refresh: '{label}' {elapsed:.2f}s")
+
+        return _cm()
+
     def _refresh_components(self):
         """Refresh all components with new configuration - Claude Generated"""
+        import time as _time
+
+        _t_total = _time.monotonic()
         try:
             # 1. Reload LLM service configuration and reinitialize providers
-            if hasattr(self, 'llm_service'):
-                self.llm_service.reload_providers()
+            with self._timed("reload_providers", self.logger):
+                if hasattr(self, 'llm_service'):
+                    self.llm_service.reload_providers()
 
             # 1b. Reload the shared provider-detection service used by the
             # provider/model pickers. It wraps its own LlmService whose client map
             # stays stale otherwise, so a newly added provider's models wouldn't
             # appear until restart (the list refreshes, the models don't). Must run
             # before the per-tab refresh in step 6. - Claude Generated
-            try:
-                self.config_manager.get_provider_detection_service().reload()
-            except Exception:
-                self.logger.debug("detection service reload failed", exc_info=True)
+            with self._timed("detection_service.reload", self.logger):
+                try:
+                    self.config_manager.get_provider_detection_service().reload()
+                except Exception:
+                    self.logger.debug("detection service reload failed", exc_info=True)
 
             # 2. Refresh provider status to update reachability and available models
-            if hasattr(self, 'llm_service'):
-                self.llm_service.refresh_all_provider_status()
+            with self._timed("refresh_all_provider_status", self.logger):
+                if hasattr(self, 'llm_service'):
+                    self.llm_service.refresh_all_provider_status()
 
             # 3. Reload pipeline configuration to use updated provider preferences
-            if hasattr(self, 'pipeline_manager'):
-                self.pipeline_manager.reload_config()
+            with self._timed("pipeline.reload_config", self.logger):
+                if hasattr(self, 'pipeline_manager'):
+                    self.pipeline_manager.reload_config()
 
             # 4. Update tabs with new provider information
-            self.update_tabs_with_provider_info()
+            with self._timed("update_tabs_with_provider_info", self.logger):
+                self.update_tabs_with_provider_info()
 
             # 5. Update global status bar with new provider and cache info
-            if hasattr(self, 'global_status_bar'):
-                self.global_status_bar.update_provider_info()
-                self.global_status_bar.update_cache_status()
+            with self._timed("status_bar", self.logger):
+                if hasattr(self, 'global_status_bar'):
+                    self.global_status_bar.update_provider_info()
+                    self.global_status_bar.update_cache_status()
 
             # 6. Notify tabs about configuration changes (custom handlers)
-            for i in range(self.tabs.count()):
-                tab = self.tabs.widget(i)
-                if hasattr(tab, 'on_config_changed'):
-                    tab.on_config_changed()
+            with self._timed("tabs.on_config_changed", self.logger):
+                for i in range(self.tabs.count()):
+                    tab = self.tabs.widget(i)
+                    if hasattr(tab, 'on_config_changed'):
+                        tab.on_config_changed()
 
-            self.logger.info("Configuration refreshed (providers, pipeline, tabs, status bar)")
+            self.logger.info(
+                "Configuration refreshed (providers, pipeline, tabs, status bar) "
+                f"in {_time.monotonic() - _t_total:.2f}s"
+            )
 
             # Show user feedback
             if hasattr(self, 'global_status_bar'):

@@ -34,6 +34,32 @@ Ohne Bestätigung, wie `set_rule_enabled`: umkehrbar und im Dialog sichtbar.
 
 Suite 2040.
 
+### Modellwechsel riss die GUI ab; Settings-Refresh wird jetzt gemessen (September 7, 2026)
+
+**SIGTRAP beim ersten echten Wechsel.** `switch_llm_model` bekam die
+Ankündigungs-Methode des Panels als gewöhnlichen Callback. Das Werkzeug läuft
+aber im QThread des `ChatAgentWorker`, und die Methode rendert in die Log-Ansicht
+und schreibt ein QLabel — ein Qt-Widget aus einem Fremd-Thread anzufassen bricht
+den Prozess ab. Der Auflistungs-Aufruf (ohne Argumente) hatte funktioniert, weil
+er nichts anfasst; der erste echte Wechsel riss die GUI weg. Jetzt geht die
+Ankündigung über das Signal `PipelineChatPanel.model_switch_requested`, das Qt
+auf den UI-Thread marshallt — dieselbe Technik, die das `ProposalGateway` für
+die Bestätigungs-Bubble schon benutzt. Der Handler trägt `@pyqtSlot` und sagt in
+seinem Docstring, dass er nur auf dem UI-Thread laufen darf.
+
+**Der Freeze nach dem Speichern ist noch nicht behoben, aber messbar.**
+`_refresh_components` führt sechs Schritte im UI-Thread aus und verriet nicht,
+welcher davon wartet. Headless gemessen sind alle Verdächtigen billig:
+`reload_providers` 0,02 s, `refresh_all_provider_status` 0,00 s (alle fünf
+Provider sind API-basiert, es wird gar nicht angepingt), `get_database_stats`
+0,00 s, `ToolRegistry.refresh` 0,00 s, Modell-Listen 0,03–0,30 s je Provider.
+Es bleibt also die Qt-Arbeit — Kombinationsfelder über mehrere Tabs mit 46 bis 81
+Modellen je Provider. Statt darauf zu raten misst jetzt jeder der sechs Schritte
+sich selbst und meldet sich ab 0,5 s namentlich im Log, dazu die Gesamtzeit. Der
+nächste Bericht nennt den Schuldigen.
+
+Suite 2076.
+
 ### Eine LLM-Auswahl je Tab, und ein Modellwechsel für den Agenten (September 7, 2026)
 
 **Zwei Auswahlfelder für dieselbe Entscheidung.** Der Pipeline-Tab hat eine

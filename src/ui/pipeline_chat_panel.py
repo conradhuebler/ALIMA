@@ -100,6 +100,12 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
     # -- Chat signal ----------------------------------------------------
     message_sent = pyqtSignal(str)
+    #: (provider, model, reason) — emitted from the chat worker thread when the
+    #: agent switched its own model. A signal, not a direct call: the tool runs
+    #: inside ``ChatAgentWorker``'s QThread, and touching a QWidget from there
+    #: aborts the process (SIGTRAP). Qt marshals this to the UI thread.
+    #: - Claude Generated
+    model_switch_requested = pyqtSignal(str, str, str)
 
     # ------------------------------------------------------------------
     # Default prompts (chat-agent).
@@ -184,6 +190,9 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.proposal_gateway.proposal_requested.connect(
             self._render_proposal_bubble
         )
+        # Same reason as the gateway above: the announcement runs on the UI
+        # thread, the emit happens on the worker's. - Claude Generated
+        self.model_switch_requested.connect(self._on_agent_model_switch)
 
         self.setup_ui()
 

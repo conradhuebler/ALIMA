@@ -317,3 +317,36 @@ class TestSwitchPrecedence(unittest.TestCase):
         ):
             stub.set_llm_override("ollama", "mistral-small")
         self.assertEqual(session.requested_model, "")
+
+
+class TestSwitchCrossThreadContract(unittest.TestCase):
+    """The switch announcement must cross threads via a signal.
+
+    The tool runs inside ``ChatAgentWorker``'s QThread. The first version handed
+    the panel method to the tool as a plain callback, so the announcement wrote
+    into the log view and a QLabel from the worker thread — Qt aborts the whole
+    process for that (SIGTRAP), which is what a real GUI run did the moment an
+    actual switch happened. The listing call, which touches nothing, had worked.
+    """
+
+    def test_the_panel_declares_the_signal_with_three_strings(self):
+        from src.ui.pipeline_chat_panel import PipelineChatPanel
+
+        signal = getattr(PipelineChatPanel, "model_switch_requested", None)
+        self.assertIsNotNone(signal, "the announcement needs a signal to cross on")
+        self.assertEqual(signal.signatures, ("QString,QString,QString)",))
+
+    def test_the_handler_documents_its_thread(self):
+        from src.ui.pipeline_chat_panel import PipelineChatPanel
+
+        doc = PipelineChatPanel._on_agent_model_switch.__doc__ or ""
+        self.assertIn("UI thread only", doc)
+
+    def test_the_toolset_gets_the_emit_not_the_method(self):
+        import inspect
+
+        from src.ui import _chat_panel_chat_agent as mod
+
+        source = inspect.getsource(mod.ChatAgentMixin.send_message)
+        self.assertIn("model_switch_requested.emit", source)
+        self.assertNotIn("on_model_switch=self._on_agent_model_switch", source)

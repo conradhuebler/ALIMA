@@ -68,11 +68,15 @@ class ChatAgentMixin:
         else:
             self.model_status_label.setText("→ (kein Modell)")
 
+    @pyqtSlot(str, str, str)
     def _on_agent_model_switch(self, provider: str, model: str, reason: str) -> None:
-        """Announce a model the agent picked for itself.
+        """Announce a model the agent picked for itself. **UI thread only.**
 
-        A switch that only shows up in the tool log is a change nobody notices;
-        it belongs in the conversation. - Claude Generated
+        Reached via ``model_switch_requested``; calling it directly from the
+        chat worker thread aborts the process, because it renders into the log
+        and writes a QLabel. A switch that only shows up in the tool log is a
+        change nobody notices, so it belongs in the conversation.
+        - Claude Generated
         """
         suffix = f" — {reason}" if reason else ""
         try:
@@ -357,7 +361,9 @@ class ChatAgentMixin:
                 kb_manager=kb_manager,
                 proposal_gateway=self.proposal_gateway,
                 llm_service=self.llm_service,
-                on_model_switch=self._on_agent_model_switch,
+                # Emit, don't call: the tool executes on the worker thread and
+                # the announcement touches widgets. - Claude Generated
+                on_model_switch=self.model_switch_requested.emit,
             )
         except Exception:
             self.logger.exception(
