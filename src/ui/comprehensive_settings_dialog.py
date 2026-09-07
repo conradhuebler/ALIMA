@@ -1053,14 +1053,27 @@ class ComprehensiveSettingsDialog(QDialog):
             QMessageBox.critical(self, "Fehler", f"Konnte Preset nicht speichern:\n{e}")
 
     def _save_and_close(self):
-        """Save configuration and close dialog - Claude Generated"""
+        """Save configuration and close dialog - Claude Generated
+
+        Timed end to end: the whole chain — reading the widgets, writing the
+        file, and the ``config_changed`` handler that refreshes every tab — runs
+        synchronously inside this button click, so the UI is frozen for its
+        duration. Without the timings a report can only say "it takes long".
+        """
+        import logging as _logging
+        import time as _time
+
+        _log = _logging.getLogger(__name__)
+        _t_start = _time.monotonic()
         try:
             # Task preferences are now handled by the unified provider tab automatically
             
             # Provider preferences are handled by the unified provider tab and Unit of Work pattern - Claude Generated (Refactoring)
             
             # Get configuration from UI
+            _t = _time.monotonic()
             config = self._get_config_from_ui()
+            _log.info(f"⏱ Settings: Widgets auslesen {_time.monotonic() - _t:.2f}s")
             
             # Determine scope
             scope = "user"  # Default
@@ -1070,14 +1083,20 @@ class ComprehensiveSettingsDialog(QDialog):
                 scope = "system"
             
             # Save configuration
+            _t = _time.monotonic()
             success = self.config_manager.save_config(config, scope)
+            _log.info(f"⏱ Settings: save_config {_time.monotonic() - _t:.2f}s")
             if not success:
                 QMessageBox.critical(self, "Save Error", "Failed to save configuration!")
                 return
 
-            # Emit signal and close
+            # Emit signal and close. The handler runs synchronously here — its
+            # own per-step timings are logged by ``_refresh_components``.
+            _t = _time.monotonic()
             self.config_changed.emit()
+            _log.info(f"⏱ Settings: config_changed-Handler {_time.monotonic() - _t:.2f}s")
             self.accept()
+            _log.info(f"⏱ Settings: gesamt {_time.monotonic() - _t_start:.2f}s")
 
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Error saving configuration: {str(e)}")
