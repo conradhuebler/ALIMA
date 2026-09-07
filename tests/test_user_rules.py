@@ -229,6 +229,7 @@ class _Ctx:
         self.applied_user_rules = []
         self.prompt_service = None
         self.model = ""
+        self.extra = {}
 
 
 class PromptResolverInjectionTest(unittest.TestCase):
@@ -720,13 +721,102 @@ class ReflectionRulesGateTest(unittest.TestCase):
             _user_rules_values(_Ctx()), {"user_rules_gate": "", "user_rules": ""}
         )
 
-    def test_with_a_rule_the_gate_names_it_and_where_the_output_goes(self):
+    def test_with_a_rule_the_gate_names_it(self):
         from src.core.agents.steps.reflection_step import _user_rules_values
 
         RuleStore(self.path).add("Am Ende den Katalogeintrag erzeugen.")
         values = _user_rules_values(_Ctx())
         self.assertIn("Am Ende den Katalogeintrag erzeugen.", values["user_rules_gate"])
-        self.assertIn("<final_output>", values["user_rules_gate"])
+
+    def test_the_production_order_appears_only_on_the_last_reflection(self):
+        """The reflection fires once per cycle.
+
+        Without this condition a model that reports 'complete' early
+        re-generates the whole output block in every remaining cycle — observed
+        on September 7: the WinIBW block was produced twice in one run.
+        """
+        from src.core.agents.steps.reflection_step import (
+            FINAL_GATE_FLAG,
+            _user_rules_values,
+        )
+
+        RuleStore(self.path).add("Am Ende den Katalogeintrag erzeugen.")
+
+        mid = _Ctx()
+        mid.extra = {FINAL_GATE_FLAG: False}
+        gate_mid = _user_rules_values(mid)["user_rules_gate"]
+        self.assertIn("Katalogeintrag", gate_mid, "rules stay visible as criteria")
+        self.assertNotIn("<final_output>", gate_mid)
+
+        last = _Ctx()
+        last.extra = {FINAL_GATE_FLAG: True}
+        gate_last = _user_rules_values(last)["user_rules_gate"]
+        self.assertIn("<final_output>", gate_last)
+        self.assertIn("letzte Reflexion", gate_last)
+
+    def test_an_unset_flag_keeps_the_gate_closed(self):
+        # Fail safe: reflection run outside the MetaAgent produces nothing.
+        from src.core.agents.steps.reflection_step import _user_rules_values
+
+        RuleStore(self.path).add("Am Ende etwas erzeugen.")
+        ctx = _Ctx()
+        ctx.extra = {}
+        self.assertNotIn("<final_output>", _user_rules_values(ctx)["user_rules_gate"])
+
+    def test_the_metaagent_opens_the_gate_only_when_nothing_is_pending(self):
+        from src.core.agents.meta_agent import MetaAgent
+        from src.core.agents.steps.reflection_step import FINAL_GATE_FLAG
+
+        ctx = _Ctx()
+        ctx.extra = {}
+        MetaAgent._set_final_gate(ctx, False)
+        self.assertFalse(ctx.extra[FINAL_GATE_FLAG])
+        MetaAgent._set_final_gate(ctx, True)
+        self.assertTrue(ctx.extra[FINAL_GATE_FLAG])
+
+    def test_the_rules_are_not_printed_twice_in_the_reflection_prompt(self):
+        """Two injection paths reached the reflection step and both fired."""
+        from src.core.agents.prompt_resolver import resolve_prompts
+        from src.core.agents.steps.reflection_step import _user_rules_values
+
+        RuleStore(self.path).add("EINDEUTIG: DK als '6700 DK xxx'.")
+        ctx = _Ctx()
+        ctx.extra = {}
+        values = {"workflow_rules": "", **_user_rules_values(ctx)}
+        system, _, _ = resolve_prompts(
+            raw_cfg={"id": "reflection", "system_prompt": "BASE {user_rules_gate}"},
+            resolved_inputs=values,
+            context=ctx,
+            step_id="reflection",
+        )
+        self.assertEqual(system.count("EINDEUTIG"), 1)
+        self.assertNotIn(RULES_BLOCK_HEADING, system)
+
+    def test_a_worker_step_still_gets_the_generic_block(self):
+        # Mutation guard for the test above: the skip must be reflection-only.
+        from src.core.agents.prompt_resolver import resolve_prompts
+
+        RuleStore(self.path).add("EINDEUTIG: DK als '6700 DK xxx'.")
+        ctx = _Ctx()
+        system, _, _ = resolve_prompts(
+            raw_cfg={"id": "classification", "system_prompt": "BASIS"},
+            resolved_inputs={},
+            context=ctx,
+            step_id="classification",
+        )
+        self.assertEqual(system.count("EINDEUTIG"), 1)
+        self.assertIn(RULES_BLOCK_HEADING, system)
+
+    def test_reflection_rules_are_still_recorded_as_applied(self):
+        # The generic path no longer runs for this step, so the provenance has
+        # to come from the gate itself.
+        from src.core.agents.steps.reflection_step import _user_rules_values
+
+        RuleStore(self.path).add("Gilt.")
+        ctx = _Ctx()
+        ctx.extra = {}
+        _user_rules_values(ctx)
+        self.assertEqual([e["text"] for e in ctx.applied_user_rules], ["Gilt."])
 
     def test_every_step_type_still_resolves_to_a_step_class(self):
         """@register_step must sit on the class, not on a helper below it.
@@ -847,11 +937,11 @@ class ReflectionOutputCarrierTest(_LiftLogDisable, unittest.TestCase):
     def test_the_gate_asks_for_the_block_outside_the_json(self):
         from src.core.agents.steps.reflection_step import (
             DEFAULT_REFLECTION_SYSTEM_PROMPT,
-            USER_RULES_GATE,
+            USER_RULES_FINAL_GATE,
         )
 
-        self.assertIn("<final_output>", USER_RULES_GATE)
-        self.assertIn("kein weiterer Schritt", USER_RULES_GATE)
+        self.assertIn("<final_output>", USER_RULES_FINAL_GATE)
+        self.assertIn("kein weiterer Schritt", USER_RULES_FINAL_GATE)
         # The JSON contract must not advertise it as a field any more — that is
         # what produced the unescaped newlines.
         self.assertNotIn("final_output", DEFAULT_REFLECTION_SYSTEM_PROMPT)

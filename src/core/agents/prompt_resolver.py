@@ -126,7 +126,13 @@ def _with_user_rules(system: str, workflow: str, step_id: str, context: Any) -> 
     (``applied_user_rules``) so the saved result can say which rules shaped it.
     - Claude Generated
     """
-    from src.core.user_rules import append_rules_block, rules_block_for
+    from src.core.user_rules import STEP_REFLECTION, append_rules_block, rules_block_for
+
+    if step_id == STEP_REFLECTION:
+        # The reflection composes its own rules section (USER_RULES_INTRO plus,
+        # on the last cycle, the production gate). Appending the generic block
+        # here too printed every rule twice. - Claude Generated
+        return system
 
     block, rules = rules_block_for(workflow=workflow, step=step_id)
     if not block:

@@ -161,6 +161,12 @@ class MetaAgent:
             if not reflection_cfg:
                 continue
 
+            # Open the "produce the final output now" gate only for the
+            # reflection after which nothing is pending any more. The step graph
+            # is known here; the model would otherwise re-generate the whole
+            # block in every remaining cycle. - Claude Generated
+            self._set_final_gate(context, self._pending_step(workflow, context) is None)
+
             reflection = self._run_reflection(workflow, context, reflection_cfg)
             context.quality_report = reflection
             self._capture_rule_output(context, reflection)
@@ -716,6 +722,21 @@ class MetaAgent:
         if block:
             return base.rstrip() + "\n\n" + block + "\n"
         return base
+
+    @staticmethod
+    def _set_final_gate(context: Any, is_final: bool) -> None:
+        """Mark whether this is the last reflection of the run. - Claude Generated"""
+        try:
+            from src.core.agents.steps.reflection_step import FINAL_GATE_FLAG
+
+            extra = getattr(context, "extra", None)
+            if extra is None:
+                return
+            extra[FINAL_GATE_FLAG] = bool(is_final)
+        except Exception as exc:
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, "meta_agent: setting the final-output gate")
 
     @staticmethod
     def _capture_rule_output(context: Any, reflection: Dict[str, Any]) -> None:

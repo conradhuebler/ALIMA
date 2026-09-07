@@ -133,11 +133,18 @@ werden"). Dafür gibt es keinen eigenen Abschluss-Schritt; zuständig ist die
 **Reflexion** des MetaAgent, der letzte LLM-Turn eines agentischen Laufs.
 
 - Der Reflexions-Prompt bekommt die geltenden Regeln in einem eigenen Block
-  (`USER_RULES_GATE` in `reflection_step.py`).
-- Ist der Lauf fertig (`status: complete`) und verlangt eine Regel eine Ausgabe,
-  erzeugt die Reflexion sie **nach** dem JSON in einem Block
-  `<final_output>…</final_output>`. Der Prompt sagt ausdrücklich, dass danach kein
-  weiterer Schritt folgt — ein Modell kündigte die Ausgabe sonst nur an.
+  (`USER_RULES_INTRO`) — sie sind Prüfkriterien wie jedes andere. Der generische
+  Regelblock wird für diesen Schritt übersprungen, sonst stünde jede Regel
+  zweimal im Prompt.
+- **Der Auftrag, die Ausgabe zu erzeugen (`USER_RULES_FINAL_GATE`), kommt nur
+  bei der letzten Reflexion dazu.** Die Reflexion läuft einmal pro Zyklus; ein
+  Modell, das früh `complete` meldet, erzeugte den Block sonst in jedem
+  verbleibenden Zyklus neu. Wann die letzte ist, entscheidet der MetaAgent
+  deterministisch über `_pending_step` — er kennt den Schrittgraphen, das Modell
+  nicht.
+- Die Ausgabe steht **nach** dem JSON in `<final_output>…</final_output>`. Der
+  Prompt sagt ausdrücklich, dass danach kein weiterer Schritt folgt — ein Modell
+  kündigte sie sonst nur an.
 - **Warum nicht als JSON-Feld:** ein mehrzeiliger Eintrag in einem JSON-String
   braucht escapte Zeilenumbrüche. Ein Modell schreibt dort rohe Umbrüche, das
   JSON wird ungültig, und dann ist nicht nur die Ausgabe weg, sondern die ganze

@@ -34,6 +34,26 @@ Ohne Bestätigung, wie `set_rule_enabled`: umkehrbar und im Dialog sichtbar.
 
 Suite 2040.
 
+### Zusatzregeln: Ausgabe einmal statt in jedem Zyklus (September 7, 2026)
+
+Die Ausgabe kam an — und dann zweimal. Die Reflexion läuft einmal pro Zyklus,
+und das Modell meldete schon vor `dk_postprocess` `complete`, erzeugte also den
+kompletten WinIBW-Block, den der MetaAgent gleich darauf verwarf, weil noch ein
+Pflicht-Step ausstand. Der Gate-Text ist deshalb zweigeteilt: `USER_RULES_INTRO`
+(die Regeln als Prüfkriterien) steht immer, der Produktionsauftrag
+`USER_RULES_FINAL_GATE` nur bei der letzten Reflexion. Wann die letzte ist,
+entscheidet nicht das Modell, sondern der MetaAgent über `_pending_step` — er
+kennt den Schrittgraphen. Ohne Flag bleibt das Tor zu (Fail-Safe für eine
+Reflexion außerhalb des MetaAgent).
+
+**Und die Regeln standen doppelt im Reflexions-Prompt**: einmal im Gate, einmal
+im generischen Block aus `resolve_prompts` — beide Injektionswege treffen den
+Schritt `reflection`. Der generische Weg überspringt ihn jetzt; die Herkunft
+(`applied_rules`) wird dafür im Gate selbst festgehalten, damit sie nicht mit
+verschwindet.
+
+Suite 2046.
+
 ### Zusatzregeln: die Ausgabe am Laufende kam nie an (September 7, 2026)
 
 Erster echter Lauf mit einer Regel, die am Ende WinIBW-Snippets verlangt: die

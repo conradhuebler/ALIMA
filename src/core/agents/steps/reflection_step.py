@@ -58,17 +58,26 @@ DEFAULT_REFLECTION_SYSTEM_PROMPT = (
 # this gate. The reflection turn is the last LLM turn of an agentic run — the
 # workflow ends in deterministic steps — so it is the only place where a rule
 # that asks for something "am Ende" can still be carried out. - Claude Generated
-USER_RULES_GATE = (
+# Always shown when rules reach this gate: they are quality criteria like any
+# other. - Claude Generated
+USER_RULES_INTRO = (
     "Persönliche Zusatzregeln des Betreibers:\n"
     "{user_rules}\n"
     "- Prüfe den Stand auch gegen diese Regeln.\n"
     "- Betrifft eine Regel nur die AUSGABE, ist das kein Grund, einen Schritt zu "
     "wiederholen.\n"
-    "- Verlangt eine Regel eine Ausgabe am Ende des Laufs (einen Eintrag, ein "
-    "Format, ein Snippet), dann erzeuge sie JETZT selbst, sobald status='complete' "
-    "ist. **Nach dir läuft kein weiterer Schritt, der das tun könnte** — es gibt "
-    "keine spätere Stelle, an die du übergeben kannst. Kündige die Ausgabe nicht "
-    "an, sondern schreibe sie hin.\n"
+)
+
+# Appended ONLY on the last reflection of a run — the one after which no step is
+# pending any more. The reflection fires once per cycle; without this condition
+# a model that reports 'complete' early re-generates the whole block in every
+# remaining cycle. The MetaAgent decides, deterministically, via
+# ``_pending_step``: it knows the step graph, the model does not. - Claude Generated
+USER_RULES_FINAL_GATE = (
+    "- **Dies ist die letzte Reflexion dieses Laufs**; nach dir läuft kein "
+    "weiterer Schritt. Verlangt eine Regel eine Ausgabe am Ende (einen Eintrag, "
+    "ein Format, ein Snippet), erzeuge sie jetzt selbst — kündige sie nicht an, "
+    "sondern schreibe sie hin.\n"
     "- Die Ausgabe gehört NICHT ins JSON. Hänge sie NACH dem JSON so an:\n"
     "  <final_output>\n"
     "  …die fertige Ausgabe, mehrzeilig, genau im geforderten Format…\n"
@@ -76,8 +85,11 @@ USER_RULES_GATE = (
     "  (Das ist die einzige erlaubte Ausnahme von 'keine Erläuterungen außerhalb "
     "des JSON'. Zeilenumbrüche in einen JSON-String zu packen zerstört die "
     "Antwort.)\n"
-    "- Ist nichts zu erzeugen, lass den Block ganz weg.\n\n"
+    "- Ist nichts zu erzeugen, lass den Block ganz weg.\n"
 )
+
+#: Set by the MetaAgent on the context before the reflection that ends the run.
+FINAL_GATE_FLAG = "_rules_final_gate"
 
 DEFAULT_REFLECTION_USER_PROMPT = (
     "Aktueller Pipeline-Zustand:\n"
@@ -118,11 +130,16 @@ def _user_rules_values(context: Any) -> Dict[str, str]:
     block, rules = rules_block_for(workflow=workflow, step=STEP_REFLECTION)
     if not block:
         return {"user_rules_gate": "", "user_rules": ""}
+    # The generic injection point skips this step (the gate below owns it), so
+    # the run's provenance has to be recorded here. - Claude Generated
+    from src.core.agents.prompt_resolver import _record_applied
+
+    _record_applied(context, rules)
     rendered = "\n".join(render_rule_line(r) for r in rules)
-    return {
-        "user_rules_gate": USER_RULES_GATE.replace("{user_rules}", rendered),
-        "user_rules": rendered,
-    }
+    gate = USER_RULES_INTRO.replace("{user_rules}", rendered)
+    if bool((getattr(context, "extra", None) or {}).get(FINAL_GATE_FLAG)):
+        gate += USER_RULES_FINAL_GATE
+    return {"user_rules_gate": gate + "\n", "user_rules": rendered}
 
 
 @register_step("reflection")
