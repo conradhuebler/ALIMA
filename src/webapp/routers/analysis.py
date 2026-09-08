@@ -8,6 +8,7 @@ AppContext, _autosave_session_state}`` (resolved in this module's namespace).
 """
 
 import asyncio
+import threading
 import re
 import tempfile
 import logging
@@ -159,6 +160,10 @@ async def run_analysis(
     # Phase 4: bridge AlimaStateBus events (tool calls, pipeline steps/prompts)
     # into the same render buffer. Subscriber is local to this run.
     bus_subscriber = _SessionBusSubscriber(session_renderer)
+    # Set by the pipeline thread as it starts. From then on that thread owns the
+    # bus subscription and removes it when the pipeline is done — see the two
+    # ``finally`` blocks below. - Claude Generated
+    pipeline_thread_entered = threading.Event()
 
     try:
         bus_subscriber.subscribe()
@@ -483,6 +488,8 @@ async def run_analysis(
 
         # Run pipeline in background thread - Claude Generated
         def execute_pipeline():
+            # Take ownership of the bus subscription (see below).
+            pipeline_thread_entered.set()
             try:
                 # Check for abort before starting - Claude Generated
                 if session.abort_requested:
@@ -538,6 +545,17 @@ async def run_analysis(
                 session.error_message = str(e)
             finally:
                 session.pipeline_manager_ref = None  # Clear reference after pipeline ends - Claude Generated
+                # Remove the bus handlers here, on the thread that actually ran
+                # the pipeline. The awaiting coroutine below cannot do it: a
+                # cancelled request (client gone, server shutdown) runs its
+                # ``finally`` immediately while ``asyncio.to_thread`` keeps
+                # going — the pipeline then finishes with nobody rendering its
+                # events, and the session log stays empty from that point on.
+                # - Claude Generated
+                try:
+                    bus_subscriber.unsubscribe()
+                except Exception:
+                    logger.exception("Failed to unsubscribe session bus subscriber")
 
         # Run in executor to avoid blocking
         await asyncio.to_thread(execute_pipeline)
@@ -547,11 +565,15 @@ async def run_analysis(
         session.status = "error"
         session.error_message = str(e)
     finally:
-        # Phase 4: remove session-local bus handlers before cleanup.
-        try:
-            bus_subscriber.unsubscribe()
-        except Exception:
-            logger.exception("Failed to unsubscribe session bus subscriber")
+        # Phase 4: remove session-local bus handlers before cleanup — but only
+        # while the pipeline thread has not taken them over (see above). It has
+        # not when the run never got that far (bad input, cancelled before the
+        # executor picked the job up), and then nobody else would clean up.
+        if not pipeline_thread_entered.is_set():
+            try:
+                bus_subscriber.unsubscribe()
+            except Exception:
+                logger.exception("Failed to unsubscribe session bus subscriber")
         # Cleanup
         if session_id in sessions:
             session.cleanup()

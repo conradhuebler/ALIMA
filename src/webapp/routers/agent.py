@@ -168,12 +168,12 @@ def _build_agent_runner(req: AgentRunRequest):
 
     provider, model = resolve_provider_model(
         req.provider, req.model,
-        chat_config=chat_config, pipeline_manager=pm, llm_service=services['llm_service'],
+        pipeline_manager=pm, llm_service=services['llm_service'],
     )
     if not provider or not model:
         raise ValueError(
-            "No provider/model — set in request body, ChatConfig defaults, "
-            "or pipeline_default_provider/model in config"
+            "No provider/model — set it in the request body, or set "
+            "agentic_default_provider/model (or pipeline_default_*) in the config"
         )
 
     runner = HeadlessAgentRunner(
@@ -349,20 +349,20 @@ def _build_session_agent_runner(session: "Session", req: ChatMessageRequest):
     # destructive mutations require explicit confirmation via the UI.
     gateway = AutoRejectGateway()
 
-    # Prefer explicit request values, then the configured chat default
-    # (ChatConfig.default_provider/model — a config-only webapp setting), then
-    # the session's last effective pipeline provider/model, then the usual
-    # unified-config fallbacks inside resolve_provider_model. - Claude Generated
-    chat_provider = req.provider or chat_config.default_provider or session.last_provider
-    chat_model = req.model or chat_config.default_model or session.last_model
+    # Explicit request values first, then the session's last effective pipeline
+    # provider/model, then the unified-config fallbacks inside
+    # resolve_provider_model. The former ChatConfig default sat above all of
+    # them and no surface could show or change it. - Claude Generated
+    chat_provider = req.provider or session.last_provider
+    chat_model = req.model or session.last_model
     provider, model = resolve_provider_model(
         chat_provider, chat_model,
-        chat_config=chat_config, pipeline_manager=pm, llm_service=services['llm_service'],
+        pipeline_manager=pm, llm_service=services['llm_service'],
     )
     if not provider or not model:
         raise ValueError(
-            "No provider/model — set in request body, ChatConfig defaults, "
-            "or pipeline_default_provider/model in config"
+            "No provider/model — set it in the request body, or set "
+            "agentic_default_provider/model (or pipeline_default_*) in the config"
         )
 
     runner = HeadlessAgentRunner(

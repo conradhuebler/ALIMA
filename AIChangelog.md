@@ -6,6 +6,75 @@
 
 ## 2026
 
+### Provider/Modell-Auswahl, Chat-Default und eine Render-Subscription (September 8, 2026)
+
+Aus zwei Fehlerberichten des Betreibers („egal welcher Provider, ich kann das
+Modell nicht wählen" und „im Default wieder auf north zurückgefallen").
+
+**1. Der Modell-Dialog der Einstellungen war vollständig tot.**
+`ModelSelectionDialog` (Einstellungen → Task-Preferences → „Modell hinzufügen")
+las `self.config_manager`, das aber nur im Legacy-Zweig seines Konstruktors
+gesetzt wurde. Der einzige Aufrufer übergibt eine `UnifiedProviderConfig`, also
+existierte das Attribut nie, der `AttributeError` verschwand in einem nackten
+`except`, und die Liste zeigte für **jeden** Provider den erfundenen Eintrag
+`default` — der dann als Modellname einer Task-Preference gespeichert wurde.
+Behoben, dazu drei Folgen derselben Stelle: die aktivierten Provider stehen
+jetzt vorn (die Combo öffnet auf Index 0, das war bisher ein Provider ohne
+Einrichtung), nicht eingerichtete sind markiert (Klarname in den Item-Daten,
+damit die Markierung nicht in den gespeicherten Namen leckt), eine leere Liste
+sagt *warum* (nicht aktiviert / nicht erreichbar), und die Abfrage läuft über
+den geteilten `ModelLoadWorker` statt synchron im modalen Dialog.
+
+**2. Drei tote Aufrufe in den Schritt-Widgets der Pipeline-Konfiguration.**
+Alle drei hinter einem breiten `except`, alle drei bei jedem Öffnen:
+`unified_config.openai_compatible_providers`/`.ollama_providers` (seit der
+Provider-Vereinheitlichung weg → das bevorzugte Modell wurde für keinen
+Provider gefunden), `SmartTaskType.from_pipeline_step(…).to_unified_task_type()`
+(beide Methoden existieren nicht; `SmartTaskType` **ist** `UnifiedTaskType`,
+zweimal importiert → Legacy-Fallback und Smart-Vorschau liefen nie) und
+`SmartProviderSelector._get_preferred_model_from_config` (existiert nicht).
+Jetzt `get_provider_by_name` (mit dem bestehenden Fuzzy-Fallback),
+`TaskType(self.step_id)` und ein eigener Lookup. Ein Test prüft per AST, dass
+die vier Namen nicht zurückkehren — sie waren nur hinter `except` erreichbar.
+
+**3. Der Chat fiel auf ein Modell zurück, das niemand mehr setzen konnte.**
+`ChatConfig.default_provider/model` stand an **zweiter** Stelle der
+Auflösungskette, vor allem, was in den Einstellungen einstellbar ist.
+Geschrieben hat es genau ein Bedienelement — der 💾-Schalter neben dem alten
+Provider-Picker der Chat-Kopfzeile, entfallen mit „Eine LLM-Auswahl je Tab"
+(`bce1920`). Ein Wert aus einer früheren Sitzung entschied damit dauerhaft
+jeden Chat-Turn, unsichtbar. Die Ebene ist gestrichen: Felder aus `ChatConfig`
+entfernt, `chat_config`-Parameter aus `resolve_provider_model` entfernt, die
+vier Aufrufstellen (GUI, CLI, zwei in der Webapp) nachgezogen. Tooltip,
+`src/ui/CLAUDE.md` und die CLI-Fehlermeldung versprachen einen „in den
+Einstellungen konfigurierten Chat-Default", den es dort nie gab — korrigiert.
+
+**4. Ein entferntes Config-Feld hätte die ganze Konfiguration zurückgesetzt.**
+Jede Sektion wurde mit `Cls(**data)` gebaut; ein Schlüssel, den die Dataclass
+nicht (mehr) hat, wirft `TypeError`, und der Handler weit oben antwortet darauf
+mit einem kompletten `AlimaConfig()` — Provider, Datenbankpfad, alles weg. Neu
+`build_config_section`: unbekannte Schlüssel werden verworfen und **benannt**
+(WARNING, damit ein Tippfehler sichtbar bleibt). Ohne diesen Schritt wäre
+Punkt 3 ein Totalverlust für jede bestehende `config.json` gewesen.
+
+**5. Der „flaky" Webapp-Statebus-Test war ein echter Fehler.**
+Instrumentiert (Thread + Zeitstempel an Subscribe/Emit/Unsubscribe) zeigte sich:
+`SUB n=10` → `UNSUB` → `START_PIPELINE n=0`, auf zwei Threads. `run_analysis`
+meldete die Render-Subscription in seinem eigenen `finally` ab — das läuft aber
+auch, wenn der Request abgebrochen wird, während `asyncio.to_thread` weiterläuft.
+In der Webapp heißt das: der Lauf läuft weiter, sein Log bleibt ab da leer.
+Jetzt gehört die Subscription dem Pipeline-Thread (`pipeline_thread_entered`);
+die Coroutine räumt nur auf, wenn der Thread nie angelaufen ist. Dazu ein Lock
+um `_AlimaStateBus._subscriptions` — Subscribe/Unsubscribe waren
+Load-Modify-Store auf einer Liste, die sich alle Session-Threads teilen.
+Isoliert vorher 2–4 von 8 rot, nachher 0 von 10; Full-Suite 4× grün.
+
+Suite 2119 (vorher 2091). Neu: `tests/test_model_selection_dialog.py`,
+`tests/test_step_config_provider_lookup.py`,
+`tests/test_config_section_tolerance.py`,
+`tests/test_analysis_bus_subscription_ownership.py`. Punkte 1, 2, 4 und 5 sind
+**vorbestehend** und unabhängig vom Zusatzregeln-Branch; Punkt 3 entstand darin.
+
 ### Aufräumen vor dem Merge der Zusatzregeln (September 8, 2026)
 
 Review des Branches `feature/user-rules` gegen `main` vor dem Merge. Fünf

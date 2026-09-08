@@ -62,6 +62,16 @@ class _AlimaStateBus(QObject):
         # ``Qt.QueuedConnection`` so dispatch happens on the GUI
         # thread regardless of which thread called ``emit_event``.
         self._subscriptions: List[Tuple[str, Callable[[Dict[str, Any]], None], Callable[[str, dict], None]]] = []
+        # ``subscribe``/``unsubscribe`` are load-modify-store on that list, and
+        # the bus is shared: in the webapp every analysis and every chat turn
+        # runs in its own thread and attaches its own subscriber. Without this
+        # lock two overlapping runs clobber each other's list — the second
+        # unsubscribe writes back a snapshot taken before the first subscribe,
+        # and those handlers are simply gone. Observed as a "flaky" test in
+        # which a subscriber registered 10 handlers and the very next emit saw
+        # 2. In a real webapp that is a session whose log stays empty.
+        # - Claude Generated
+        self._subscription_lock = threading.RLock()
         logger.debug("AlimaStateBus singleton initialised")
 
     def emit_event(self, event_type: str, diff: Dict[str, Any]) -> None:
@@ -84,7 +94,7 @@ class _AlimaStateBus(QObject):
         bus_thread = self.thread()
         current_thread = QThread.currentThread()
         if bus_thread is current_thread:
-            for event_filter, handler, _slot in self._subscriptions:
+            for event_filter, handler, _slot in self._snapshot():
                 if event_filter != event_type:
                     continue
                 try:
@@ -110,7 +120,7 @@ class _AlimaStateBus(QObject):
         from PyQt6.QtCore import QAbstractEventDispatcher
 
         if _force_direct_dispatch or QAbstractEventDispatcher.instance(bus_thread) is None:
-            for event_filter, handler, _slot in self._subscriptions:
+            for event_filter, handler, _slot in self._snapshot():
                 if event_filter != event_type:
                     continue
                 try:
@@ -126,7 +136,7 @@ class _AlimaStateBus(QObject):
         except RuntimeError:
             # Qt rejected the emit (e.g. object already destroyed). Fall back
             # to direct dispatch so we still observe the contract.
-            for event_filter, handler, _slot in self._subscriptions:
+            for event_filter, handler, _slot in self._snapshot():
                 if event_filter != event_type:
                     continue
                 try:
@@ -141,11 +151,6 @@ class _AlimaStateBus(QObject):
         event_type: str,
         handler: Callable[[Dict[str, Any]], None],
     ) -> None:
-        # Idempotent: don't double-connect the same (event_type, handler) pair.
-        for event_filter, existing_handler, _slot in self._subscriptions:
-            if event_filter == event_type and existing_handler is handler:
-                return
-
         def _slot(event_arg: str, payload: dict, _h: Callable[[Dict[str, Any]], None] = handler, _f: str = event_type) -> None:
             if event_arg != _f:
                 return
@@ -156,30 +161,49 @@ class _AlimaStateBus(QObject):
                     f"Subscriber raised for event '{_f}': {exc}"
                 )
 
-        # QueuedConnection: when ``emit_event`` is called from a worker
-        # thread, Qt delivers the signal to the bus's owning thread
-        # (GUI) and runs ``_slot`` there. This is the property that
-        # makes widget-manipulating subscribers safe.
-        self.state_event.connect(_slot, type=Qt.ConnectionType.QueuedConnection)
-        self._subscriptions.append((event_type, handler, _slot))
+        # Check and append under one lock: a plain check-then-append lets a
+        # concurrent run's unsubscribe write back a list that never saw this
+        # entry. - Claude Generated
+        with self._subscription_lock:
+            # Idempotent: don't double-connect the same (event_type, handler) pair.
+            for event_filter, existing_handler, _existing_slot in self._subscriptions:
+                if event_filter == event_type and existing_handler is handler:
+                    return
+
+            # QueuedConnection: when ``emit_event`` is called from a worker
+            # thread, Qt delivers the signal to the bus's owning thread
+            # (GUI) and runs ``_slot`` there. This is the property that
+            # makes widget-manipulating subscribers safe.
+            self.state_event.connect(_slot, type=Qt.ConnectionType.QueuedConnection)
+            self._subscriptions.append((event_type, handler, _slot))
 
     def unsubscribe(
         self,
         event_type: str,
         handler: Callable[[Dict[str, Any]], None],
     ) -> None:
-        kept: List[Tuple[str, Callable[[Dict[str, Any]], None], Callable[[str, dict], None]]] = []
-        for event_filter, existing_handler, slot in self._subscriptions:
-            if event_filter == event_type and existing_handler is handler:
-                try:
-                    self.state_event.disconnect(slot)
-                except (TypeError, RuntimeError):
-                    # Already disconnected (e.g. QObject destroyed) —
-                    # not an error.
-                    pass
-                continue
-            kept.append((event_filter, existing_handler, slot))
-        self._subscriptions = kept
+        with self._subscription_lock:
+            kept: List[Tuple[str, Callable[[Dict[str, Any]], None], Callable[[str, dict], None]]] = []
+            for event_filter, existing_handler, slot in self._subscriptions:
+                if event_filter == event_type and existing_handler is handler:
+                    try:
+                        self.state_event.disconnect(slot)
+                    except (TypeError, RuntimeError):
+                        # Already disconnected (e.g. QObject destroyed) —
+                        # not an error.
+                        pass
+                    continue
+                kept.append((event_filter, existing_handler, slot))
+            self._subscriptions = kept
+
+    def _snapshot(self) -> List[Tuple[str, Callable[[Dict[str, Any]], None], Callable[[str, dict], None]]]:
+        """A copy of the subscriptions, for dispatching without holding the lock.
+
+        A handler may subscribe or unsubscribe while it runs, and a concurrent
+        run may be doing the same. - Claude Generated
+        """
+        with self._subscription_lock:
+            return list(self._subscriptions)
 
 
 _lock = threading.Lock()

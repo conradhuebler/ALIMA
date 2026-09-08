@@ -147,9 +147,15 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
             appmod.sessions.pop(sid, None)
 
 
-    async def test_chat_config_default_beats_session_last_provider(self):
-        """ChatConfig.default_provider/model (config-only webapp setting) takes
-        precedence over the session's last pipeline provider/model. - Claude Generated"""
+    async def test_the_session_last_provider_is_used_when_the_request_is_silent(self):
+        """No chat-specific config default any more.
+
+        ``ChatConfig.default_provider/model`` used to be inserted here, above
+        the session's own provider and above everything in the settings, while
+        no surface could show or change it. A ``MagicMock`` chat config (which
+        answers *any* attribute) must therefore not influence the pick.
+        - Claude Generated
+        """
         client, appmod = self._client()
         sid = "test-chat-default"
         session = appmod.Session(sid)
@@ -167,10 +173,7 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
                 "prompt_service": mock.MagicMock(),
                 "pipeline_manager": mock.MagicMock(),
             }
-            chat_cfg = mock.MagicMock()
-            chat_cfg.default_provider = "LLMachine"
-            chat_cfg.default_model = "north-mini-code-1.0:latest"
-            services["config_manager"].load_config.return_value.chat_config = chat_cfg
+            services["config_manager"].load_config.return_value.chat_config = mock.MagicMock()
             services["config_manager"].get_unified_config.return_value.get_enabled_providers.return_value = []
 
             captured = {}
@@ -178,6 +181,7 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
             def fake_resolve(provider, model, **kwargs):
                 captured["provider_arg"] = provider
                 captured["model_arg"] = model
+                captured["kwargs"] = kwargs
                 return (provider, model)
 
             with mock.patch.object(appmod.AppContext, "get_services", return_value=services), \
@@ -186,8 +190,9 @@ class TestSessionChatEndpoint(unittest.IsolatedAsyncioTestCase):
                  mock.patch("src.core.headless_agent.resolve_provider_model", side_effect=fake_resolve):
                 runner, pm, provider, model = appmod._build_session_agent_runner(session, req)
 
-            self.assertEqual(captured.get("provider_arg"), "LLMachine")
-            self.assertEqual(captured.get("model_arg"), "north-mini-code-1.0:latest")
+            self.assertEqual(captured.get("provider_arg"), "ollama")
+            self.assertEqual(captured.get("model_arg"), "llama3")
+            self.assertNotIn("chat_config", captured.get("kwargs", {}))
         finally:
             appmod.sessions.pop(sid, None)
 

@@ -885,12 +885,16 @@ class RepetitionDetectionConfig:
 class ChatConfig:
     """Chat-widget configuration (WP10 P-δ.1). Claude Generated.
 
-    Independent of the pipeline-LLM defaults — chat may use a smaller /
-    cheaper model. ``no_cache_writes=True`` blocks chat tool calls from
-    persisting into the MCP cache (Audit-Finding S5).
+    ``no_cache_writes=True`` blocks chat tool calls from persisting into the MCP
+    cache (Audit-Finding S5).
+
+    No provider/model default here: the chat follows the agentic default from
+    the settings (``UnifiedProviderConfig``), overridden by the pipeline
+    toolbar in the GUI or by the request in CLI/HTTP. The former
+    ``default_provider``/``default_model`` pair outranked both, was written by
+    exactly one control that no longer exists, and a leftover value therefore
+    silently decided every chat turn.
     """
-    default_provider: str = ""
-    default_model: str = ""
     max_iterations: int = 30
     # Max tokens per LLM call in chat. Reasoning models can spend the whole
     # budget on the thinking channel and return empty content on long inputs —

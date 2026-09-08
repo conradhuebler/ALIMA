@@ -81,11 +81,12 @@ class TestResolveProviderModel(unittest.TestCase):
             _args(provider="openai", model="gpt-4"), ChatConfig(), None, None)
         self.assertEqual((p, m), ("openai", "gpt-4"))
 
-    def test_chat_config_fallback(self):
-        cc = ChatConfig(default_provider="ollama", default_model="cogito:14b")
+    def test_a_chat_config_no_longer_carries_a_default(self):
+        # The chat-specific provider/model default is gone: it outranked the
+        # settings and only one removed control ever wrote it.
         p, m = agent_cmd._resolve_provider_model(
-            _args(provider=None, model=None), cc, None, None)
-        self.assertEqual((p, m), ("ollama", "cogito:14b"))
+            _args(provider=None, model=None), ChatConfig(), None, None)
+        self.assertEqual((p, m), ("", ""))
 
     def test_llm_service_fallback(self):
         llm = SimpleNamespace(current_provider="gemini", current_model="flash")

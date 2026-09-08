@@ -50,11 +50,15 @@ def _load_chat_config(config_manager: ConfigManager) -> ChatConfig:
 
 
 def _resolve_provider_model(args, chat_config, pipeline_manager, llm_service) -> Tuple[str, str]:
-    """Resolve provider/model for the CLI agent (see resolve_provider_model)."""
+    """Resolve provider/model for the CLI agent (see resolve_provider_model).
+
+    ``chat_config`` is still taken so the call sites stay unchanged, but it no
+    longer carries a provider/model default — ``--provider/--model`` or the
+    settings decide. - Claude Generated
+    """
     return resolve_provider_model(
         getattr(args, "provider", None),
         getattr(args, "model", None),
-        chat_config=chat_config,
         pipeline_manager=pipeline_manager,
         llm_service=llm_service,
     )
@@ -136,7 +140,8 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
 
     provider, model = _resolve_provider_model(args, chat_config, pipeline_manager, llm_service)
     if not provider or not model:
-        print("❌ Kein LLM-Provider/Modell. Setze --provider/--model oder ChatConfig-Defaults.",
+        print("❌ Kein LLM-Provider/Modell. Setze --provider/--model oder in den "
+              "Einstellungen agentic_default_provider/model.",
               file=sys.stderr)
         return 2
 

@@ -121,28 +121,39 @@ def _pm_with_steps(step_kv):
 
 
 class TestResolveProviderModel(unittest.TestCase):
-    def test_explicit_wins(self):
-        self.assertEqual(
-            resolve_provider_model("openai", "gpt-4", chat_config=ChatConfig(
-                default_provider="ollama", default_model="x")),
-            ("openai", "gpt-4"))
+    """The chain has no chat-specific step any more.
 
-    def test_chat_config_over_pipeline(self):
-        cc = ChatConfig(default_provider="ollama", default_model="cogito:14b")
-        pm = _pm_with_steps({"keywords": ("openai", "gpt-4")})
-        self.assertEqual(resolve_provider_model(None, None, chat_config=cc, pipeline_manager=pm),
-                         ("ollama", "cogito:14b"))
+    ``ChatConfig.default_provider/model`` used to sit above everything the
+    operator can set, was written by a single control that has since been
+    removed, and a value left over from an earlier session therefore decided
+    every chat turn while no surface showed it. The parameter is gone.
+    """
+
+    def test_explicit_wins(self):
+        self.assertEqual(resolve_provider_model("openai", "gpt-4"), ("openai", "gpt-4"))
+
+    def test_the_chain_takes_no_chat_config_any_more(self):
+        import inspect
+
+        sig = inspect.signature(resolve_provider_model)
+        self.assertNotIn("chat_config", sig.parameters)
+
+    def test_a_leftover_chat_default_cannot_be_passed_in(self):
+        # ChatConfig no longer has the fields at all, so an old config file
+        # cannot revive the behaviour either.
+        cfg = ChatConfig()
+        self.assertFalse(hasattr(cfg, "default_provider"))
+        self.assertFalse(hasattr(cfg, "default_model"))
 
     def test_global_override(self):
         pm = SimpleNamespace(config=SimpleNamespace(
             global_provider_override="gemini", global_model_override="flash", step_configs={}))
-        self.assertEqual(resolve_provider_model(None, None, chat_config=ChatConfig(), pipeline_manager=pm),
+        self.assertEqual(resolve_provider_model(None, None, pipeline_manager=pm),
                          ("gemini", "flash"))
 
     def test_pipeline_step_default(self):
-        # The "real" default: no ChatConfig default, pull from step_configs.
         pm = _pm_with_steps({"keywords": ("openai_compatible", "nemotron-3-nano:30b")})
-        self.assertEqual(resolve_provider_model(None, None, chat_config=ChatConfig(), pipeline_manager=pm),
+        self.assertEqual(resolve_provider_model(None, None, pipeline_manager=pm),
                          ("openai_compatible", "nemotron-3-nano:30b"))
 
     def test_step_order_prefers_keywords(self):
@@ -150,23 +161,22 @@ class TestResolveProviderModel(unittest.TestCase):
             "initialisation": ("prov_init", "m_init"),
             "keywords": ("prov_kw", "m_kw"),
         })
-        self.assertEqual(resolve_provider_model(None, None, chat_config=ChatConfig(), pipeline_manager=pm),
+        self.assertEqual(resolve_provider_model(None, None, pipeline_manager=pm),
                          ("prov_kw", "m_kw"))
 
     def test_skips_empty_steps(self):
         pm = _pm_with_steps({"keywords": ("", ""), "dk_classification": ("p", "m")})
-        self.assertEqual(resolve_provider_model(None, None, chat_config=ChatConfig(), pipeline_manager=pm),
-                         ("p", "m"))
+        self.assertEqual(resolve_provider_model(None, None, pipeline_manager=pm), ("p", "m"))
 
     def test_llm_service_last_resort(self):
         llm = SimpleNamespace(current_provider="gemini", current_model="flash")
         pm = _pm_with_steps({})
         self.assertEqual(
-            resolve_provider_model(None, None, chat_config=ChatConfig(), pipeline_manager=pm, llm_service=llm),
+            resolve_provider_model(None, None, pipeline_manager=pm, llm_service=llm),
             ("gemini", "flash"))
 
     def test_empty_when_nothing(self):
-        self.assertEqual(resolve_provider_model(None, None, chat_config=ChatConfig()), ("", ""))
+        self.assertEqual(resolve_provider_model(None, None), ("", ""))
 
 
 class TestHeadlessAgentRunner(unittest.TestCase):

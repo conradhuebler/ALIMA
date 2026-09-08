@@ -39,29 +39,28 @@ def resolve_provider_model(
     explicit_provider: Optional[str],
     explicit_model: Optional[str],
     *,
-    chat_config: Any = None,
     pipeline_manager: Any = None,
     llm_service: Any = None,
 ) -> "tuple[str, str]":
     """Resolve (provider, model) for a headless agent run.
 
     Precedence:
-      1. explicit args / request body / GUI combo override
-      2. ``ChatConfig.default_provider/model``
-      3. ``pipeline_manager.config.global_provider_override/model`` (runtime --override)
-      4. ``UnifiedProviderConfig.agentic_default_provider/model``
-      5. ``UnifiedProviderConfig.pipeline_default_provider/model``
-      6. ``UnifiedProviderConfig.preferred_provider/model`` (general default)
-      7. first enabled provider + its preferred/first model
-      8. ``llm_service.current_provider/model``
+      1. explicit args / request body / GUI toolbar override
+      2. ``pipeline_manager.config.global_provider_override/model`` (runtime --override)
+      3. ``UnifiedProviderConfig.agentic_default_provider/model``
+      4. ``UnifiedProviderConfig.pipeline_default_provider/model``
+      5. ``UnifiedProviderConfig.preferred_provider/model`` (general default)
+      6. first enabled provider + its preferred/first model
+      7. ``llm_service.current_provider/model``
+
+    There is deliberately no chat-specific default any more. ``ChatConfig``
+    used to carry one at position 2, above everything the operator can set in
+    the settings; its only writer was a control that the one-LLM-pick-per-tab
+    change removed, so a value written months earlier kept deciding every chat
+    turn and nothing showed it. - Claude Generated
     """
     if explicit_provider and explicit_model:
         return explicit_provider, explicit_model
-
-    p = getattr(chat_config, "default_provider", "") or ""
-    m = getattr(chat_config, "default_model", "") or ""
-    if p and m:
-        return p, m
 
     cfg = getattr(pipeline_manager, "config", None)
     if cfg is not None:

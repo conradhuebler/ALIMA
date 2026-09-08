@@ -181,7 +181,6 @@ class ChatAgentMixin:
             ov_provider, ov_model = req_provider, req_model
         provider, model = resolve_provider_model(
             ov_provider or None, ov_model or None,
-            chat_config=self._get_chat_config(),
             pipeline_manager=self.pipeline_manager,
             llm_service=self.llm_service,
         )

@@ -289,9 +289,9 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # and this panel sits inside that toolbar's tab — two controls for the
         # same decision, of which the chat's silently outranked the other. The
         # toolbar now drives the chat too (``set_llm_override``), and the label
-        # below shows what that resolves to. A *different* default for the chat
-        # is still possible via ChatConfig in the settings; it applies whenever
-        # the toolbar is on "-- Standard --". - Claude Generated
+        # below shows what that resolves to. With the toolbar on "-- Standard --"
+        # the agentic default from the settings applies; there is no separate
+        # chat default any more (see ``ChatConfig``). - Claude Generated
         self._llm_override: tuple = ("", "")
 
         # Read-only: which provider/model the chat will actually use, resolved
@@ -302,8 +302,8 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         )
         self.model_status_label.setToolTip(
             "Modell des Chat-Agenten. Kommt aus der LLM-Auswahl der "
-            "Pipeline-Werkzeugleiste; bei \"-- Standard --\" gilt der in den "
-            "Einstellungen konfigurierte Chat-Default."
+            "Pipeline-Werkzeugleiste; bei \"-- Standard --\" gilt der agentische "
+            "Standard aus den Einstellungen."
         )
         header_layout.addWidget(self.model_status_label)
 

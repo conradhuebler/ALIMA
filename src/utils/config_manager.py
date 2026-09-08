@@ -14,7 +14,7 @@ import time
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Tuple
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, fields as dataclass_fields
 import logging
 from enum import Enum
 # Import centralized data models
@@ -36,6 +36,29 @@ from .config_models import *  # Re-export everything
 # TEMPORARY BRIDGE CLASSES - For import compatibility during migration
 # ============================================================================
 
+
+
+def build_config_section(cls, data: Optional[Dict[str, Any]], *, context: str):
+    """Build a config dataclass from JSON, dropping keys it does not have.
+
+    ``cls(**data)`` raises ``TypeError`` on an unknown key, and the caller's
+    handler answers that with a **complete** fallback to ``AlimaConfig()`` — one
+    leftover key from an older version therefore resets providers, database path
+    and every other setting at once. A field that is removed from a dataclass
+    must not be able to do that, so unknown keys are dropped here and named at
+    WARNING (a typo stays visible, and they disappear on the next save).
+    - Claude Generated
+    """
+    if not data:
+        return cls()
+    known = {f.name for f in dataclass_fields(cls)}
+    unknown = sorted(set(data) - known)
+    if unknown:
+        logging.getLogger(__name__).warning(
+            f"{context}: unbekannte Schlüssel ignoriert ({', '.join(unknown)}) — "
+            f"entferntes Feld oder Tippfehler; sie verschwinden beim nächsten Speichern"
+        )
+    return cls(**{k: v for k, v in data.items() if k in known})
 
 
 class ProviderDetectionService:
@@ -403,9 +426,14 @@ class ConfigManager:
                     self.logger.debug(f"🔄 Migrated database_path from system_config to database_config: {old_db_path}")
 
             # Create main config sections - Claude Generated
-            database_config = DatabaseConfig(**database_config_data)
-            prompt_config = PromptConfig(**config_data.get("prompt_config", config_data.get("prompt", {})))
-            system_config = SystemConfig(**system_config_data)
+            database_config = build_config_section(
+                DatabaseConfig, database_config_data, context="database_config")
+            prompt_config = build_config_section(
+                PromptConfig,
+                config_data.get("prompt_config", config_data.get("prompt", {})),
+                context="prompt_config")
+            system_config = build_config_section(
+                SystemConfig, system_config_data, context="system_config")
 
             # Legacy search sections: raw input to the one-way instance migration
             # below, no longer parsed into CatalogConfig/SearchProviderConfig (WP P7).
@@ -430,7 +458,7 @@ class ConfigManager:
 
             # Parse UI config - Claude Generated (Webcam Feature Fix)
             ui_config_data = config_data.get("ui_config", {})
-            ui_config = UIConfig(**ui_config_data) if ui_config_data else UIConfig()
+            ui_config = build_config_section(UIConfig, ui_config_data, context="ui_config")
             # UI-chrome language (chat panel / renderer / webapp) follows the
             # config; one hook covers every frontend. - Claude Generated
             from .i18n import set_language
@@ -438,7 +466,7 @@ class ConfigManager:
 
             # Parse Chat config - Claude Generated (WP10 P-δ.1)
             chat_config_data = config_data.get("chat_config", {})
-            chat_config = ChatConfig(**chat_config_data) if chat_config_data else ChatConfig()
+            chat_config = build_config_section(ChatConfig, chat_config_data, context="chat_config")
 
             # Create unified provider config
             if "unified_config" in config_data:
