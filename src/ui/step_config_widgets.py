@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..utils.config_models import PipelineStepConfig, TaskType as UnifiedTaskType
-from ..utils.smart_provider_selector import SmartProviderSelector, TaskType as SmartTaskType
+from ..utils.smart_provider_selector import SmartProviderSelector
 from ..utils.pipeline_config_parser import PipelineConfigParser
 from .workers import ModelLoadWorker
 
@@ -854,48 +854,34 @@ class HybridStepConfigWidget(QWidget):
             except Exception as e:
                 self.logger.debug(f"No task preference model for {provider}: {e}")
 
-            # TIER 2: Check Provider Settings - Claude Generated
-            # Force reload to ensure we get latest saved config - Claude Generated
-            config = self.config_manager.load_config(force_reload=True)
-            
-            # 🔍 DEBUG: Log what pipeline dialog sees in loaded config - Claude Generated
-            self.logger.debug(f"🔍PIPELINE_CONFIG_LOAD: gemini_preferred='{config.unified_config.gemini_preferred_model}', anthropic_preferred='{config.unified_config.anthropic_preferred_model}'")
-            self.logger.debug(f"🔍PIPELINE_CONFIG_LOAD: openai_providers_count={len(config.unified_config.openai_compatible_providers)}, ollama_providers_count={len(config.unified_config.ollama_providers)}")
-            
-            # Check static providers
+            # TIER 2: the provider's own preferred model - Claude Generated
+            # Read from the unified provider list. This block used to walk
+            # ``unified_config.openai_compatible_providers`` / ``.ollama_providers``,
+            # attributes the class has not had since the provider unification, so
+            # it raised AttributeError on every call, was swallowed by the outer
+            # handler ("Error getting preferred model for X") and no provider
+            # ever contributed a preferred model.
+            unified = self.config_manager.load_config(force_reload=True).unified_config
+
+            entry = unified.get_provider_by_name(provider)
+            if entry is None:
+                # Fuzzy fallback for name variants (e.g. "LLMachine/Ollama").
+                for candidate in unified.providers:
+                    if self._provider_names_match(candidate.name, provider):
+                        entry = candidate
+                        break
+            if entry is not None and entry.preferred_model:
+                self.logger.debug(
+                    f"🔍PIPELINE_DIALOG_FOUND: '{provider}' -> '{entry.preferred_model}'"
+                )
+                return entry.preferred_model
+
+            # Legacy single-provider fields, still written for these two.
             if provider == "gemini":
-                preferred = config.unified_config.gemini_preferred_model or None
-                self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: gemini -> '{preferred}'")
-                return preferred
-            elif provider == "anthropic":
-                preferred = config.unified_config.anthropic_preferred_model or None
-                self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: anthropic -> '{preferred}'")
-                return preferred
-            
-            # Check OpenAI-compatible providers
-            for openai_provider in config.unified_config.openai_compatible_providers:
-                self.logger.debug(f"🔍PIPELINE_CHECKING_OPENAI: '{openai_provider.name}'.preferred_model='{openai_provider.preferred_model}' vs requested '{provider}'")
-                if openai_provider.name == provider:
-                    preferred = openai_provider.preferred_model or None
-                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: openai_compatible '{provider}' -> '{preferred}'")
-                    return preferred
-            
-            # Check Ollama providers - with fuzzy matching - Claude Generated
-            for ollama_provider in config.unified_config.ollama_providers:
-                self.logger.debug(f"🔍PIPELINE_CHECKING_OLLAMA: '{ollama_provider.name}' vs requested '{provider}'")
-                
-                # Direct name match
-                if ollama_provider.name == provider:
-                    preferred = ollama_provider.preferred_model or None
-                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (exact)")
-                    return preferred
-                
-                # Fuzzy matching for provider name variations
-                if self._provider_names_match(ollama_provider.name, provider):
-                    preferred = ollama_provider.preferred_model or None
-                    self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: ollama '{provider}' -> '{preferred}' (fuzzy: '{ollama_provider.name}')")
-                    return preferred
-            
+                return unified.gemini_preferred_model or None
+            if provider == "anthropic":
+                return unified.anthropic_preferred_model or None
+
             self.logger.debug(f"🔍PIPELINE_DIALOG_FOUND: '{provider}' -> None (not found)")
             return None
             
@@ -933,6 +919,21 @@ class HybridStepConfigWidget(QWidget):
         
         return None
     
+    def _task_type_for_step(self) -> UnifiedTaskType:
+        """The TaskType for this step, ``GENERAL`` when the id is not one.
+
+        The step ids are the enum's values. Both call sites used to go through
+        ``SmartTaskType.from_pipeline_step(...).to_unified_task_type()``, and
+        neither method exists — ``SmartTaskType`` *is* ``UnifiedTaskType``,
+        imported twice under two names. Every call raised, so the legacy task
+        preference fallback and the smart preview were dead.
+        - Claude Generated
+        """
+        try:
+            return UnifiedTaskType(self.step_id)
+        except ValueError:
+            return UnifiedTaskType.GENERAL
+
     def _provider_names_match(self, config_name: str, requested_name: str) -> bool:
         """Check if provider names match with fuzzy logic for common variations - Claude Generated"""
         # Normalize names for comparison
@@ -1059,11 +1060,9 @@ class HybridStepConfigWidget(QWidget):
                     smart_selector = SmartProviderSelector(self.config_manager)
                     if hasattr(smart_selector, 'unified_config') and smart_selector.unified_config:
                         # Map step to task type
-                        smart_task_type = SmartTaskType.from_pipeline_step(self.step_id, "")
-                        unified_task_type = smart_task_type.to_unified_task_type()
-
-                        # Get task preference
-                        task_pref = smart_selector.unified_config.get_task_preference(unified_task_type)
+                        task_pref = smart_selector.unified_config.get_task_preference(
+                            self._task_type_for_step()
+                        )
 
                         # Get first available provider/model from task preferences
                         for priority_entry in task_pref.model_priority:
@@ -1165,9 +1164,6 @@ class HybridStepConfigWidget(QWidget):
                 smart_selector = SmartProviderSelector(self.config_manager)
                 prefer_fast = False  # Smart mode uses balanced approach
                 
-                # Map step_id to SmartTaskType for enhanced task detection
-                smart_task_type = SmartTaskType.from_pipeline_step(self.step_id, "")
-                
                 # Map pipeline step_id to task_name for task_preferences lookup - Claude Generated
                 task_name_mapping = {
                     "input": "",                     # No LLM required
@@ -1180,7 +1176,8 @@ class HybridStepConfigWidget(QWidget):
                     "image_text_extraction": "image_text_extraction"
                 }
                 task_name = task_name_mapping.get(self.step_id, "")
-                
+                smart_task_type = self._task_type_for_step()
+
                 # Get smart selection with task preference integration - Claude Generated
                 selection = smart_selector.select_provider(
                     task_type=smart_task_type, 
@@ -1261,8 +1258,12 @@ class HybridStepConfigWidget(QWidget):
                     
                     # Fallback analysis if no task preference matched
                     if not selection_indicators:
-                        # Check if provider config was used
-                        preferred_model = smart_selector._get_preferred_model_from_config(selection.provider)
+                        # Check if provider config was used. Own lookup, not a
+                        # private method of SmartProviderSelector — that one
+                        # (``_get_preferred_model_from_config``) does not exist,
+                        # so this branch always ended in the handler below.
+                        # - Claude Generated
+                        preferred_model = self._get_preferred_model_for_provider(selection.provider)
                         if preferred_model and selection.model == preferred_model:
                             selection_indicators.append("🔧 Provider config")
                         elif prefer_fast and any(indicator in selection.model.lower() for indicator in ['flash', 'mini', 'haiku', 'turbo']):

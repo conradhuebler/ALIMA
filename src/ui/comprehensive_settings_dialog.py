@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from copy import deepcopy
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, SystemConfig, ProviderDetectionService
+from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, SystemConfig
+from .workers import ModelLoadWorker
+from ..utils.error_visibility import log_caught
 from ..utils.config_models import UnifiedProvider
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
@@ -1427,10 +1429,17 @@ class ComprehensiveSettingsDialog(QDialog):
 class ModelSelectionDialog(QDialog):
     """Dialog for selecting provider and model - Claude Generated"""
 
-    def __init__(self, config_manager_or_unified_config, parent=None):
+    def __init__(self, config_manager_or_unified_config, parent=None,
+                 *, detection_service=None):
         super().__init__(parent)
+        self.logger = logging.getLogger(__name__)
         # Support both config_manager (legacy) and UnifiedProviderConfig (new) - Claude Generated
         from ..utils.config_models import UnifiedProviderConfig
+        # Always defined. ``load_models`` read it unconditionally, so the
+        # UnifiedProviderConfig branch — the one every caller in this file uses
+        # — raised AttributeError there, was swallowed, and every provider
+        # showed the single entry "default". - Claude Generated
+        self.config_manager = None
         if isinstance(config_manager_or_unified_config, UnifiedProviderConfig):
             self.unified_config = config_manager_or_unified_config
         else:
@@ -1438,12 +1447,25 @@ class ModelSelectionDialog(QDialog):
             self.config_manager = config_manager_or_unified_config
             self.unified_config = self.config_manager.get_unified_config()
 
+        self._detection_service = detection_service or self._default_detection_service()
+        # Strong refs to in-flight workers: a running QThread whose last
+        # reference is dropped gets destroyed mid-run and aborts the process.
+        self._model_workers: set = set()
+        self._pending_provider = ""
+
         self.setWindowTitle("Modell auswählen")
         self.setModal(True)
         self.resize(400, 300)
 
         self.setup_ui()
         self.load_providers()
+
+    def _default_detection_service(self):
+        """The shared detection service — same instance, same TTL cache, and it
+        is the one Settings reloads after a provider change. - Claude Generated"""
+        if self.config_manager is not None:
+            return self.config_manager.get_provider_detection_service()
+        return ConfigManager().get_provider_detection_service()
     
     def setup_ui(self):
         """Setup dialog UI - Claude Generated"""
@@ -1454,7 +1476,7 @@ class ModelSelectionDialog(QDialog):
         layout.addWidget(provider_label)
         
         self.provider_combo = QComboBox()
-        self.provider_combo.currentTextChanged.connect(self.load_models)
+        self.provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         layout.addWidget(self.provider_combo)
         
         # Model selection
@@ -1490,47 +1512,95 @@ class ModelSelectionDialog(QDialog):
         layout.addLayout(button_layout)
         self.setLayout(layout)
     
+    #: Offered even when not set up, so a task preference can be written for a
+    #: provider before it is configured. They are listed *after* the enabled
+    #: ones and marked, because only the enabled ones can report models.
+    _COMMON_PROVIDERS = ("ollama", "gemini", "openai", "anthropic")
+
     def load_providers(self):
-        """Load available providers - Claude Generated"""
+        """Load available providers, enabled ones first - Claude Generated
+
+        Order matters: the combo starts on index 0, and with the four common
+        names on top that was a provider this machine has never been set up for,
+        so the model list stayed empty and looked broken. The display text may
+        carry a marker, so the plain name lives in the item data and is read
+        from there — a decorated name in the value is what caused the phantom
+        models in the old dialogs.
+        """
         self.provider_combo.clear()
 
+        enabled: List[str] = []
         try:
-            # Add common providers
-            providers = ["ollama", "gemini", "openai", "anthropic"]
+            enabled = [p.name for p in self.unified_config.get_enabled_providers()]
+        except Exception as exc:
+            log_caught(self.logger, exc, "ModelSelectionDialog: reading enabled providers")
 
-            # Add configured providers from unified config (use stored instance, not disk)
-            for provider in self.unified_config.get_enabled_providers():
-                if provider.name not in providers:
-                    providers.append(provider.name)
-            
-            self.provider_combo.addItems(providers)
-            
-        except Exception as e:
-            # Fallback to basic providers
-            self.provider_combo.addItems(["ollama", "gemini", "openai", "anthropic"])
+        for name in enabled:
+            self.provider_combo.addItem(name, name)
+        for name in self._COMMON_PROVIDERS:
+            if name not in enabled:
+                self.provider_combo.addItem(f"{name} (nicht eingerichtet)", name)
     
     def load_models(self, provider_name: str):
-        """Load models for selected provider - Claude Generated"""
+        """Fetch the provider's models off the UI thread - Claude Generated
+
+        Off the thread because this dialog is modal: a provider that is slow or
+        unreachable would otherwise freeze it for the whole request timeout.
+        The result arrives in :meth:`_on_models_fetched`; a late answer for a
+        provider the user has since left is dropped there.
+        """
         self.model_combo.clear()
-        
+        self._pending_provider = provider_name or ""
         if not provider_name:
+            self._set_model_hint("")
             return
-        
+
+        self._set_model_hint("⏳ Lade Modelle…")
+        worker = ModelLoadWorker(self._detection_service, provider_name)
+        worker.fetched.connect(self._on_models_fetched)
+        worker.finished.connect(lambda w=worker: self._model_workers.discard(w))
+        self._model_workers.add(worker)
+        worker.start()
+
+    def _on_models_fetched(self, provider: str, models: list):
+        """Fill the combo with what came back. - Claude Generated"""
+        if provider != self._pending_provider:
+            return  # the user moved on; this answer is for an older pick
+        self.model_combo.clear()
+        if not models:
+            # No invented entry here: whatever stands in the combo is returned
+            # as the model name, and the old fallback stored a literal
+            # "default" as a task preference. - Claude Generated
+            self._set_model_hint(self._empty_reason(provider))
+            return
+        self._set_model_hint("")
+        self.model_combo.addItems(sorted(models, key=lambda s: s.lower()))
+
+    def _on_provider_changed(self, _index: int) -> None:
+        """Provider picked → load its models. The plain name is in the item
+        data; the display text may carry a marker. - Claude Generated"""
+        self.load_models(self.provider_combo.currentData() or "")
+
+    def _empty_reason(self, provider: str) -> str:
+        """Say *why* there is nothing to choose from. - Claude Generated"""
         try:
-            detection_service = ProviderDetectionService(self.config_manager)
-            models = detection_service.get_available_models(provider_name)
-            if not models:
-                models = ["default"]
-            else:
-                # Sort models alphabetically (case-insensitive)
-                models = sorted(models, key=lambda s: s.lower())
-        except Exception:
-            models = ["default"]
-        self.model_combo.addItems(models)
+            enabled = [p.name for p in self.unified_config.get_enabled_providers()]
+        except Exception as exc:
+            log_caught(self.logger, exc, "ModelSelectionDialog: reading enabled providers")
+            enabled = []
+        if provider not in enabled:
+            return "nicht in den Einstellungen aktiviert — Modellnamen eintippen"
+        return "nicht erreichbar, keine Modelle gemeldet — Modellnamen eintippen"
+
+    def _set_model_hint(self, text: str) -> None:
+        """Show a state in the editable combo without adding a selectable item."""
+        line_edit = self.model_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setPlaceholderText(text)
     
     def get_selected_model(self):
         """Get selected provider and model - Claude Generated"""
-        provider = self.provider_combo.currentText()
+        provider = self.provider_combo.currentData() or self.provider_combo.currentText()
         
         # Use custom model if provided
         custom_model = self.custom_model_input.text().strip()
