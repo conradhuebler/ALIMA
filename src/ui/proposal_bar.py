@@ -127,8 +127,15 @@ class ProposalBar(QFrame):
         self.setVisible(True)
         self.accept_btn.setFocus()
 
-    def dismiss(self) -> None:
-        """Hide without deciding (e.g. the run was cancelled)."""
+    def dismiss(self, audit_id: Optional[int] = None) -> None:
+        """Hide without deciding — the waiter timed out or the run was cancelled.
+
+        With an ``audit_id`` only that proposal is withdrawn, so a late timeout
+        of an earlier one cannot close the question currently on screen.
+        - Claude Generated
+        """
+        if audit_id is not None and self._audit_id != int(audit_id):
+            return
         self._audit_id = None
         self.setVisible(False)
 

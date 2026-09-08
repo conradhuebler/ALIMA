@@ -16,10 +16,12 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from src.core.user_rules import (
     RULES_BLOCK_HEADING,
+    STEP_REFLECTION,
     RuleStore,
     UserRule,
     append_rules_block,
@@ -219,6 +221,27 @@ class RenderTest(unittest.TestCase):
 # ----------------------------------------------------------------------
 # Injection — agentic steps
 # ----------------------------------------------------------------------
+
+
+class _TempDefaultStore:
+    """Points ``default_rules_path`` at a temp file for one test case.
+
+    The injection points read the *default* store, so a test that wants to see
+    a rule arrive in a prompt has to move that default. ``patch``
+    restores it even when the test errors, which a bare assignment does not.
+    - Claude Generated
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._tmp = TemporaryDirectory()
+        self.path = Path(self._tmp.name) / "rules.yaml"
+        patcher = patch(
+            "src.core.user_rules.default_rules_path", lambda: self.path
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._tmp.cleanup)
 
 
 class _Ctx:
@@ -666,10 +689,6 @@ class AppliedRulesInResultTest(unittest.TestCase):
 
         state = SharedContext(abstract="Text").to_keyword_analysis_state()
         self.assertEqual(state.applied_rules, [])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class StoreIsolationTest(unittest.TestCase):
@@ -1182,3 +1201,165 @@ class ReflectionStateDumpTest(unittest.TestCase):
         values = {name: "x" for name in slots}
         rendered = ReflectionStep._render(DEFAULT_REFLECTION_USER_PROMPT, values)
         self.assertNotIn("{", rendered)
+
+
+class RenderIsolationTest(unittest.TestCase):
+    """A substituted value must not be scanned for further placeholders.
+
+    The reflection prompt takes the rules block as the value of
+    ``{user_rules_gate}``. With the old sequential ``str.replace`` a rule
+    reading "nenne {dk_codes}" came back with the run's DK codes pasted into
+    it, which is the opposite of what ``user_rules`` promises.
+    """
+
+    def test_a_value_containing_a_marker_stays_literal(self):
+        from src.core.agents.prompt_resolver import _render
+
+        out = _render("{a}", {"a": "{b}", "b": "SUBSTITUIERT"})
+        self.assertEqual(out, "{b}")
+
+    def test_an_unknown_marker_is_left_standing(self):
+        from src.core.agents.prompt_resolver import _render
+
+        self.assertEqual(_render("x {unknown} y", {"a": "1"}), "x {unknown} y")
+
+    def test_a_dotted_name_is_not_a_render_marker(self):
+        # ``${extra.foo}`` is a context path, resolved into ``resolved_inputs``
+        # before the prompt is rendered; ``_render`` only ever sees identifier
+        # keys. Pinned so the marker pattern is not "fixed" to match dots.
+        from src.core.agents.prompt_resolver import _render
+
+        self.assertEqual(_render("{extra.foo}", {"extra.foo": "X"}), "{extra.foo}")
+
+    def test_json_braces_in_a_template_survive(self):
+        from src.core.agents.prompt_resolver import _render
+
+        template = '{\n  "status": "complete"\n}'
+        self.assertEqual(_render(template, {"status": "X"}), template)
+
+
+class ReflectionBraceSafetyTest(_TempDefaultStore, unittest.TestCase):
+    """End-to-end: braces in a rule text reach the model unchanged."""
+
+    def test_a_rule_with_a_marker_is_not_substituted(self):
+        from src.core.agents.prompt_resolver import _render
+        from src.core.agents.steps.reflection_step import (
+            DEFAULT_REFLECTION_SYSTEM_PROMPT,
+            _user_rules_values,
+        )
+
+        RuleStore(self.path).add(
+            "Nenne am Ende die Codes {dk_codes}.", steps=[STEP_REFLECTION]
+        )
+        ctx = _Ctx()
+        values = {
+            "dk_codes": "004.6",
+            "workflow_rules": "",
+            **_user_rules_values(ctx),
+        }
+        out = _render(DEFAULT_REFLECTION_SYSTEM_PROMPT, values)
+        self.assertIn("Nenne am Ende die Codes {dk_codes}.", out)
+        self.assertNotIn("Nenne am Ende die Codes 004.6.", out)
+
+
+class ReflectionGateFallbackTest(_TempDefaultStore, unittest.TestCase):
+    """A workflow may replace the reflection system prompt wholesale.
+
+    That template has no ``{user_rules_gate}`` slot, and the generic injection
+    point skips this step because the gate owns it — so without a fallback the
+    operator's reflection rules would reach no prompt at all.
+    """
+
+    def test_a_prompt_without_the_slot_gets_the_gate_appended(self):
+        from src.core.agents.steps.reflection_step import (
+            _ensure_rules_gate,
+            _user_rules_values,
+        )
+
+        RuleStore(self.path).add("Am Ende den Eintrag erzeugen.", steps=[STEP_REFLECTION])
+        values = _user_rules_values(_Ctx())
+        out = _ensure_rules_gate("EIGENER PROMPT OHNE SLOT", values)
+        self.assertTrue(out.startswith("EIGENER PROMPT OHNE SLOT"))
+        self.assertIn("Am Ende den Eintrag erzeugen.", out)
+
+    def test_a_prompt_that_already_carries_the_gate_is_untouched(self):
+        from src.core.agents.steps.reflection_step import (
+            _ensure_rules_gate,
+            _user_rules_values,
+        )
+
+        RuleStore(self.path).add("Am Ende den Eintrag erzeugen.", steps=[STEP_REFLECTION])
+        values = _user_rules_values(_Ctx())
+        rendered = f"BASIS\n\n{values['user_rules_gate'].strip()}\n"
+        self.assertEqual(_ensure_rules_gate(rendered, values), rendered)
+
+    def test_without_rules_nothing_is_appended(self):
+        from src.core.agents.steps.reflection_step import (
+            _ensure_rules_gate,
+            _user_rules_values,
+        )
+
+        values = _user_rules_values(_Ctx())
+        self.assertEqual(_ensure_rules_gate("BASIS", values), "BASIS")
+
+
+class FinalReflectionTest(unittest.TestCase):
+    """Which reflection carries the production order."""
+
+    def _agent(self, pending):
+        from src.core.agents.meta_agent import MetaAgent
+
+        stub = SimpleNamespace(_pending_step=lambda _w, _c: pending)
+        stub._is_final_reflection = MetaAgent._is_final_reflection.__get__(stub)
+        return stub
+
+    def test_an_exhausted_step_graph_is_final(self):
+        self.assertTrue(self._agent(None)._is_final_reflection(None, None, 1, 5))
+
+    def test_a_pending_step_is_not_final(self):
+        self.assertFalse(self._agent("classification")._is_final_reflection(None, None, 1, 5))
+
+    def test_the_last_allowed_cycle_is_final_even_with_a_pending_step(self):
+        # Otherwise a run that hits the cycle cap ends without ever opening the
+        # gate, and an "am Ende"-rule produces nothing.
+        self.assertTrue(self._agent("classification")._is_final_reflection(None, None, 5, 5))
+
+
+class StoreConcurrencyTest(unittest.TestCase):
+    """Two threads write the same file; nothing may be lost.
+
+    Every mutation is load-modify-save. The write is atomic, the sequence is
+    not: in the GUI the rule dialog runs on the UI thread and ``propose_rule``
+    inside the chat worker.
+    """
+
+    def test_parallel_adds_all_survive(self):
+        import threading
+
+        with TemporaryDirectory() as tmp:
+            store = RuleStore(Path(tmp) / "rules.yaml")
+            errors: list = []
+
+            def _add(prefix: str) -> None:
+                try:
+                    for i in range(15):
+                        store.add(f"{prefix}-{i}")
+                except Exception as exc:  # pragma: no cover - would be a defect
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=_add, args=(name,)) for name in ("a", "b")
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            self.assertEqual(errors, [])
+            texts = sorted(r.text for r in store.load())
+            self.assertEqual(len(texts), 30, "a concurrent add was overwritten")
+            self.assertEqual(len(set(r.id for r in store.load())), 30, "ids collided")
+
+
+if __name__ == "__main__":
+    unittest.main()

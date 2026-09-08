@@ -164,8 +164,13 @@ class MetaAgent:
             # Open the "produce the final output now" gate only for the
             # reflection after which nothing is pending any more. The step graph
             # is known here; the model would otherwise re-generate the whole
-            # block in every remaining cycle. - Claude Generated
-            self._set_final_gate(context, self._pending_step(workflow, context) is None)
+            # block in every remaining cycle. The cycle budget counts too: on
+            # the last allowed cycle this is the final reflection whether the
+            # graph is exhausted or not, and a rule that produces something at
+            # the end would otherwise silently produce nothing. - Claude Generated
+            self._set_final_gate(
+                context, self._is_final_reflection(workflow, context, cycle, max_cycles)
+            )
 
             reflection = self._run_reflection(workflow, context, reflection_cfg)
             context.quality_report = reflection
@@ -722,6 +727,18 @@ class MetaAgent:
         if block:
             return base.rstrip() + "\n\n" + block + "\n"
         return base
+
+    def _is_final_reflection(
+        self, workflow: WorkflowDef, context: Any, cycle: int, max_cycles: int
+    ) -> bool:
+        """True when no further reflection will run after this one.
+
+        Two ways a run ends: the step graph is exhausted, or the cycle budget
+        is. The second one counts too — a rule that asks for an output at the
+        end would otherwise silently produce nothing on a run that hit the cap.
+        - Claude Generated
+        """
+        return self._pending_step(workflow, context) is None or cycle >= max_cycles
 
     @staticmethod
     def _set_final_gate(context: Any, is_final: bool) -> None:

@@ -23,6 +23,11 @@ class ProposalGateway(QObject):
     # the connection's default (auto) delivery. PipelineChatPanel
     # connects this to its `_render_proposal_bubble` slot.
     proposal_requested = pyqtSignal(int, str, dict)  # audit_id, tool_name, payload
+    #: Emitted when nobody answered in time. The UI has a live decision
+    #: surface up at that moment; without this it keeps offering buttons for a
+    #: question whose waiter is already gone, and the click then looks like it
+    #: worked. - Claude Generated
+    proposal_expired = pyqtSignal(int)  # audit_id
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -49,6 +54,7 @@ class ProposalGateway(QObject):
         finally:
             self._waiters.pop(audit_id, None)
         if not acquired:
+            self.proposal_expired.emit(audit_id)
             return {"accepted": False, "reject_reason": "timeout"}
         return result
 
@@ -57,15 +63,21 @@ class ProposalGateway(QObject):
         audit_id: int,
         accepted: bool,
         reject_reason: str = "",
-    ) -> None:
-        """Release a pending waiter with the user's decision."""
+    ) -> bool:
+        """Release a pending waiter with the user's decision.
+
+        Returns False when there was no waiter left — the tool already gave up
+        (timeout) or the answer arrived twice. The caller must not report the
+        decision as carried out in that case. - Claude Generated
+        """
         entry = self._waiters.get(audit_id)
         if entry is None:
-            return
+            return False
         sem, result = entry
         result["accepted"] = bool(accepted)
         result["reject_reason"] = reject_reason or ""
         sem.release()
+        return True
 
     def pending_audit_ids(self) -> list[int]:
         """Audit ids currently waiting for a user decision."""

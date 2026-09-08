@@ -173,6 +173,23 @@ def _user_rules_values(context: Any) -> Dict[str, str]:
     return {"user_rules_gate": gate + "\n", "user_rules": rendered}
 
 
+def _ensure_rules_gate(system_prompt: str, rules_values: Dict[str, str]) -> str:
+    """Append the rules gate when the template had no ``{user_rules_gate}`` slot.
+
+    A workflow may replace the reflection system prompt wholesale
+    (``meta_agent.reflection.system_prompt:``). That template has no slot, and
+    the generic injection point skips this step because the gate owns it — so
+    without this the operator's ``reflection`` rules would reach no prompt at
+    all and nothing would say so. - Claude Generated
+    """
+    gate = (rules_values.get("user_rules_gate") or "").strip()
+    if not gate or gate in (system_prompt or ""):
+        return system_prompt
+    logger.debug("ReflectionStep: prompt had no {user_rules_gate} slot — appending the gate")
+    base = (system_prompt or "").rstrip()
+    return f"{base}\n\n{gate}\n" if base else f"{gate}\n"
+
+
 @register_step("reflection")
 class ReflectionStep(BaseStep):
     """Quality reflection step for MetaAgent orchestration.
@@ -227,6 +244,8 @@ class ReflectionStep(BaseStep):
         catalog_unique_notations = catalog_stats.get("total_unique_notations", 0)
 
         # Build prompt values
+        rules_values = _user_rules_values(context)
+
         values = {
             "working_title": getattr(context, "working_title", "") or "",
             "extracted_keywords_count": len(getattr(context, "extracted_keywords", [])),
@@ -254,7 +273,7 @@ class ReflectionStep(BaseStep):
             "workflow_rules": "",
             # The operator's own rules. Empty gate ⇒ the prompt is exactly what
             # it was before the feature. - Claude Generated
-            **_user_rules_values(context),
+            **rules_values,
             "missing_concepts": ", ".join(missing) if missing else "keine",
             "missing_concepts_searched": ", ".join(getattr(context, "missing_concepts_searched", [])) or "keine",
             "quality_report": json.dumps(quality, ensure_ascii=False) if quality else "{}",
@@ -275,6 +294,7 @@ class ReflectionStep(BaseStep):
             workflow_prompts=workflow_prompts,
             step_id=self.step_id,
         )
+        system_prompt = _ensure_rules_gate(system_prompt, rules_values)
 
         # LLM params
         llm_cfg = raw_cfg.get("llm", {}) or {}

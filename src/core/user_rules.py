@@ -14,9 +14,12 @@ Two things this module deliberately does NOT do:
   A condition like "is this a survey work" is not something an expression over
   the SharedContext could decide, and a half-working evaluator would be worse
   than none.
-* **It does not substitute placeholders.** The rendered block is appended to a
-  system prompt *after* the prompt's own ``{name}`` rendering has run, so braces
-  inside a rule text stay literal and cannot break a step.
+* **It does not substitute placeholders.** At the generic injection points the
+  rendered block is appended *after* the prompt's own ``{name}`` rendering. The
+  reflection gate is the exception: there the block goes in as the value of
+  ``{user_rules_gate}``, which is safe because ``prompt_resolver._render``
+  substitutes in a single pass and never re-scans what it inserted. Either way
+  braces inside a rule text stay literal (``ReflectionBraceSafetyTest``).
 
 ``scope`` stays structural (workflow + step globs) because it decides which
 prompts a rule reaches at all, and therefore what it costs in tokens.
@@ -30,6 +33,7 @@ import fnmatch
 import logging
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -219,6 +223,14 @@ def append_rules_block(system_prompt: str, block: str) -> str:
 #: - Claude Generated
 RULES_PATH_ENV = "ALIMA_RULES_FILE"
 
+#: Serialises the read-modify-write of every mutation. The store is reached
+#: from at least two threads in the GUI — the rule dialog on the UI thread and
+#: ``propose_rule`` inside the chat worker — and each mutation loads the whole
+#: file, changes one entry and writes it back. The write itself is atomic; the
+#: sequence is not, so without this a rule stored while the dialog is open is
+#: overwritten by the dialog's next save. - Claude Generated
+_STORE_LOCK = threading.RLock()
+
 
 def default_rules_path() -> Path:
     """``rules.yaml`` next to ``config.json``, unless overridden by env."""
@@ -286,45 +298,49 @@ class RuleStore:
         origin: Optional[Dict[str, Any]] = None,
     ) -> Optional[UserRule]:
         """Append a new rule and persist. Returns the stored rule, or None."""
-        rules = self.load()
-        rule = UserRule(
-            id=next_rule_id(rules),
-            text=(text or "").strip(),
-            applies_when=(applies_when or "").strip(),
-            workflows=_as_patterns(list(workflows) if workflows else None),
-            steps=_as_patterns(list(steps) if steps else None),
-            enabled=bool(enabled),
-            origin=_with_created(dict(origin or {})),
-        )
-        if not rule.text:
-            return None
-        rules.append(rule)
-        return rule if self.save(rules) else None
+        with _STORE_LOCK:
+            rules = self.load()
+            rule = UserRule(
+                id=next_rule_id(rules),
+                text=(text or "").strip(),
+                applies_when=(applies_when or "").strip(),
+                workflows=_as_patterns(list(workflows) if workflows else None),
+                steps=_as_patterns(list(steps) if steps else None),
+                enabled=bool(enabled),
+                origin=_with_created(dict(origin or {})),
+            )
+            if not rule.text:
+                return None
+            rules.append(rule)
+            return rule if self.save(rules) else None
 
     def update(self, rule: UserRule) -> bool:
         """Replace the stored rule with the same id."""
-        rules = self.load()
-        for idx, existing in enumerate(rules):
-            if existing.id == rule.id:
-                rules[idx] = rule
-                return self.save(rules)
-        return False
+        with _STORE_LOCK:
+            rules = self.load()
+            for idx, existing in enumerate(rules):
+                if existing.id == rule.id:
+                    rules[idx] = rule
+                    return self.save(rules)
+            return False
 
     def set_enabled(self, rule_id: str, enabled: bool) -> bool:
-        rules = self.load()
-        hit = False
-        for rule in rules:
-            if rule.id == rule_id:
-                rule.enabled = bool(enabled)
-                hit = True
-        return self.save(rules) if hit else False
+        with _STORE_LOCK:
+            rules = self.load()
+            hit = False
+            for rule in rules:
+                if rule.id == rule_id:
+                    rule.enabled = bool(enabled)
+                    hit = True
+            return self.save(rules) if hit else False
 
     def remove(self, rule_id: str) -> bool:
-        rules = self.load()
-        kept = [r for r in rules if r.id != rule_id]
-        if len(kept) == len(rules):
-            return False
-        return self.save(kept)
+        with _STORE_LOCK:
+            rules = self.load()
+            kept = [r for r in rules if r.id != rule_id]
+            if len(kept) == len(rules):
+                return False
+            return self.save(kept)
 
     def find_duplicate(self, text: str) -> Optional[UserRule]:
         """An existing rule with the same text, ignoring case and whitespace.
@@ -401,26 +417,27 @@ class RuleStore:
         if not incoming:
             return True, []
 
-        existing = self.load()
-        taken = {r.id for r in existing}
-        added: List[UserRule] = []
-        stamp = datetime.now().isoformat(timespec="seconds")
-        for rule in incoming:
-            origin = dict(rule.origin)
-            origin["imported_from"] = src.name
-            origin["imported_at"] = stamp
-            if rule.id in taken or not rule.id:
-                if rule.id:
-                    origin["original_id"] = rule.id
-                rule.id = next_rule_id(existing + added)
-            rule.origin = origin
-            rule.enabled = bool(activate)
-            taken.add(rule.id)
-            added.append(rule)
+        with _STORE_LOCK:
+            existing = self.load()
+            taken = {r.id for r in existing}
+            added: List[UserRule] = []
+            stamp = datetime.now().isoformat(timespec="seconds")
+            for rule in incoming:
+                origin = dict(rule.origin)
+                origin["imported_from"] = src.name
+                origin["imported_at"] = stamp
+                if rule.id in taken or not rule.id:
+                    if rule.id:
+                        origin["original_id"] = rule.id
+                    rule.id = next_rule_id(existing + added)
+                rule.origin = origin
+                rule.enabled = bool(activate)
+                taken.add(rule.id)
+                added.append(rule)
 
-        if not self.save(existing + added):
-            return False, []
-        return True, added
+            if not self.save(existing + added):
+                return False, []
+            return True, added
 
 
 def _rules_from_payload(raw: Any, *, source: str) -> List[UserRule]:

@@ -28,7 +28,9 @@ async def list_rules(enabled_only: bool = True):
     if enabled_only:
         rules = [r for r in rules if r.enabled]
     return {
-        "file": str(store.path),
+        # Name only: the browser has no use for the server's directory layout.
+        # - Claude Generated
+        "file": store.path.name,
         "count": len(rules),
         "editable": False,
         "rules": [

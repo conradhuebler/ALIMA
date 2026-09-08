@@ -33,7 +33,9 @@ rules:
 ```
 
 Geschrieben wird atomar (temporäre Datei im selben Verzeichnis, dann
-`os.replace`). Eine fehlende Datei ist eine leere Regelmenge; eine kaputte wird
+`os.replace`); die Mutationen sind zusätzlich über ein Prozess-Lock
+serialisiert, weil Regeldialog und Chat-Werkzeug in verschiedenen Threads laufen
+und jede Mutation die ganze Datei liest und zurückschreibt. Eine fehlende Datei ist eine leere Regelmenge; eine kaputte wird
 protokolliert und ebenfalls als leer behandelt — eine Regeldatei kann keinen
 Lauf verhindern.
 
@@ -49,7 +51,8 @@ Lauf verhindern.
   `*` heißt „überall". Der Geltungsbereich ist das Mittel gegen Tokenkosten:
   eine Klassifikationsregel hat im Extraktions-Prompt nichts zu suchen.
 - **Die wählbaren Schritte kommen aus der Workflow-YAML**
-  (`available_scope_steps`), nicht aus einer gepflegten Liste — eine Regel auf
+  (`available_scope_steps`, ohne Argument die des Standard-Workflows), nicht aus
+  einer gepflegten Liste — eine Regel auf
   einer Step-Id, die es nicht gibt, greift nie, und nichts würde das melden.
   Dieselbe Liste speist den Regeldialog (Häkchen statt Freitext) und die
   `steps`-Beschreibung von `propose_rule`, damit das Modell die echten Ids kennt
@@ -64,12 +67,19 @@ Lauf verhindern.
 | Prompt | Stelle | Step-Id |
 | --- | --- | --- |
 | jeder agentische LLM-Step | `prompt_resolver.resolve_prompts` | die Step-Id aus der YAML |
-| Reflexion | derselbe Weg über `ReflectionStep` | `reflection` |
+| Reflexion | eigener Block, `ReflectionStep._user_rules_values` | `reflection` |
 | MetaAgent-Planer | `MetaAgent._append_user_rules` | `planner` |
 | Chat (GUI, Webapp, `alima agent`) | `chat_prompts.build_system_prompt(user_rules=…)` | `chat` |
 
-Der Block wird **nach** dem `{name}`-Rendering angehängt. Geschweifte Klammern
-im Regeltext bleiben dadurch stehen und werden nie als Platzhalter gelesen.
+An den ersten drei Stellen wird der Block **nach** dem `{name}`-Rendering
+angehängt. Die Reflexion setzt ihn stattdessen als Wert von `{user_rules_gate}`
+ein; das ist gefahrlos, weil `prompt_resolver._render` in einem Durchgang
+ersetzt und Eingesetztes nicht erneut absucht. Geschweifte Klammern im Regeltext
+bleiben so in jedem Fall stehen und werden nie als Platzhalter gelesen.
+
+Ersetzt ein Workflow den Reflexions-Systemprompt ganz
+(`meta_agent.reflection.system_prompt:`), fehlt der Platzhalter; dann hängt
+`_ensure_rules_gate` den Block an, statt ihn fallenzulassen.
 
 Ohne passende aktive Regel ist der Block leer und jeder Prompt byte-identisch
 wie ohne diese Funktion; ein Test hält das fest.
@@ -140,7 +150,8 @@ werden"). Dafür gibt es keinen eigenen Abschluss-Schritt; zuständig ist die
   bei der letzten Reflexion dazu.** Die Reflexion läuft einmal pro Zyklus; ein
   Modell, das früh `complete` meldet, erzeugte den Block sonst in jedem
   verbleibenden Zyklus neu. Wann die letzte ist, entscheidet der MetaAgent
-  deterministisch über `_pending_step` — er kennt den Schrittgraphen, das Modell
+  deterministisch (`_is_final_reflection`): entweder ist der Schrittgraph
+  abgearbeitet oder das Zyklusbudget aufgebraucht. Er kennt beides, das Modell
   nicht.
 - Die Ausgabe steht **nach** dem JSON in `<final_output>…</final_output>`. Der
   Prompt sagt ausdrücklich, dass danach kein weiterer Schritt folgt — ein Modell

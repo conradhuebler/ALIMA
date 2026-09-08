@@ -16,6 +16,7 @@ Claude Generated
 
 import json
 import logging
+import re
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -165,8 +166,22 @@ def _record_applied(context: Any, rules: Any) -> None:
         log_caught(logger, exc, "prompt_resolver: recording applied rules")
 
 
+#: A ``{name}`` marker. Names are identifiers, so JSON braces in a prompt
+#: (``{\n  "status": …``) are never touched.
+_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
 def _render(template: str, values: Dict[str, Any]) -> str:
-    """Replace ``{name}`` markers with stringified values."""
+    """Replace ``{name}`` markers with stringified values, in a single pass.
+
+    One pass, not repeated ``str.replace``: a substituted value must not itself
+    be scanned for markers. The sequential version did exactly that, so a
+    personal rule reading "nenne {dk_codes}" came back from the reflection
+    prompt with the run's DK codes pasted into it — the module promises the
+    opposite (``user_rules``: braces in a rule text stay literal).
+
+    A marker with no value is left standing, as before. - Claude Generated
+    """
     if not template:
         return ""
 
@@ -177,7 +192,10 @@ def _render(template: str, values: Dict[str, Any]) -> str:
             return json.dumps(v, ensure_ascii=False)
         return str(v)
 
-    out = template
-    for name in sorted(values.keys(), key=len, reverse=True):
-        out = out.replace("{" + name + "}", _stringify(values[name]))
-    return out
+    def _replace(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        if name not in values:
+            return match.group(0)
+        return _stringify(values[name])
+
+    return _PLACEHOLDER_RE.sub(_replace, template)

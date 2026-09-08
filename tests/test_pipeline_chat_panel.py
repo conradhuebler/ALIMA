@@ -578,10 +578,6 @@ class TestOnPipelineCompletedReportMarkdown(unittest.TestCase):
         self.assertEqual(stub.markdown_calls, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestProposalDecision(unittest.TestCase):
     """The confirmation must reach the gateway exactly once.
 
@@ -613,6 +609,38 @@ class TestProposalDecision(unittest.TestCase):
         panel = self._panel()
         PipelineChatPanel._on_proposal_decided(panel, 7, False)
         panel.proposal_gateway.resolve_decision.assert_called_once_with(7, False)
+
+    def test_a_late_click_is_not_reported_as_accepted(self):
+        """The waiter is gone after the timeout — say so, don't claim success.
+
+        ``resolve_decision`` returns False then. Logging "Akzeptiert" would
+        report a change that no tool ever received.
+        """
+        panel = self._panel()
+        written: list = []
+        panel._append_html = written.append
+        panel.proposal_gateway.resolve_decision.return_value = False
+        PipelineChatPanel._on_proposal_decided(panel, 42, True)
+        self.assertTrue(written)
+        self.assertNotIn("Akzeptiert", written[0])
+        self.assertIn("abgelaufen", written[0])
+
+    def test_an_answered_proposal_is_reported_as_answered(self):
+        panel = self._panel()
+        written: list = []
+        panel._append_html = written.append
+        panel.proposal_gateway.resolve_decision.return_value = True
+        PipelineChatPanel._on_proposal_decided(panel, 42, True)
+        self.assertIn("Akzeptiert", written[0])
+
+    def test_an_expired_proposal_withdraws_the_bar(self):
+        from unittest.mock import MagicMock
+
+        panel = self._panel()
+        panel.proposal_bar = MagicMock()
+        panel._append_html = lambda html: None
+        PipelineChatPanel._on_proposal_expired(panel, 42)
+        panel.proposal_bar.dismiss.assert_called_once_with(42)
 
     def test_a_catalog_link_still_opens_externally(self):
         from PyQt6.QtCore import QUrl
@@ -689,6 +717,24 @@ class TestProposalBar(unittest.TestCase):
         bar.reject_btn.click()
         self.assertEqual(seen, [(9, False)])
 
+    def test_dismiss_withdraws_the_pending_question(self):
+        bar = self._bar()
+        seen = []
+        bar.decided.connect(lambda aid, ok: seen.append((aid, ok)))
+        bar.show_proposal(11, "propose_rule", {"text": "R"})
+        bar.dismiss(11)
+        self.assertIsNone(bar.pending_audit_id)
+        bar.accept_btn.click()
+        self.assertEqual(seen, [], "a withdrawn question must not be answerable")
+
+    def test_dismiss_of_another_id_leaves_the_question_standing(self):
+        # A late timeout of an earlier proposal must not close the one on
+        # screen. - Claude Generated
+        bar = self._bar()
+        bar.show_proposal(12, "propose_rule", {"text": "R"})
+        bar.dismiss(11)
+        self.assertEqual(bar.pending_audit_id, 12)
+
     def test_an_unknown_tool_still_gets_a_title(self):
         bar = self._bar()
         bar.show_proposal(1, "something_new", {"a": "b"})
@@ -742,3 +788,7 @@ class TestRuleScopePicker(unittest.TestCase):
         dlg = self._dialog(UserRule(id="r-1", text="T", steps=["selection*"]))
         dlg._step_items["reflection"].setCheckState(Qt.CheckState.Checked)
         self.assertEqual(sorted(dlg._selected_steps()), ["reflection", "selection*"])
+
+
+if __name__ == "__main__":
+    unittest.main()

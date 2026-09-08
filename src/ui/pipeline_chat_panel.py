@@ -193,6 +193,9 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # Same reason as the gateway above: the announcement runs on the UI
         # thread, the emit happens on the worker's. - Claude Generated
         self.model_switch_requested.connect(self._on_agent_model_switch)
+        # A proposal nobody answered in time: take the buttons away, otherwise
+        # they keep offering a decision no tool is waiting for. - Claude Generated
+        self.proposal_gateway.proposal_expired.connect(self._on_proposal_expired)
 
         self.setup_ui()
 
@@ -659,13 +662,32 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
             # have to drive the open ourselves via QDesktopServices.
             QDesktopServices.openUrl(url)
 
+    @pyqtSlot(int)
+    def _on_proposal_expired(self, audit_id: int) -> None:
+        """The tool gave up waiting — withdraw the question. - Claude Generated"""
+        self.proposal_bar.dismiss(audit_id)
+        self._append_html(
+            f'<div style="margin: 2px 24px; color: #ffb86c; font-size: 9pt;">'
+            f"⌛ Keine Antwort — nichts gespeichert (#audit_{audit_id})</div>"
+        )
+
     def _handle_mutation_link(self, audit_id: int, action: str) -> None:
         accepted = action == "accept"
         try:
-            self.proposal_gateway.resolve_decision(audit_id, accepted)
+            claimed = self.proposal_gateway.resolve_decision(audit_id, accepted)
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: resolve_decision failed"
+            )
+            return
+        if not claimed:
+            # No waiter left: the tool timed out before the click. Saying
+            # "Akzeptiert" here would report a change that never happened.
+            # - Claude Generated
+            self._append_html(
+                f'<div style="margin: 2px 24px; color: #ffb86c; font-size: 9pt;">'
+                f"⌛ Zu spät — die Anfrage war abgelaufen, nichts gespeichert "
+                f"(#audit_{audit_id})</div>"
             )
             return
         status = "✓ Akzeptiert" if accepted else "✗ Abgelehnt"

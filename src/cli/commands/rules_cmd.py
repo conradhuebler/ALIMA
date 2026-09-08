@@ -126,8 +126,10 @@ def _remove(args, logger: logging.Logger) -> int:
         _print_rule(rule, verbose=True)
         answer = input("\nDiese Regel samt Herkunft löschen? [y/N] ").strip().lower()
         if answer not in ("y", "yes", "j", "ja"):
+            # Declining is the answer to a question, not a failure. Exit 0 so a
+            # script around it does not treat it as an error. - Claude Generated
             print("Abgebrochen.")
-            return 1
+            return 0
     if not store.remove(args.rule_id):
         print("Löschen fehlgeschlagen.")
         return 1
