@@ -17,12 +17,17 @@ So:
 * ``repair_json_newlines`` is the safety net for a model that ignores that and
   writes the block into the JSON anyway: it escapes the control characters that
   appear inside string literals, so at least the verdict survives.
+* ``extract_json_object`` is the extraction both gates use, salvage included.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
-from typing import Optional
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 #: Control characters that are legal in a JSON document but not inside a string
 #: literal. A model emitting a formatted block hits the first two constantly.
@@ -88,3 +93,54 @@ def _strip_code_fence(text: str) -> str:
     if lines and lines[-1].strip().startswith("```"):
         lines = lines[:-1]
     return "\n".join(lines).strip()
+
+
+def extract_json_object(content: str) -> Dict[str, Any]:
+    """Best-effort extraction of one JSON object from a model answer.
+
+    Order: fenced ``json`` block, then the last balanced ``{...}``, then the
+    salvage pass of ``repair_json_newlines``. Returns ``{}`` when nothing
+    parses.
+
+    One implementation for the two gates that share the failure: ``MetaAgent``
+    and ``ReflectionStep`` carried byte-identical copies, and the salvage step
+    below had to be patched into both. - Claude Generated
+    """
+    if not content:
+        return {}
+
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group(1))
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+
+    for m in reversed(list(re.finditer(r"\{[^{}]*\}", content, re.DOTALL))):
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict) and obj:
+                return obj
+        except json.JSONDecodeError:
+            continue
+
+    # Last resort: a model that wrote a formatted block into a JSON string left
+    # raw newlines in it. Without this the whole verdict is lost — status,
+    # action and reason with it — and the run ends on the default "finish" as if
+    # nothing had happened.
+    repaired = repair_json_newlines(content)
+    if repaired != content:
+        for pattern in (r"```(?:json)?\s*(\{.*?\})\s*```", r"(\{.*\})"):
+            m = re.search(pattern, repaired, re.DOTALL)
+            if not m:
+                continue
+            try:
+                obj = json.loads(m.group(1))
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj:
+                logger.warning("JSON answer had raw newlines inside a string — salvaged")
+                return obj
+    return {}

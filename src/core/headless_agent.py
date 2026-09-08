@@ -22,7 +22,7 @@ from typing import Any, Callable, List, Dict, Optional
 
 from src.core.agent_loop import AgentLoop
 from src.core.chat_prompts import (
-    build_system_prompt,
+    build_chat_system_prompt,
     get_user_prompt_template,
     detect_mode,
     apply_chat_directives,
@@ -30,7 +30,6 @@ from src.core.chat_prompts import (
     DEFAULT_SYSTEM_PROMPT,
 )
 from src.core.data_models import AgentResult
-from src.core.user_rules import STEP_CHAT, append_rules_block, rules_block_for
 from src.utils.config_models import ProviderScope
 
 logger = logging.getLogger(__name__)
@@ -248,19 +247,14 @@ class HeadlessAgentRunner:
         except Exception:
             logger.debug("tool-name lookup failed; static prompt tool list", exc_info=True)
             available_tools = None
-        # Personal rules scoped to the chat; an overridden system prompt gets
-        # them appended rather than losing them. - Claude Generated
-        rules_block, _rules_used = rules_block_for(step=STEP_CHAT)
-        system_prompt = (
-            append_rules_block(self.system_prompt, rules_block)
-            if self.system_prompt
-            else build_system_prompt(
-                mode=effective_mode,
-                compact=compact,
-                institution_context=getattr(self.chat_config, "institution_context", ""),
-                available_tools=available_tools,
-                user_rules=rules_block,
-            )
+        # Personal rules scoped to the chat come in here (shared with the GUI
+        # panel). - Claude Generated
+        system_prompt = build_chat_system_prompt(
+            self.system_prompt,
+            mode=effective_mode,
+            compact=compact,
+            institution_context=getattr(self.chat_config, "institution_context", ""),
+            available_tools=available_tools,
         )
         # Append language + history-window directives (shared with the GUI). - Claude Generated
         system_prompt = apply_chat_directives(

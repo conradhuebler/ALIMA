@@ -255,22 +255,8 @@ class _Ctx:
         self.extra = {}
 
 
-class PromptResolverInjectionTest(unittest.TestCase):
+class PromptResolverInjectionTest(_TempDefaultStore, unittest.TestCase):
     """The null case must be byte-identical; the mutated case must differ."""
-
-    def setUp(self):
-        self._tmp = TemporaryDirectory()
-        self.path = Path(self._tmp.name) / "rules.yaml"
-        import src.core.user_rules as ur
-
-        self._orig_default = ur.default_rules_path
-        ur.default_rules_path = lambda: self.path
-
-    def tearDown(self):
-        import src.core.user_rules as ur
-
-        ur.default_rules_path = self._orig_default
-        self._tmp.cleanup()
 
     def _resolve(self):
         from src.core.agents.prompt_resolver import resolve_prompts
@@ -367,21 +353,7 @@ class ChatPromptInjectionTest(unittest.TestCase):
 # ----------------------------------------------------------------------
 
 
-class MetaAgentInjectionTest(unittest.TestCase):
-    def setUp(self):
-        self._tmp = TemporaryDirectory()
-        self.path = Path(self._tmp.name) / "rules.yaml"
-        import src.core.user_rules as ur
-
-        self._orig_default = ur.default_rules_path
-        ur.default_rules_path = lambda: self.path
-
-    def tearDown(self):
-        import src.core.user_rules as ur
-
-        ur.default_rules_path = self._orig_default
-        self._tmp.cleanup()
-
+class MetaAgentInjectionTest(_TempDefaultStore, unittest.TestCase):
     def test_planner_prompt_unchanged_without_rules(self):
         from src.core.agents.meta_agent import MetaAgent
 
@@ -710,7 +682,7 @@ class StoreIsolationTest(unittest.TestCase):
         self.assertEqual(RuleStore().load(), [])
 
 
-class ReflectionRulesGateTest(unittest.TestCase):
+class ReflectionRulesGateTest(_TempDefaultStore, unittest.TestCase):
     """The reflection turn is the last LLM turn — so it is where a rule that
     asks for something *at the end* of the run can still be carried out.
 
@@ -718,20 +690,6 @@ class ReflectionRulesGateTest(unittest.TestCase):
     `dk_postprocess`), so without this gate such a rule reaches every earlier
     prompt and can act in none of them.
     """
-
-    def setUp(self):
-        self._tmp = TemporaryDirectory()
-        self.path = Path(self._tmp.name) / "rules.yaml"
-        import src.core.user_rules as ur
-
-        self._orig_default = ur.default_rules_path
-        ur.default_rules_path = lambda: self.path
-
-    def tearDown(self):
-        import src.core.user_rules as ur
-
-        ur.default_rules_path = self._orig_default
-        self._tmp.cleanup()
 
     def test_without_rules_the_gate_is_absent(self):
         from src.core.agents.steps.reflection_step import _user_rules_values
@@ -914,7 +872,8 @@ class ReflectionOutputCarrierTest(_LiftLogDisable, unittest.TestCase):
             '{"status":"complete","action":"finish","reason":"fertig",'
             '"final_output":"5550 Cadmium\n5550 $ADE-105"}'
         )
-        with self.assertLogs("src.core.agents.meta_agent", level="WARNING"):
+        # The salvage lives in json_repair since both gates share it.
+        with self.assertLogs("src.core.agents.json_repair", level="WARNING"):
             parsed = MetaAgent._extract_json(broken)
         self.assertEqual(parsed["status"], "complete")
         self.assertEqual(parsed["action"], "finish")

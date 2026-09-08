@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QFont, QIcon, QPalette, QGuiApplication
 import json
 import logging
+import time
 import getpass
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -1058,22 +1059,21 @@ class ComprehensiveSettingsDialog(QDialog):
         Timed end to end: the whole chain — reading the widgets, writing the
         file, and the ``config_changed`` handler that refreshes every tab — runs
         synchronously inside this button click, so the UI is frozen for its
-        duration. Without the timings a report can only say "it takes long".
+        duration. The phases go to DEBUG and only the total to INFO, so a normal
+        run stays quiet and a slow one can still be taken apart with
+        ``--log-level DEBUG``.
         """
-        import logging as _logging
-        import time as _time
-
-        _log = _logging.getLogger(__name__)
-        _t_start = _time.monotonic()
+        _log = logging.getLogger(__name__)
+        _t_start = time.monotonic()
         try:
             # Task preferences are now handled by the unified provider tab automatically
             
             # Provider preferences are handled by the unified provider tab and Unit of Work pattern - Claude Generated (Refactoring)
             
             # Get configuration from UI
-            _t = _time.monotonic()
+            _t = time.monotonic()
             config = self._get_config_from_ui()
-            _log.info(f"⏱ Settings: Widgets auslesen {_time.monotonic() - _t:.2f}s")
+            _log.debug(f"⏱ Settings: Widgets auslesen {time.monotonic() - _t:.2f}s")
             
             # Determine scope
             scope = "user"  # Default
@@ -1083,20 +1083,20 @@ class ComprehensiveSettingsDialog(QDialog):
                 scope = "system"
             
             # Save configuration
-            _t = _time.monotonic()
+            _t = time.monotonic()
             success = self.config_manager.save_config(config, scope)
-            _log.info(f"⏱ Settings: save_config {_time.monotonic() - _t:.2f}s")
+            _log.debug(f"⏱ Settings: save_config {time.monotonic() - _t:.2f}s")
             if not success:
                 QMessageBox.critical(self, "Save Error", "Failed to save configuration!")
                 return
 
             # Emit signal and close. The handler runs synchronously here — its
             # own per-step timings are logged by ``_refresh_components``.
-            _t = _time.monotonic()
+            _t = time.monotonic()
             self.config_changed.emit()
-            _log.info(f"⏱ Settings: config_changed-Handler {_time.monotonic() - _t:.2f}s")
+            _log.debug(f"⏱ Settings: config_changed-Handler {time.monotonic() - _t:.2f}s")
             self.accept()
-            _log.info(f"⏱ Settings: gesamt {_time.monotonic() - _t_start:.2f}s")
+            _log.info(f"⏱ Settings: gesamt {time.monotonic() - _t_start:.2f}s")
 
         except Exception as e:
             QMessageBox.critical(self, "Save Error", f"Error saving configuration: {str(e)}")

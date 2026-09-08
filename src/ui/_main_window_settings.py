@@ -8,7 +8,9 @@ is mixed into ``MainWindow``; not a standalone window.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
+import time
 
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -217,36 +219,28 @@ class MainWindowSettingsMixin:
         self._refresh_components()
 
     @staticmethod
+    @contextlib.contextmanager
     def _timed(label: str, logger, slow_s: float = 0.5):
-        """Context manager timing one refresh step. - Claude Generated
+        """Time one refresh step. - Claude Generated
 
         Saving the settings blocks the UI while this runs, and the six steps
         below give no hint which of them costs the wait. Anything past
         ``slow_s`` is named at INFO so a report can say *which* step, instead of
-        "it freezes".
+        "it freezes"; everything else stays at DEBUG.
         """
-        import contextlib
-        import time
-
-        @contextlib.contextmanager
-        def _cm():
-            t0 = time.monotonic()
-            try:
-                yield
-            finally:
-                elapsed = time.monotonic() - t0
-                if elapsed >= slow_s:
-                    logger.info(f"⏱ Settings-Refresh: '{label}' {elapsed:.2f}s")
-                else:
-                    logger.debug(f"Settings-Refresh: '{label}' {elapsed:.2f}s")
-
-        return _cm()
+        t0 = time.monotonic()
+        try:
+            yield
+        finally:
+            elapsed = time.monotonic() - t0
+            if elapsed >= slow_s:
+                logger.info(f"⏱ Settings-Refresh: '{label}' {elapsed:.2f}s")
+            else:
+                logger.debug(f"Settings-Refresh: '{label}' {elapsed:.2f}s")
 
     def _refresh_components(self):
         """Refresh all components with new configuration - Claude Generated"""
-        import time as _time
-
-        _t_total = _time.monotonic()
+        _t_total = time.monotonic()
         try:
             # 1. Reload LLM service configuration and reinitialize providers
             with self._timed("reload_providers", self.logger):
@@ -293,7 +287,7 @@ class MainWindowSettingsMixin:
 
             self.logger.info(
                 "Configuration refreshed (providers, pipeline, tabs, status bar) "
-                f"in {_time.monotonic() - _t_total:.2f}s"
+                f"in {time.monotonic() - _t_total:.2f}s"
             )
 
             # Show user feedback

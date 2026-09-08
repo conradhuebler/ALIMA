@@ -33,15 +33,5 @@ async def list_rules(enabled_only: bool = True):
         "file": store.path.name,
         "count": len(rules),
         "editable": False,
-        "rules": [
-            {
-                "id": r.id,
-                "text": r.text,
-                "applies_when": r.applies_when,
-                "scope": r.scope_label(),
-                "enabled": r.enabled,
-                "origin": r.origin_label(),
-            }
-            for r in rules
-        ],
+        "rules": [r.to_display_dict() for r in rules],
     }

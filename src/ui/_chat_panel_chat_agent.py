@@ -1,33 +1,35 @@
 """Chat-agent mixin for PipelineChatPanel. Claude Generated.
 
 Extracted from ``pipeline_chat_panel.py`` (F-5 god-file split): the former
-``ChatWidget`` behavior — typing indicator, provider/model resolution + combo
-persistence, pipeline-context loading, the send/cancel/worker lifecycle, the
-shared-context refresh, and the running/stopping UI state.
+``ChatWidget`` behavior — typing indicator, provider/model resolution,
+pipeline-context loading, the send/cancel/worker lifecycle, the shared-context
+refresh, and the running/stopping UI state.
 
-Method bodies are moved verbatim. ``ChatAgentMixin`` is mixed into
-``PipelineChatPanel`` (which provides ``__init__``, the widgets referenced here —
-``provider_selector``, ``input_field``, ``send_btn``, ``cancel_btn``,
-``typing_label`` — ``self._renderer``, ``self.session``, and the render
-delegators such as ``_append_system_message`` / ``_open_assistant_message``); it
-is not a standalone widget.
+The panel has no provider/model picker of its own: the pipeline toolbar hands
+its pick over through ``set_llm_override`` and ``model_status_label`` shows what
+that resolves to.
+
+``ChatAgentMixin`` is mixed into ``PipelineChatPanel`` (which provides
+``__init__``, the widgets referenced here — ``input_field``, ``send_btn``,
+``cancel_btn``, ``typing_label``, ``model_status_label`` — ``self._renderer``,
+``self.session``, and the render delegators such as ``_append_system_message`` /
+``_open_assistant_message``); it is not a standalone widget.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSlot
 
 from ..core.chat_prompts import (
     CHAT_HISTORY_WINDOW,
     apply_chat_directives,
-    build_system_prompt,
+    build_chat_system_prompt,
     detect_mode,
     get_user_prompt_template,
     resolve_prompt_compact,
 )
 from ..core.headless_agent import resolve_provider_model
-from ..core.user_rules import STEP_CHAT, append_rules_block, rules_block_for
 from ..utils.error_visibility import log_caught
 from ..utils.i18n import t
 from .chat_agent_worker import ChatAgentWorker
@@ -123,51 +125,43 @@ class ChatAgentMixin:
                 "PipelineChatPanel: persist autonomous_pipeline failed"
             )
 
-    def _persist_combo_to_chat_config(self) -> None:
-        """Store the effective provider/model as the ChatConfig default.
-
-        No longer wired to a header control (the chat has no picker of its own);
-        kept as the single write path for the chat default. - Claude Generated
-        """
-        provider, model = self._resolve_provider_model()
-        if not (provider and model):
-            return
-        try:
-            from ..utils.config_manager import ConfigManager
-
-            cm = ConfigManager()
-            # Mutate the AlimaConfig.chat_config we actually persist (the unified
-            # config has no chat_config — reading it dropped the save silently).
-            full = cm.load_config()
-            chat_cfg = getattr(full, "chat_config", None)
-            if chat_cfg is None:
-                return
-            chat_cfg.default_provider = provider
-            chat_cfg.default_model = model
-            cm.save_config(full, preserve_unified=True)
-            self.set_status_strip(
-                t("chat.status.default_saved", provider=provider, model=model)
-            )
-        except Exception:
-            self.logger.exception(
-                "PipelineChatPanel: persist default model failed"
-            )
-
-    def _populate_model_combo(self):
-        """Show which model the chat resolves to.
-
-        Kept under its old name because the embedding tab calls it; there is no
-        combo to populate any more — the pipeline toolbar owns the pick.
-        - Claude Generated
-        """
-        self._refresh_model_status()
-
     def refresh_providers(self) -> None:
         """Re-resolve after a settings change (provider added or removed).
 
         Called by the embedding pipeline tab's on_config_changed. - Claude Generated
         """
         self._refresh_model_status()
+
+    def _build_tool_registry(self, chat_config) -> Optional[Any]:
+        """Assemble this turn's toolset, or None when that failed.
+
+        Its own method so the cross-thread contract below is testable without
+        building the widget: ``on_model_switch`` must be the **signal's**
+        ``emit``, never the slot. The tool runs inside ``ChatAgentWorker``'s
+        QThread, and calling the slot from there writes into the log view and a
+        QLabel from the wrong thread, which aborts the process (SIGTRAP).
+        - Claude Generated
+        """
+        kb_manager = None
+        if self.pipeline_manager is not None:
+            kb_manager = (
+                getattr(self.pipeline_manager, "unified_knowledge_manager", None)
+                or getattr(self.pipeline_manager, "knowledge_manager", None)
+            )
+        try:
+            return build_chat_toolset(
+                session=self.session,
+                chat_config=chat_config,
+                mcp_registry=self.mcp_registry,
+                pipeline_manager=self.pipeline_manager,
+                kb_manager=kb_manager,
+                proposal_gateway=self.proposal_gateway,
+                llm_service=self.llm_service,
+                on_model_switch=self.model_switch_requested.emit,
+            )
+        except Exception:
+            self.logger.exception("PipelineChatPanel: build_chat_toolset failed")
+            return None
 
     def _resolve_provider_model(self) -> tuple[str, str]:
         # Shared chain (CLI/HTTP/GUI): explicit override → ChatConfig default →
@@ -318,21 +312,14 @@ class ChatAgentMixin:
         compact = resolve_prompt_compact(
             getattr(chat_config, "system_prompt_tier", "auto"), model
         )
-        # Personal rules scoped to the chat. An operator-overridden system
-        # prompt gets them appended too — the rules are the operator's own, so
-        # replacing the generic base must not silently drop them.
-        # - Claude Generated
-        rules_block, _rules_used = rules_block_for(step=STEP_CHAT)
-        base_system_prompt = (
-            append_rules_block(self.system_prompt, rules_block)
-            if self.system_prompt
-            else build_system_prompt(
-                mode=mode,
-                compact=compact,
-                institution_context=getattr(chat_config, "institution_context", ""),
-                available_tools=self._registered_tool_names(),
-                user_rules=rules_block,
-            )
+        # Personal rules scoped to the chat come in here (shared with the
+        # headless runner). - Claude Generated
+        base_system_prompt = build_chat_system_prompt(
+            self.system_prompt,
+            mode=mode,
+            compact=compact,
+            institution_context=getattr(chat_config, "institution_context", ""),
+            available_tools=self._registered_tool_names(),
         )
         effective_system_prompt = apply_chat_directives(
             base_system_prompt,
@@ -346,29 +333,8 @@ class ChatAgentMixin:
         )
 
         self._refresh_shared_context()
-        kb_manager = None
-        if self.pipeline_manager is not None:
-            kb_manager = (
-                getattr(self.pipeline_manager, "unified_knowledge_manager", None)
-                or getattr(self.pipeline_manager, "knowledge_manager", None)
-            )
-        try:
-            tool_registry = build_chat_toolset(
-                session=self.session,
-                chat_config=chat_config,
-                mcp_registry=self.mcp_registry,
-                pipeline_manager=self.pipeline_manager,
-                kb_manager=kb_manager,
-                proposal_gateway=self.proposal_gateway,
-                llm_service=self.llm_service,
-                # Emit, don't call: the tool executes on the worker thread and
-                # the announcement touches widgets. - Claude Generated
-                on_model_switch=self.model_switch_requested.emit,
-            )
-        except Exception:
-            self.logger.exception(
-                "PipelineChatPanel: build_chat_toolset failed"
-            )
+        tool_registry = self._build_tool_registry(chat_config)
+        if tool_registry is None:
             self._append_system_message(
                 "❌ Tool-Setup fehlgeschlagen — siehe Log."
             )

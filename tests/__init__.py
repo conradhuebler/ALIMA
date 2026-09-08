@@ -15,26 +15,35 @@
 #      every prompt the agentic steps build, so an operator's own rules would
 #      silently change what tests assert on. That is not hypothetical — it
 #      broke test_e2e_smoke the first time real rules existed on this machine.
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 
 
 def _isolate_user_rules() -> None:
-    """Redirect the rules store to a temp path for the whole test session."""
+    """Redirect the rules store into a fresh directory for this test session.
+
+    A directory of our own, not a fixed name under ``/tmp``: a shared path
+    outlives the run, so a test writing through the default store would leak
+    into the next one, and on a multi-user machine the file may not even be
+    ours. Not wrapped in a try/except either — if the isolation fails the suite
+    reads the operator's real rules and every prompt assertion becomes
+    machine-dependent, which is the failure this exists to prevent.
+    - Claude Generated
+    """
     from src.core.user_rules import RULES_PATH_ENV
 
-    os.environ.setdefault(
-        RULES_PATH_ENV,
-        os.path.join(tempfile.gettempdir(), "alima_test_rules_absent.yaml"),
-    )
+    if os.environ.get(RULES_PATH_ENV):
+        return  # an explicit override wins (a second rule set, a debug run)
+    tmp_dir = tempfile.mkdtemp(prefix="alima-test-rules-")
+    atexit.register(shutil.rmtree, tmp_dir, True)
+    os.environ[RULES_PATH_ENV] = os.path.join(tmp_dir, "rules.yaml")
 
 
 def _bootstrap() -> None:
-    try:
-        _isolate_user_rules()
-    except Exception:
-        pass  # the store falls back to the config dir; tests will say so
+    _isolate_user_rules()
 
     try:
         from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401

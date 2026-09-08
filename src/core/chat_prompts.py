@@ -567,6 +567,36 @@ _COMPACT_SIZE_MAX_B = 14.0
 _SIZE_RE = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*b\b")
 
 
+def build_chat_system_prompt(
+    override: str = "",
+    *,
+    mode: str = "general",
+    compact: bool = False,
+    institution_context: str = "",
+    available_tools: Optional[Set[str]] = None,
+) -> str:
+    """The chat's system prompt including the operator's ``chat``-scoped rules.
+
+    One implementation for the GUI panel and the headless runner, which built
+    the same "append to the override, or pass into the generic prompt" case
+    twice. An operator-supplied ``override`` gets the rules appended rather than
+    losing them: the rules are the operator's own, so replacing the generic base
+    must not silently drop them. - Claude Generated
+    """
+    from src.core.user_rules import STEP_CHAT, append_rules_block, rules_block_for
+
+    rules_block, _rules = rules_block_for(step=STEP_CHAT)
+    if override:
+        return append_rules_block(override, rules_block)
+    return build_system_prompt(
+        mode=mode,
+        compact=compact,
+        institution_context=institution_context,
+        available_tools=available_tools,
+        user_rules=rules_block,
+    )
+
+
 def is_compact_model(model: str) -> bool:
     """Heuristic: small / code models that do better with the compact prompt - Claude Generated."""
     m = (model or "").lower()

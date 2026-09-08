@@ -127,7 +127,12 @@ def _with_user_rules(system: str, workflow: str, step_id: str, context: Any) -> 
     (``applied_user_rules``) so the saved result can say which rules shaped it.
     - Claude Generated
     """
-    from src.core.user_rules import STEP_REFLECTION, append_rules_block, rules_block_for
+    from src.core.user_rules import (
+        STEP_REFLECTION,
+        append_rules_block,
+        record_applied_rules,
+        rules_block_for,
+    )
 
     if step_id == STEP_REFLECTION:
         # The reflection composes its own rules section (USER_RULES_INTRO plus,
@@ -138,32 +143,12 @@ def _with_user_rules(system: str, workflow: str, step_id: str, context: Any) -> 
     block, rules = rules_block_for(workflow=workflow, step=step_id)
     if not block:
         return system
-    _record_applied(context, rules)
+    record_applied_rules(context, rules)
     logger.debug(
         f"PromptResolver: injected {len(rules)} user rule(s) "
         f"into step='{step_id or '?'}' workflow='{workflow or '?'}'"
     )
     return append_rules_block(system, block)
-
-
-def _record_applied(context: Any, rules: Any) -> None:
-    """Note the injected rules on the SharedContext (id + text, deduplicated)."""
-    if context is None:
-        return
-    try:
-        seen = getattr(context, "applied_user_rules", None)
-        if seen is None:
-            seen = []
-            setattr(context, "applied_user_rules", seen)
-        known = {entry.get("id") for entry in seen}
-        for rule in rules:
-            if rule.id not in known:
-                seen.append({"id": rule.id, "text": rule.text})
-                known.add(rule.id)
-    except Exception as exc:  # a context without attribute support must not break the run
-        from src.utils.error_visibility import log_caught
-
-        log_caught(logger, exc, "prompt_resolver: recording applied rules")
 
 
 #: A ``{name}`` marker. Names are identifiers, so JSON braces in a prompt

@@ -786,61 +786,25 @@ class MetaAgent:
         ``resolve_prompts``, so it needs this call; the reflection turn goes
         through ``ReflectionStep`` and is covered there. - Claude Generated
         """
-        from src.core.user_rules import append_rules_block, rules_block_for
+        from src.core.user_rules import (
+            append_rules_block,
+            record_applied_rules,
+            rules_block_for,
+        )
 
         workflow = str(getattr(context, "workflow_name", "") or "")
         block, rules = rules_block_for(workflow=workflow, step=step)
         if not block:
             return system_prompt
-        from src.core.agents.prompt_resolver import _record_applied
-
-        _record_applied(context, rules)
+        record_applied_rules(context, rules)
         return append_rules_block(system_prompt, block)
 
     @staticmethod
     def _extract_json(content: str) -> Dict[str, Any]:
-        """Best-effort JSON extraction."""
-        if not content:
-            return {}
-        import re
-        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
-        if m:
-            try:
-                obj = json.loads(m.group(1))
-                if isinstance(obj, dict):
-                    return obj
-            except json.JSONDecodeError:
-                pass
-        for m in reversed(list(re.finditer(r"\{[^{}]*\}", content, re.DOTALL))):
-            try:
-                obj = json.loads(m.group(0))
-                if isinstance(obj, dict) and obj:
-                    return obj
-            except json.JSONDecodeError:
-                continue
-        # Last resort: a model that wrote a formatted block into a JSON string
-        # left raw newlines in it. Without this the whole verdict is lost —
-        # status, action and reason with it — and the run ends on the default
-        # "finish" as if nothing had happened. - Claude Generated
-        from src.core.agents.json_repair import repair_json_newlines
+        """Best-effort JSON extraction — see ``json_repair.extract_json_object``."""
+        from src.core.agents.json_repair import extract_json_object
 
-        repaired = repair_json_newlines(content)
-        if repaired != content:
-            for pattern in (r"```(?:json)?\s*(\{.*?\})\s*```", r"(\{.*\})"):
-                m = re.search(pattern, repaired, re.DOTALL)
-                if not m:
-                    continue
-                try:
-                    obj = json.loads(m.group(1))
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(obj, dict) and obj:
-                    logger.warning(
-                        "JSON answer had raw newlines inside a string — salvaged"
-                    )
-                    return obj
-        return {}
-
+        return extract_json_object(content)
 
     def _run_reflection(
         self,

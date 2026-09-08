@@ -6,6 +6,69 @@
 
 ## 2026
 
+### Aufräumen vor dem Merge der Zusatzregeln (September 8, 2026)
+
+Review des Branches `feature/user-rules` gegen `main` vor dem Merge. Fünf
+Befunde mit Korrekturbedarf, vier Duplikate, dazu Testhygiene.
+
+**Behoben:**
+
+1. **Klammern im Regeltext wurden im Reflexions-Prompt doch ersetzt.** Der
+   Regelblock geht dort als *Wert* von `{user_rules_gate}` durch `_render`, und
+   `_render` ersetzte sequenziell nach Schlüssellänge, so dass ein eingesetzter
+   Wert erneut abgesucht wurde. Eine Regel „nenne {dk_codes}" kam mit den
+   echten DK-Codes im Text zurück, entgegen der Zusage des Moduls.
+   `prompt_resolver._render` arbeitet jetzt in **einem** Durchgang
+   (`_PLACEHOLDER_RE.sub`); unbekannte Marker bleiben wie bisher stehen. Die
+   zweite, wortgleiche `_render`-Kopie in `ReflectionStep` delegiert.
+2. **Ein Workflow mit eigenem `reflection.system_prompt:` hätte alle
+   `reflection`-Regeln verloren** — die Vorlage hat keinen `{user_rules_gate}`
+   -Platzhalter, und der generische Einhängepunkt überspringt diesen Schritt.
+   Neu `_ensure_rules_gate`: fehlt der Platzhalter, wird der Block angehängt.
+   (Kein Workflow im Repository nutzt den Override; der Defekt war latent.)
+3. **Nach einem Gateway-Timeout meldete die GUI eine Zustimmung, die niemand
+   entgegennahm.** `resolve_decision` gibt jetzt `bool` zurück; ein Klick ohne
+   Waiter schreibt „Zu spät … nichts gespeichert" statt „✓ Akzeptiert". Dazu
+   `proposal_expired` auf dem Gateway → die `ProposalBar` nimmt die Frage vom
+   Schirm (`dismiss(audit_id)`, vorher ohne Aufrufer).
+4. **Verlorene Schreibvorgänge auf `rules.yaml`.** Jede Mutation ist
+   Load-Modify-Save, der Dialog läuft im UI-Thread und `propose_rule` im
+   Chat-Worker. `_STORE_LOCK` serialisiert die Mutationen; der Test schreibt
+   parallel aus zwei Threads und fällt ohne das Lock durch.
+5. **Endete ein Lauf am Zyklus-Limit, blieb das Ausgabe-Gate zu** und eine
+   „am Ende"-Regel erzeugte nichts. `_is_final_reflection` zählt das Budget mit.
+
+**Entdoppelt:** `_extract_json` lag wortgleich in `MetaAgent` und
+`ReflectionStep` (je 43 Zeilen, beide mussten für den Salvage-Block identisch
+gepatcht werden) → `json_repair.extract_json_object`. `_record_applied` wandert
+als `user_rules.record_applied_rules` dorthin, wo die übrige Regel-Logik liegt
+(vorher: privates Symbol, aus zwei Modulen importiert). Der Chat-Systemprompt
+wird in GUI und Headless-Runner nicht mehr zweimal gebaut
+(`chat_prompts.build_chat_system_prompt`). Die Darstellung einer Regel ist
+`UserRule.to_display_dict()`, die Scope-Notation `format_scope`.
+
+**Toter Code:** `_persist_combo_to_chat_config` und `_populate_model_combo`
+hatten nach dem Entfernen des Chat-Pickers keinen Aufrufer mehr; die erste
+wurde nur noch von ihrem eigenen Test am Leben gehalten. Beide entfernt.
+
+**Tests:** die zwei Prosa-Tests des Cross-Thread-Vertrags (Docstring-Text bzw.
+`inspect.getsource`) sind durch einen behavioralen ersetzt — die Toolset-Montage
+liegt jetzt in `_build_tool_registry`, und der Test prüft am übergebenen Wert,
+dass es das `emit` des Signals ist. Mutationsprobe: mit der Slot-Variante fällt
+er durch. Die Regel-Isolation der Suite liegt in einem eigenen `mkdtemp` statt
+auf einem festen `/tmp`-Namen und schlägt jetzt laut fehl statt still. Drei
+`if __name__ == "__main__"`-Blöcke standen mitten in ihren Dateien (die
+Testklassen dahinter liefen beim Direktaufruf nicht) und stehen jetzt am Ende.
+Die Store-Patches in vier Testklassen liegen in einem `_TempDefaultStore`-Mixin
+mit `patch`, das auch nach einem Fehler zurücksetzt.
+
+**Kleinigkeiten:** `alima rules remove` gibt beim Abbruch durch den Nutzer 0
+zurück statt 1; `GET /api/rules` liefert nur noch den Dateinamen, nicht den
+absoluten Pfad; die Messpunkte im Settings-Speichern loggen die Phasen auf
+DEBUG und nur die Gesamtzeit auf INFO.
+
+Suite 2091 (vorher 2076), grün.
+
 ### Zusatzregeln: der Geltungsbereich ist jetzt wählbar (September 7, 2026)
 
 Alle neun Regeln aus den ersten echten Läufen standen auf `steps: ['*']`, also in

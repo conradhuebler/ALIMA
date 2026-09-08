@@ -124,18 +124,25 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
-- **Persönliche Zusatzregeln ✅ ADDED (Sep 3, Suite 1991):** Regeln, die im Chat
-  formuliert werden, liegen in `~/.config/alima/rules.yaml` und gehen ab dem
-  nächsten Lauf in die Prompts der agentischen Steps, des Planers und des Chats.
-  Ein Einhängepunkt (`prompt_resolver.resolve_prompts`) deckt alle LLM-Steps,
-  `MetaAgent._append_user_rules` den Planer. Bedingungen sind **Prosa** und
+- **Persönliche Zusatzregeln ✅ ADDED (Sep 3, aufgeräumt Sep 8, Suite 2091):**
+  Regeln, die im Chat formuliert werden, liegen in `~/.config/alima/rules.yaml`
+  und gehen ab dem nächsten Lauf in die Prompts der agentischen Steps, des
+  Planers und des Chats. Vier Einhängepunkte:
+  `prompt_resolver.resolve_prompts` (alle LLM-Steps),
+  `MetaAgent._append_user_rules` (Planer),
+  `ReflectionStep._user_rules_values` (Reflexion, eigener Block mit
+  Ausgabe-Gate), `chat_prompts.build_chat_system_prompt` (Chat, GUI+headless).
+  Bedingungen sind **Prosa** und
   werden vom Modell beurteilt, nicht ausgewertet; der Geltungsbereich
   (Workflow × Step, Globs) ist strukturell und begrenzt die Tokenkosten.
   `propose_rule` fragt über das vorhandene `ProposalGateway` zurück (GUI-Bubble,
   CLI y/N); die Webapp kann nicht bestätigen (`AutoRejectGateway`). Export/Import
   behalten die Herkunft, Import legt inaktiv ab. Jeder Lauf schreibt
   `applied_rules` ins Ergebnis. **Klassisch ausgenommen** (`str.format`).
-  Details: [`docs/user_rules.md`](docs/user_rules.md).
+  Aufräum-Runde vor dem Merge (Sep 8): Einpass-`_render` (Klammern im Regeltext
+  bleiben literal), Gate-Fallback für einen überschriebenen Reflexions-Prompt,
+  Store-Lock, Ausgabe-Gate auch am Zyklus-Limit, abgelaufene Bestätigung wird
+  nicht mehr als „akzeptiert" gemeldet. Details: [`docs/user_rules.md`](docs/user_rules.md).
 - **Erschließungsregeln, Planer-Gate, RVK-Guard ✅ DONE (Sep 3, Suite 1942):**
   Sechs Befunde aus echten Läufen. (1) Der MetaAgent-Planer war nicht an
   `depends_on` gebunden — `classification` lief vor `selection`,

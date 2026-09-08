@@ -18,7 +18,7 @@ import json
 import logging
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from src.ui.pipeline_chat_panel import PipelineChatPanel as ChatWidget
 from src.utils.config_models import ChatConfig
@@ -44,7 +44,6 @@ def _make_stub(override=("", ""), chat_config=None) -> SimpleNamespace:
         "set_llm_override",
         "_resolve_provider_model",
         "_refresh_model_status",
-        "_persist_combo_to_chat_config",
     ):
         setattr(stub, name, getattr(ChatWidget, name).__get__(stub))
     return stub
@@ -127,37 +126,6 @@ class TestResolution(unittest.TestCase):
         ) as resolve:
             stub._resolve_provider_model()
         self.assertEqual(resolve.call_args[0][:2], (None, None))
-
-
-class TestPersistDefault(unittest.TestCase):
-    """Writing the chat default now takes the resolved pair, not a combo."""
-
-    def _run_persist(self, resolved):
-        stub = _make_stub()
-        cfg = SimpleNamespace(chat_config=ChatConfig())
-        manager = MagicMock()
-        manager.load_config.return_value = cfg
-        with patch(
-            "src.ui._chat_panel_chat_agent.resolve_provider_model",
-            return_value=resolved,
-        ), patch("src.utils.config_manager.ConfigManager", return_value=manager):
-            stub._persist_combo_to_chat_config()
-        return cfg, manager, stub
-
-    def test_the_resolved_pair_is_written(self):
-        cfg, manager, stub = self._run_persist(("ollama", "gemma4:31b-cloud"))
-        self.assertEqual(cfg.chat_config.default_provider, "ollama")
-        self.assertEqual(cfg.chat_config.default_model, "gemma4:31b-cloud")
-        manager.save_config.assert_called_once()
-        self.assertTrue(stub.status_strip_texts)
-
-    def test_nothing_resolvable_writes_nothing(self):
-        _, manager, _ = self._run_persist(("", ""))
-        manager.save_config.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class _Session:
@@ -336,17 +304,78 @@ class TestSwitchCrossThreadContract(unittest.TestCase):
         self.assertIsNotNone(signal, "the announcement needs a signal to cross on")
         self.assertEqual(signal.signatures, ("QString,QString,QString)",))
 
-    def test_the_handler_documents_its_thread(self):
+    def test_the_toolset_is_handed_the_signal_emit_not_the_slot(self):
+        """Checked on the value passed, not on the source text.
+
+        The tool calls this from the worker thread; the panel slot renders into
+        the log and writes a QLabel, which aborts the process from there.
+        """
+        from PyQt6.QtCore import QObject, pyqtSignal
+
         from src.ui.pipeline_chat_panel import PipelineChatPanel
 
-        doc = PipelineChatPanel._on_agent_model_switch.__doc__ or ""
-        self.assertIn("UI thread only", doc)
+        class _Emitter(QObject):
+            model_switch_requested = pyqtSignal(str, str, str)
 
-    def test_the_toolset_gets_the_emit_not_the_method(self):
-        import inspect
+        emitter = _Emitter()
+        stub = SimpleNamespace(
+            session=SimpleNamespace(session_id="s"),
+            mcp_registry=None,
+            pipeline_manager=None,
+            proposal_gateway=None,
+            llm_service=None,
+            logger=logging.getLogger("test"),
+            model_switch_requested=emitter.model_switch_requested,
+        )
+        stub._build_tool_registry = PipelineChatPanel._build_tool_registry.__get__(stub)
 
-        from src.ui import _chat_panel_chat_agent as mod
+        captured = {}
 
-        source = inspect.getsource(mod.ChatAgentMixin.send_message)
-        self.assertIn("model_switch_requested.emit", source)
-        self.assertNotIn("on_model_switch=self._on_agent_model_switch", source)
+        def _capture(**kwargs):
+            captured.update(kwargs)
+            return "registry"
+
+        with patch("src.ui._chat_panel_chat_agent.build_chat_toolset", _capture):
+            self.assertEqual(stub._build_tool_registry(ChatConfig()), "registry")
+
+        # A bound signal's ``emit`` is a fresh object on every access, so
+        # identity says nothing; what it *is* does.
+        handed = captured["on_model_switch"]
+        self.assertEqual(getattr(handed, "__name__", ""), "emit")
+        self.assertIn(
+            "model_switch_requested",
+            str(getattr(handed, "__self__", "")) + getattr(handed.__self__, "signal", ""),
+        )
+        self.assertIsNot(handed, PipelineChatPanel._on_agent_model_switch)
+        # Calling it must not reach a widget: with nothing connected the emit is
+        # a no-op, which is exactly what makes it safe on the worker thread.
+        handed("ollama", "m", "weil")
+
+    def test_a_failed_toolset_build_yields_none_instead_of_raising(self):
+        from unittest.mock import MagicMock
+
+        from src.ui.pipeline_chat_panel import PipelineChatPanel
+
+        # A mock logger, not assertLogs: another module in the suite disables
+        # logging globally, and the assertion would then depend on test order.
+        logger = MagicMock()
+        stub = SimpleNamespace(
+            session=None,
+            mcp_registry=None,
+            pipeline_manager=None,
+            proposal_gateway=None,
+            llm_service=None,
+            logger=logger,
+            model_switch_requested=SimpleNamespace(emit=lambda *a: None),
+        )
+        stub._build_tool_registry = PipelineChatPanel._build_tool_registry.__get__(stub)
+        with patch(
+            "src.ui._chat_panel_chat_agent.build_chat_toolset",
+            side_effect=RuntimeError("boom"),
+        ):
+            self.assertIsNone(stub._build_tool_registry(ChatConfig()))
+        logger.exception.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()

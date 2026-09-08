@@ -116,7 +116,22 @@ class UserRule:
 
     def scope_label(self) -> str:
         """Human-readable scope, for the GUI table and the CLI listing."""
-        return f"{'|'.join(self.workflows)} × {'|'.join(self.steps)}"
+        return format_scope(self.workflows, self.steps)
+
+    def to_display_dict(self) -> Dict[str, Any]:
+        """The rule as every surface shows it: chat tool, bar, webapp, CLI.
+
+        One shape, so a rule reads the same wherever it is listed.
+        - Claude Generated
+        """
+        return {
+            "id": self.id,
+            "text": self.text,
+            "applies_when": self.applies_when,
+            "scope": self.scope_label(),
+            "enabled": self.enabled,
+            "origin": self.origin_label(),
+        }
 
     def origin_label(self) -> str:
         """Short provenance line: source, date, author."""
@@ -128,6 +143,11 @@ class UserRule:
         if author:
             parts.append(author)
         return ", ".join(parts)
+
+
+def format_scope(workflows: Sequence[str], steps: Sequence[str]) -> str:
+    """``workflow globs × step globs``, the one scope notation. - Claude Generated"""
+    return f"{'|'.join(workflows or ['*'])} × {'|'.join(steps or ['*'])}"
 
 
 def _as_patterns(value: Any) -> List[str]:
@@ -559,6 +579,30 @@ def available_scope_steps(workflow_name: str = "") -> List[Tuple[str, str]]:
 # ----------------------------------------------------------------------
 # Convenience for the injection points
 # ----------------------------------------------------------------------
+
+
+def record_applied_rules(context: Any, rules: Iterable[UserRule]) -> None:
+    """Note the injected rules on the run context, deduplicated by id.
+
+    Every injection point calls this, so a saved result can say which rules
+    shaped it (``KeywordAnalysisState.applied_rules``). A context without
+    attribute support must not break the run, hence the broad catch.
+    - Claude Generated
+    """
+    if context is None:
+        return
+    try:
+        seen = getattr(context, "applied_user_rules", None)
+        if seen is None:
+            seen = []
+            setattr(context, "applied_user_rules", seen)
+        known = {entry.get("id") for entry in seen}
+        for rule in rules:
+            if rule.id not in known:
+                seen.append({"id": rule.id, "text": rule.text})
+                known.add(rule.id)
+    except Exception as exc:
+        log_caught(logger, exc, "user_rules: recording applied rules")
 
 
 def rules_block_for(

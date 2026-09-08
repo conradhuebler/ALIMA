@@ -21,7 +21,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.core.user_rules import RuleStore, UserRule, available_scope_steps
+from src.core.user_rules import RuleStore, available_scope_steps, format_scope
 from src.utils.error_visibility import log_caught
 from src.ui.chat_tools.mutations import _MutationToolBase
 
@@ -41,18 +41,6 @@ _synthetic_counter = [0]
 def _synthetic_audit_id() -> int:
     _synthetic_counter[0] += 1
     return _SYNTHETIC_AUDIT_BASE + _synthetic_counter[0]
-
-
-def _rule_payload(rule: UserRule) -> Dict[str, Any]:
-    """The rule as the LLM and the confirmation bubble should see it."""
-    return {
-        "id": rule.id,
-        "text": rule.text,
-        "applies_when": rule.applies_when,
-        "scope": rule.scope_label(),
-        "enabled": rule.enabled,
-        "origin": rule.origin_label(),
-    }
 
 
 class _RuleToolBase(_MutationToolBase):
@@ -168,7 +156,7 @@ class ListRulesTool(_RuleToolBase):
         return json.dumps(
             {
                 "count": len(rules),
-                "rules": [_rule_payload(r) for r in rules],
+                "rules": [r.to_display_dict() for r in rules],
                 "file": str(self.store.path),
             },
             ensure_ascii=False,
@@ -256,7 +244,7 @@ class ProposeRuleTool(_RuleToolBase):
             return json.dumps(
                 {
                     "status": "exists",
-                    "rule": _rule_payload(existing),
+                    "rule": existing.to_display_dict(),
                     "message": (
                         "Diese Regel ist bereits abgelegt. Sag dem Nutzer, dass sie "
                         "schon gilt, statt sie erneut vorzuschlagen."
@@ -268,7 +256,7 @@ class ProposeRuleTool(_RuleToolBase):
         payload = {
             "text": text,
             "applies_when": applies_when,
-            "scope": f"{'|'.join(workflows or ['*'])} × {'|'.join(steps or ['*'])}",
+            "scope": format_scope(workflows, steps),
             "reason": reason,
         }
         decision = self._confirm(payload)
@@ -296,7 +284,7 @@ class ProposeRuleTool(_RuleToolBase):
         return json.dumps(
             {
                 "status": "saved",
-                "rule": _rule_payload(rule),
+                "rule": rule.to_display_dict(),
                 "message": (
                     "Regel gespeichert und ab dem nächsten Lauf aktiv. "
                     "Nenne dem Nutzer Wortlaut und Geltungsbereich."
@@ -403,7 +391,7 @@ class SetRuleScopeTool(_RuleToolBase):
         return json.dumps(
             {
                 "status": "ok",
-                "rule": _rule_payload(rule),
+                "rule": rule.to_display_dict(),
                 "changed_from": before,
                 "message": "Geltungsbereich geändert; gilt ab dem nächsten Lauf.",
             },
@@ -441,7 +429,7 @@ class DeleteRuleTool(_RuleToolBase):
                 {"status": "error", "message": f"Keine Regel mit der Id '{rule_id}'."},
                 ensure_ascii=False,
             )
-        payload = dict(_rule_payload(rule))
+        payload = dict(rule.to_display_dict())
         payload["reason"] = str(kwargs.get("reason") or "").strip()
         payload["action"] = "delete"
         decision = self._confirm(payload)
