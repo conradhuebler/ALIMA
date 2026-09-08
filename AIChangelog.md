@@ -6,6 +6,23 @@
 
 ## 2026
 
+### Zusatzregeln im Menü (September 8, 2026)
+
+Der Regeldialog war nur über zwei Wege erreichbar, die man kennen muss: ein 📌
+in der Kopfzeile des Chat-Panels und eine Schaltfläche in den Einstellungen
+unter System → Chat-Agent. Regeln entscheiden mit, was ein Lauf tut; sie gehören
+dorthin, wo Prompts und Workflows stehen. Neu: **Bearbeiten → 📌 Zusatzregeln…**
+(`MainWindowSettingsMixin.show_rules_dialog`), derselbe Dialog, dritter Weg.
+
+Der Dialog selbst ist unverändert: Liste mit Wortlaut, Bedingung,
+Geltungsbereich und Herkunft, Haken zum Scharf- und Stummschalten, Neu /
+Bearbeiten / Löschen / Export / Import. Headless gegengeprüft, dass er ohne
+Chat-Kontext trägt (Tabelle gefüllt, Editor mit 13 wählbaren Schritten, ein
+bestehender Geltungsbereich kommt vorgewählt zurück).
+
+4 Tests bauen die Menüleiste auf einem Stand-in auf und lösen den Eintrag aus;
+Mutationsprobe: ohne den Eintrag fallen 3 davon durch.
+
 ### Provider/Modell-Auswahl, Chat-Default und eine Render-Subscription (September 8, 2026)
 
 Aus zwei Fehlerberichten des Betreibers („egal welcher Provider, ich kann das

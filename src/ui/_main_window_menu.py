@@ -125,6 +125,14 @@ class MainWindowMenuMixin:
         workflow_editor_action = edit_menu.addAction("📋 &Workflow-Editor")
         workflow_editor_action.triggered.connect(self.show_workflow_editor)
 
+        # Persönliche Zusatzregeln - Claude Generated
+        rules_action = edit_menu.addAction("📌 &Zusatzregeln...")
+        rules_action.setToolTip(
+            "Regeln, die an die Prompts der agentischen Schritte, des Planers "
+            "und des Chats angehängt werden"
+        )
+        rules_action.triggered.connect(self.show_rules_dialog)
+
         # ========== Update-Menü ==========
         update_menu = menubar.addMenu("&Updates")
 

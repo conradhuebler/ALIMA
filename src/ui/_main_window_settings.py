@@ -357,6 +357,19 @@ class MainWindowSettingsMixin:
         editor = WorkflowEditorDialog(self)
         editor.exec()
 
+    def show_rules_dialog(self):
+        """Öffnet die persönlichen Zusatzregeln - Claude Generated
+
+        Dritter Weg zu demselben Dialog, und der einzige, der ohne Vorwissen
+        gefunden wird: die beiden anderen sind ein 📌 in der Chat-Kopfzeile und
+        eine Schaltfläche tief in den Einstellungen. Regeln entscheiden mit,
+        was ein Lauf tut — sie gehören dorthin, wo auch Prompts und Workflows
+        stehen.
+        """
+        from .dialogs.rules_dialog import RulesDialog
+
+        RulesDialog(parent=self).exec()
+
     def show_database_viewer(self):
         """Open database viewer dialog - Claude Generated"""
         try:
