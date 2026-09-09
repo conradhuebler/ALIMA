@@ -83,11 +83,15 @@ class BaseStep(ABC):
         llm_service: Any = None,
         tool_registry: Any = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.config = config
         self.llm_service = llm_service
         self.tool_registry = tool_registry
         self.stream_callback = stream_callback
+        # Polled per streamed chunk further down (AgentLoop → provider loops),
+        # so an operator abort lands inside the generation. - Claude Generated
+        self.should_stop = should_stop
 
     @property
     def step_id(self) -> str:

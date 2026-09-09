@@ -661,6 +661,7 @@ class LLMAgentStep(BaseStep):
             on_tool_result=_emit_tool_result,
             repeat_threshold=params.get("repeat_threshold", 3),
             on_thinking=_emit_thinking,
+            should_stop=self.should_stop,
         )
         result = loop.run(
             system_prompt=system_prompt,

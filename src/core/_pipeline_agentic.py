@@ -337,6 +337,7 @@ class AgenticPipelineMixin:
                 max_cycles=int(meta_cfg.get("max_cycles", 10)),
                 reflection_model=meta_cfg.get("reflection_model", model),
                 reflection_provider=meta_cfg.get("reflection_provider", provider),
+                should_stop=self.agentic_should_stop,
             )
         else:
             executor = WorkflowExecutor(
@@ -344,6 +345,7 @@ class AgenticPipelineMixin:
                 tool_registry=tool_registry,
                 stream_callback=_stream,
                 context_callback=self.agentic_context_callback,
+                should_stop=self.agentic_should_stop,
             )
 
         try:

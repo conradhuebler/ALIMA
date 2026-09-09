@@ -6,6 +6,33 @@
 
 ## 2026
 
+### Step-Abbruch wirkt jetzt im laufenden Stream (September 9, 2026)
+
+Der Knopf setzte ein Ereignis, das im agentischen Modus **niemand las**. Der
+klassische Pfad prüft es pro Token und schließt den Generator
+(`AlimaManager`); agentisch baute `LLMAgentStep` seinen `AgentLoop` ohne
+`should_stop`, also sah keine der Provider-Schleifen den Abbruch — er wirkte
+frühestens, wenn der Schritt von selbst fertig war. Die Meldung sagte das sogar
+(„wird nach der aktuellen Generierung fortgesetzt") und beschrieb damit die
+Lücke statt sie zu melden.
+
+Verdrahtet: `PipelineManager.agentic_should_stop` →
+`WorkflowExecutor`/`MetaAgent` → `BaseStep.should_stop` → `AgentLoop` →
+Provider-Schleifen, die `should_stop` pro Chunk prüfen. Der Einmal-Charakter
+des Ereignisses (`_step_abort_once`) ist jetzt eine Methode statt einer Closure
+und wird von beiden Pfaden benutzt: ein Abbruch trifft genau den laufenden
+Aufruf, der nächste Schritt läuft normal.
+
+**Dazu ein zweiter Befund:** der Ollama-Pfad sprang beim Abbruch nur aus der
+Schleife, ohne den Stream zu schließen — die Anfrage blieb offen, das Backend
+generierte weiter, der Abbruch sparte nichts. Der OpenAI-Pfad hat immer
+geschlossen, Anthropic hängt an einem `with`-Block. Ollama zieht nach.
+
+13 Tests: Abbruchsemantik (einmalig, Worker-Stop bleibt stehen), jede Schicht
+der Kette einzeln, das Schließen des Ollama-Streams an einem Fake-Client, und
+der Chunk-Abbruch selbst. 5 Mutationsproben, jede rot — darunter der
+Ausgangszustand („Step reicht `should_stop` nicht durch"). Suite 2234.
+
 ### Abschlusskarte statt verstreuter Logzeilen (September 9, 2026)
 
 Am Ende eines Laufs standen fünf Zeilen (Kern, Schlagworte, Ketten,
@@ -111,9 +138,9 @@ Bequemlichkeitsfehler: `shelf_select` startete mit `max_tokens: 4096`, was
 **Ausgabe.** Der Standort landete zunächst nur in `extra.shelf_final` und war
 damit ein Ergebnis, das der Lauf erzeugt und niemand sieht. Jetzt trägt ihn
 `KeywordAnalysisState.shelf` (`{placement, candidates, unplaced, scheme}`, leer
-für jeden Workflow ohne die Steps) in die Ergebnisse: Webapp-JSON und
-CLI-Protokoll, und von dort in die Anzeige. Ohne Auswahl reisen die Kandidaten
-mit — genau das, was zählt, wenn `shelf_select` aus ist. Die
+für jeden Workflow ohne die Steps) durch alle drei Oberflächen: geteilter
+Renderer (GUI-Chat + Webapp-Log), Webapp-JSON, CLI-Protokoll. Ohne Auswahl
+erscheinen die Kandidaten — genau die Ausgabe, wenn `shelf_select` aus ist. Die
 Schemaherkunft (`scheme`) reist mit, damit später erklärbar bleibt, welcher
 Vokabularstand das Ergebnis erzeugt hat.
 

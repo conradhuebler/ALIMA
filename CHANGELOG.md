@@ -18,6 +18,8 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 ### Agentic Workflow System (v4)
 
+- Aborting the current step now stops the running generation instead of taking effect once it has finished: the abort check reaches the provider stream loops, which poll it per chunk, and the request is closed rather than merely abandoned. Previously this worked in the classic pipeline only — the agentic path never passed the check down.
+
 - Replaced the hardcoded MetaAgent + 4 SubAgents architecture with a YAML-driven workflow system: every pipeline step is now defined declaratively and dispatched through a generic `WorkflowExecutor`.
 - Added `LLMAgentStep` and `DeterministicStep` step types with a plugin registry so new step types and tool functions can be added without touching the dispatch code.
 - Added context-path resolver (`${steps.X.Y}`, `${extra.Y}`) and free-form `SharedContext.extra` dict for cross-step data flow.

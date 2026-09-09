@@ -47,10 +47,15 @@ class WorkflowExecutor:
         tool_registry: Any = None,
         stream_callback: Optional[Callable[[str], None]] = None,
         context_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.llm_service = llm_service
         self.tool_registry = tool_registry
         self.stream_callback = stream_callback
+        # Handed to every step; the LLM steps poll it per streamed chunk so an
+        # operator abort stops the running generation instead of being noticed
+        # once it has finished. - Claude Generated
+        self.should_stop = should_stop
         # Emits (step_id, snapshot) per step. Called once for "running" before
         # execute() and once with final status after. Widget uses this for
         # the live agentic-context display.
@@ -170,6 +175,7 @@ class WorkflowExecutor:
                     llm_service=self.llm_service,
                     tool_registry=self.tool_registry,
                     stream_callback=self.stream_callback,
+                    should_stop=self.should_stop,
                 )
             except Exception as exc:
                 # Constructor failures (bad config, missing service) must be

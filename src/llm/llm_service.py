@@ -2542,6 +2542,15 @@ class LlmService(QObject):
                 tool_calls_raw: list = []
                 for chunk in response_stream:
                     if should_stop and should_stop():
+                        # Close the stream, do not just stop reading it: the
+                        # request stays open otherwise and the backend keeps
+                        # generating, so an abort would cost the full answer
+                        # anyway. The OpenAI path has always done this; the
+                        # classic loop in AlimaManager too. - Claude Generated
+                        try:
+                            response_stream.close()
+                        except Exception:
+                            pass  # best-effort close on user abort
                         return AgentResponse(
                             content=content,
                             tool_calls=[],

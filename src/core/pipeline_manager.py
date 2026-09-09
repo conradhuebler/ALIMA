@@ -542,18 +542,7 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
             self._external_lock = lock  # Store reference to external lock if needed
         # Forward COMBINED check to AlimaManager streaming loop:
         # stops on full worker interrupt OR step-only abort (does not stop pipeline) - Claude Generated
-        abort_event = self._abort_step_event
-
-        def _step_abort_once():
-            # Single-shot: triggers once and immediately clears itself.
-            # Only the ONE currently-streaming LLM call is aborted;
-            # subsequent chunk calls run normally.  - Claude Generated
-            if abort_event.is_set():
-                abort_event.clear()
-                return True
-            return False
-
-        combined_check = lambda: is_interrupted_func() or _step_abort_once()
+        combined_check = lambda: is_interrupted_func() or self._step_abort_once()
         self.alima_manager.set_interrupt_callback(combined_check)
         self.logger.debug("Interrupt check function registered with PipelineManager (thread-safe)")
 
@@ -604,17 +593,46 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
                 self._is_interrupted = True
             raise InterruptedError("Pipeline interrupted by user")
 
+    def _step_abort_once(self) -> bool:
+        """True once per abort request, then clears itself. - Claude Generated
+
+        Single-shot on purpose: only the ONE call that is running gets aborted,
+        the next one runs normally. Shared by the classic streaming loop
+        (through the combined interrupt callback) and the agentic path
+        (through :meth:`agentic_should_stop`), so an abort means the same thing
+        in both modes.
+        """
+        if self._abort_step_event.is_set():
+            self._abort_step_event.clear()
+            return True
+        return False
+
+    def agentic_should_stop(self) -> bool:
+        """``should_stop`` for the agentic path: worker stop OR step abort.
+
+        Handed to ``WorkflowExecutor``/``MetaAgent`` → ``LLMAgentStep`` →
+        ``AgentLoop`` → the provider stream loops, which poll it per chunk. That
+        is what makes an abort land inside the running generation instead of
+        after it. - Claude Generated
+        """
+        with self._interrupt_lock:
+            check = self._interrupt_check_func
+        if check is not None and check():
+            return True
+        return self._step_abort_once()
+
     def abort_current_step(self) -> None:
         """Abort only the current LLM generation without stopping the pipeline - Claude Generated
 
-        Sets a step-level abort event that the streaming loop in AlimaManager
-        checks via the combined interrupt callback.  The event is cleared
-        automatically before the next LLM call so subsequent steps run normally.
-        _check_interruption() (used at step boundaries) does NOT check this event,
-        so the pipeline continues after the current generation is aborted.
+        Sets a step-level abort event polled per streamed chunk — by the classic
+        loop in AlimaManager through the combined interrupt callback, and by the
+        agentic path through :meth:`agentic_should_stop`. The running generation
+        stops where it is; the event is single-shot, so the next call runs
+        normally. ``_check_interruption()`` (step boundaries) does NOT look at
+        it, so the pipeline itself continues.
         """
         self._abort_step_event.set()
-        self.logger.info("🛑 Step-only abort requested – pipeline will continue after current generation")
+        self.logger.info("🛑 Step-Abbruch angefordert – die laufende Generierung wird abgebrochen, die Pipeline läuft weiter")
 
     def start_pipeline(self, input_text: str, input_type: str = "text", input_source: str = None, force_update: bool = False) -> str:
         """Start a new pipeline execution - Claude Generated"""

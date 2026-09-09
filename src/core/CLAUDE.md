@@ -75,6 +75,7 @@ Replaces the former MetaAgent + 4 SubAgents dispatch (removed April 2026).
 - **Workflows** (`workflows/`): `alima_classic`, `catalog_search`, `synonym_expansion`, `batch_metadata` (all v4). Legacy v3 YAMLs removed June 2026 (git history; see `docs/legacy/agentic_workflow_v3.md`).
 - **Tool caching**: `CachingToolRegistry` (in `sub_agents/`) deduplicates tool calls
 - **Agent Loop**: `src/core/agent_loop.py` — provider-agnostic tool-calling (used by LLMAgentStep)
+- **Step-Abbruch wirkt im Stream**: `PipelineManager.agentic_should_stop` → `WorkflowExecutor`/`MetaAgent` → `BaseStep.should_stop` → `AgentLoop` → Provider-Schleifen, die pro Chunk prüfen. Einmal-Semantik (`_step_abort_once`): nur der laufende Aufruf bricht ab, der nächste läuft normal. ⚠️ Ein neuer Step-Konstruktor-Aufruf ohne `should_stop=` nimmt den Abbruch wieder aus der Kette — er fällt dann still auf „wirkt erst nach der Generierung" zurück.
 - **Pipeline Integration**: `PipelineConfig.enable_agentic_mode` + `workflow_name`; CLI `alima workflow <name>` / `pipeline --agentic`; GUI workflow dropdown
 - **Tests**: `tests/test_agents_v2.py` + `tests/test_agents.py` (SharedContext/ToolCache)
 - **WARNING**: agentic mode still ~3x token usage vs rigid pipeline — opt-in only

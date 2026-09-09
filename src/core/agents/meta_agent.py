@@ -39,6 +39,7 @@ class MetaAgent:
         max_cycles: int = 10,
         reflection_model: str = "",
         reflection_provider: str = "",
+        should_stop: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.llm_service = llm_service
         self.tool_registry = tool_registry
@@ -47,11 +48,13 @@ class MetaAgent:
         self.max_cycles = max_cycles
         self.reflection_model = reflection_model
         self.reflection_provider = reflection_provider
+        self.should_stop = should_stop
         self.executor = WorkflowExecutor(
             llm_service=llm_service,
             tool_registry=tool_registry,
             stream_callback=stream_callback,
             context_callback=context_callback,
+            should_stop=should_stop,
         )
 
     def run(
@@ -686,6 +689,7 @@ class MetaAgent:
                 llm_service=self.llm_service,
                 tool_registry=self.tool_registry,
                 stream_callback=self.stream_callback,
+                should_stop=self.should_stop,
             )
             step.execute(context)  # replaces context.selected_keywords with the delta selection
             delta_sel = list(getattr(context, "selected_keywords", []) or [])

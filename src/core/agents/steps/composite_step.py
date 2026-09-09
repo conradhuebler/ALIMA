@@ -60,6 +60,7 @@ class CompositeStep(BaseStep):
             llm_service=self.llm_service,
             tool_registry=self.tool_registry,
             stream_callback=self.stream_callback,
+            should_stop=self.should_stop,
         )
 
         report = executor.run(sub_workflow, context)
