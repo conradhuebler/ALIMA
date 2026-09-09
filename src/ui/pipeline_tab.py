@@ -469,11 +469,23 @@ class PipelineTab(
             "Pipeline-Auswahl. Bestimmt zugleich die Ausführungsart:\n"
             "• „Klassische Pipeline (nicht agentisch)“ → sequenzielle Pipeline.\n"
             "• alle übrigen Einträge → agentischer Workflow (YAML).\n"
-            "Voreinstellung: ALIMA v5.1. Legacy-Workflows nach dem Trenner."
+            "⭐ markiert den Standard-Workflow; er steht an erster Stelle "
+            "und ist beim Start gewählt. Legacy-Workflows nach dem Trenner."
         )
         self.workflow_combo.setStyleSheet(_combo_css)
-        self._populate_workflow_combo()
         tb_layout.addWidget(self.workflow_combo)
+
+        # Persist the picked workflow as SystemConfig.default_workflow without
+        # the detour through Einstellungen ▸ System. - Claude Generated
+        self.workflow_default_button = QPushButton("⭐")
+        self.workflow_default_button.setFixedWidth(30)
+        self.workflow_default_button.clicked.connect(
+            self.set_current_workflow_as_default
+        )
+        tb_layout.addWidget(self.workflow_default_button)
+
+        # Populate after the button exists — it carries the ⭐ state. - Claude Generated
+        self._populate_workflow_combo()
 
         # LLM override — always visible in toolbar
         llm_sep = QFrame()

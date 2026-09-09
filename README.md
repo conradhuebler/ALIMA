@@ -232,7 +232,7 @@ durch einen YAML-Workflow aus `workflows/`:
 python3 src/alima_cli.py pipeline --doi "10.1007/s00442-021-04908-x" --agentic --workflow alima_v51
 ```
 
-*   `--workflow <name>`: Workflow aus `workflows/` (Standard: `system_config.default_workflow`, ab Werk `alima_v51`).
+*   `--workflow <name>`: Workflow aus `workflows/` (Standard: `system_config.default_workflow`, ab Werk `alima_v51`). Diesen Standard setzt man in der GUI mit der ⭐-Schaltfläche neben der Workflow-Auswahl im Pipeline-Tab oder unter Einstellungen → System → Standard-Workflow; er gilt für GUI, CLI und WebAPP.
 *   `--custom-workflow <pfad>`: Workflow-Datei außerhalb von `workflows/`.
 *   `--override <PROVIDER/MODELL>`: setzt Provider und Modell für alle LLM-Schritte.
 

@@ -54,6 +54,7 @@ This file summarizes notable changes in this branch since the last upstream rele
 - Reworked major PyQt views, including the pipeline tab, stream display, comparison and review areas, and main window layout.
 - Added an Erschließungsvergleich view and improved data transfer between desktop views.
 - Improved the settings dialog, provider configuration, first-start flow, and batch-processing behavior.
+- The workflow picker in the pipeline tab has a ⭐ button that stores the picked workflow as the default workflow (the setting previously reachable only via Settings ▸ System). The ⭐ in the picker now marks the configured default instead of always `alima_v51`; the same applies to the web app's workflow list.
 
 ### Configuration, CLI, And Setup
 

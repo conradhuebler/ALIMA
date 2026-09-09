@@ -13,6 +13,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QMessageBox
 
 from ..core.pipeline_manager import PipelineConfig, PipelineStep
+from ..utils.error_visibility import log_caught
 from .pipeline_config_dialog import PipelineConfigDialog
 from .workers import PipelineWorker
 
@@ -469,54 +470,57 @@ class PipelineTabControlMixin:
             self.workflow_combo.blockSignals(True)
             self.workflow_combo.clear()
 
+            # The configured default (SystemConfig.default_workflow) is listed
+            # first and carries the ⭐ — the star follows the setting instead of
+            # sitting on a fixed stem. - Claude Generated
+            default_workflow = self._load_default_workflow()
+
             def _label(stem: str) -> str:
+                if stem == "__classic__":
+                    return "Klassische Pipeline (nicht agentisch)"
                 ver = root.get(stem)
+                if stem == "alima_v51":
+                    return f"ALIMA v5.1 — agentisch (v{ver})" if ver else "ALIMA v5.1 — agentisch"
                 return f"{stem} (v{ver})" if ver else stem
 
-            # 1. ALIMA v5.1 (default)
-            if "alima_v51" in root:
+            added: set = set()
+
+            def _add(stem: str, label: str) -> None:
                 self.workflow_combo.addItem(
-                    f"⭐ ALIMA v5.1 — agentisch (v{root['alima_v51']})", "alima_v51"
+                    f"⭐ {label}" if stem == default_workflow else label, stem
                 )
+                added.add(stem)
+
+            # 1. Configured default (⭐), when it is a discovered stem or classic
+            if default_workflow == "__classic__" or default_workflow in root:
+                _add(default_workflow, _label(default_workflow))
             # 2. Classic non-agentic (synthetic entry, no YAML)
-            self.workflow_combo.addItem(
-                "Klassische Pipeline (nicht agentisch)", "__classic__"
-            )
+            if "__classic__" not in added:
+                _add("__classic__", _label("__classic__"))
             # 3. Remaining workflows in preferred order, then any extras A→Z
-            added = {"alima_v51", "__classic__"}
             for stem in self._WORKFLOW_ORDER:
                 if stem in added or stem not in root:
                     continue
-                self.workflow_combo.addItem(_label(stem), stem)
-                added.add(stem)
+                _add(stem, _label(stem))
             for stem in sorted(root):
                 if stem in added:
                     continue
-                self.workflow_combo.addItem(_label(stem), stem)
-                added.add(stem)
+                _add(stem, _label(stem))
             # 4. Legacy workflows after a separator
             if legacy:
                 self.workflow_combo.insertSeparator(self.workflow_combo.count())
                 for stem in sorted(legacy):
-                    self.workflow_combo.addItem(
-                        f"{stem} (legacy v{legacy[stem]})", stem
-                    )
+                    if stem in added:
+                        continue
+                    _add(stem, f"{stem} (legacy v{legacy[stem]})")
 
-            # Respect configured default workflow (SystemConfig.default_workflow).
-            default_workflow = "alima_v51"
-            try:
-                from ..utils.config_manager import ConfigManager
-
-                cfg = ConfigManager().load_config()
-                default_workflow = getattr(cfg.system_config, "default_workflow", "alima_v51") or "alima_v51"
-            except Exception:
-                pass
             default_idx = self.workflow_combo.findData(default_workflow)
             if default_idx >= 0:
                 self.workflow_combo.setCurrentIndex(default_idx)
             else:
-                self.workflow_combo.setCurrentIndex(0)  # ALIMA v5.1 (or classic fallback)
+                self.workflow_combo.setCurrentIndex(0)  # configured default (or classic fallback)
             self.workflow_combo.blockSignals(False)
+            self._update_workflow_default_button()
             self.logger.debug(
                 f"Workflow combo populated with {self.workflow_combo.count()} entries"
             )
@@ -529,10 +533,95 @@ class PipelineTabControlMixin:
             except Exception:
                 pass  # not yet connected (first call) — nothing to disconnect
             self.workflow_combo.currentIndexChanged.connect(self._on_workflow_changed)
-            # Push the default selection (v5.1 → agentic) into the config now.
+            # Push the default selection (agentic vs. classic) into the config now.
             self._apply_workflow_selection()
         except Exception as e:
             self.logger.error(f"Error populating workflow combo: {e}")
+
+    def _load_default_workflow(self) -> str:
+        """Read ``SystemConfig.default_workflow``; ``alima_v51`` when unset.
+
+        The stored value is a workflow stem or the synthetic ``__classic__``.
+        Claude Generated.
+        """
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            cfg = ConfigManager().load_config()
+            return getattr(cfg.system_config, "default_workflow", "") or "alima_v51"
+        except Exception as e:  # noqa: BLE001
+            log_caught(self.logger, e, "read SystemConfig.default_workflow")
+            return "alima_v51"
+
+    def _update_workflow_default_button(self) -> None:
+        """Enable the ⭐ button only when the pick is not yet the default.
+
+        No-op before the button exists (the combo is populated once during
+        ``setup_ui``). Claude Generated.
+        """
+        button = getattr(self, "workflow_default_button", None)
+        if button is None or not hasattr(self, "workflow_combo"):
+            return
+        data = self.workflow_combo.currentData()
+        if data is None:  # separator or empty combo
+            button.setEnabled(False)
+            button.setToolTip("Kein Workflow gewählt.")
+            return
+        if data == self._load_default_workflow():
+            button.setEnabled(False)
+            button.setToolTip(
+                f"„{data}“ ist bereits der Standard-Workflow und beim Start "
+                "vorausgewählt."
+            )
+        else:
+            button.setEnabled(True)
+            button.setToolTip(
+                f"„{data}“ als Standard-Workflow merken. Gilt für Pipeline-Tab, "
+                "CLI (`alima pipeline` ohne --workflow) und Webapp; entspricht "
+                "Einstellungen ▸ System ▸ Standard-Workflow."
+            )
+
+    def set_current_workflow_as_default(self) -> None:
+        """Persist the picked workflow as ``SystemConfig.default_workflow``.
+
+        Same setting the System tab of the settings dialog writes — this is the
+        one-click path from where the workflow is actually picked.
+        Claude Generated.
+        """
+        if not hasattr(self, "workflow_combo"):
+            return
+        data = self.workflow_combo.currentData()
+        if data is None:
+            return
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            config_manager = ConfigManager()
+            config = config_manager.load_config()
+            config.system_config.default_workflow = data
+            saved = config_manager.save_config(config)
+        except Exception as e:  # noqa: BLE001
+            log_caught(self.logger, e, "persist SystemConfig.default_workflow")
+            QMessageBox.warning(
+                self,
+                "Standard-Workflow",
+                f"Standard-Workflow konnte nicht gespeichert werden:\n{e}",
+            )
+            return
+
+        if not saved:
+            QMessageBox.warning(
+                self,
+                "Standard-Workflow",
+                "Standard-Workflow konnte nicht gespeichert werden. "
+                "Der Grund steht im Log.",
+            )
+            return
+
+        self.logger.info(f"Default workflow set to '{data}'")
+        # Repopulate so the ⭐ moves to the new default; the selection is kept
+        # (it is the default now) and signals stay blocked during the rebuild.
+        self._populate_workflow_combo()
 
     # Workflow-specific hints for the UnifiedInputWidget. Keys are YAML stems.
     WORKFLOW_HINTS = {
@@ -580,6 +669,7 @@ class PipelineTabControlMixin:
         if data is None:  # separator selected (shouldn't happen) — ignore
             return
         agentic = self._apply_workflow_selection()
+        self._update_workflow_default_button()
 
         hint = self.WORKFLOW_HINTS.get(data if agentic else "", "")
         if hasattr(self, "unified_input"):

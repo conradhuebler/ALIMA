@@ -687,7 +687,8 @@ class ComprehensiveSettingsDialog(QDialog):
         import yaml
 
         self.default_workflow_combo.clear()
-        self.default_workflow_combo.addItem("⭐ Klassische Pipeline (nicht agentisch)", "__classic__")
+        # No ⭐ here — this combo *is* the setting; its current entry is the default.
+        self.default_workflow_combo.addItem("Klassische Pipeline (nicht agentisch)", "__classic__")
 
         seen: set = set()
         workflows: list[tuple[str, str]] = []

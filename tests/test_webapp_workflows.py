@@ -69,6 +69,44 @@ class TestWorkflowDiscovery(unittest.TestCase):
         # separator exists if legacy workflows present
         self.assertIn("__separator__", [item["value"] for item in data])
 
+    def _workflow_items(self, configured_default: str) -> list:
+        """GET /api/workflows with a fixed SystemConfig.default_workflow."""
+        from fastapi.testclient import TestClient
+        from src.webapp import app as appmod
+
+        client = TestClient(appmod.app)
+        with mock.patch("src.webapp.routers.workflows._discover_workflows", return_value=({
+            "alima_v51": "5.1",
+            "alima_v51_105": "5.1",
+        }, {"old": "4.0"}, {"alima_v51": [], "alima_v51_105": [], "old": []})), \
+             mock.patch(
+                 "src.webapp.routers.workflows._get_configured_default_workflow",
+                 return_value=configured_default,
+             ):
+            resp = client.get("/api/workflows")
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_star_marks_the_configured_default_not_a_fixed_stem(self):
+        """UB Freiberg runs alima_v51_105 — the ⭐ has to follow the setting."""
+        data = self._workflow_items("alima_v51_105")
+        starred = [item["value"] for item in data if item["label"].startswith("⭐")]
+        self.assertEqual(starred, ["alima_v51_105"])
+        flagged = [item["value"] for item in data if item.get("default")]
+        self.assertEqual(flagged, ["alima_v51_105"])
+
+    def test_star_and_default_flag_agree_for_the_classic_pipeline(self):
+        data = self._workflow_items("__classic__")
+        starred = [item["value"] for item in data if item["label"].startswith("⭐")]
+        self.assertEqual(starred, ["__classic__"])
+        flagged = [item["value"] for item in data if item.get("default")]
+        self.assertEqual(flagged, ["__classic__"])
+
+    def test_a_legacy_default_is_marked_too(self):
+        data = self._workflow_items("old")
+        flagged = [item["value"] for item in data if item.get("default")]
+        self.assertEqual(flagged, ["old"])
+
 
 class TestAgenticAnalyzeParameter(unittest.TestCase):
     """Unit tests for POST /api/analyze/{id} workflow parameter wiring."""

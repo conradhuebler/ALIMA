@@ -128,14 +128,20 @@ async def get_available_workflows() -> list:
 
         def _label(stem: str) -> str:
             ver = root.get(stem)
+            if stem == "alima_v51":
+                return f"ALIMA v5.1 — agentisch (v{ver})" if ver else "ALIMA v5.1 — agentisch"
             return f"{stem} (v{ver})" if ver else stem
+
+        def _starred(stem: str, label: str) -> str:
+            """⭐ marks the configured default, not a fixed stem. - Claude Generated"""
+            return f"⭐ {label}" if stem == configured_default else label
 
         items = []
         added: set = set()
 
         if "alima_v51" in root:
             items.append({
-                "label": f"⭐ ALIMA v5.1 — agentisch (v{root['alima_v51']})",
+                "label": _starred("alima_v51", _label("alima_v51")),
                 "value": "alima_v51",
                 "agentic": True,
                 "steps": steps_by_stem.get("alima_v51", []),
@@ -144,7 +150,7 @@ async def get_available_workflows() -> list:
             added.add("alima_v51")
 
         items.append({
-            "label": "Klassische Pipeline (nicht agentisch)",
+            "label": _starred("__classic__", "Klassische Pipeline (nicht agentisch)"),
             "value": "__classic__",
             "agentic": False,
             "steps": _CLASSIC_STEPS,
@@ -156,7 +162,7 @@ async def get_available_workflows() -> list:
             if stem in added or stem not in root:
                 continue
             items.append({
-                "label": _label(stem),
+                "label": _starred(stem, _label(stem)),
                 "value": stem,
                 "agentic": True,
                 "steps": steps_by_stem.get(stem, []),
@@ -168,7 +174,7 @@ async def get_available_workflows() -> list:
             if stem in added:
                 continue
             items.append({
-                "label": _label(stem),
+                "label": _starred(stem, _label(stem)),
                 "value": stem,
                 "agentic": True,
                 "steps": steps_by_stem.get(stem, []),
@@ -181,10 +187,11 @@ async def get_available_workflows() -> list:
                           "agentic": False, "steps": []})
             for stem in sorted(legacy):
                 items.append({
-                    "label": f"{stem} (legacy v{legacy[stem]})",
+                    "label": _starred(stem, f"{stem} (legacy v{legacy[stem]})"),
                     "value": stem,
                     "agentic": True,
                     "steps": steps_by_stem.get(stem, []),
+                    "default": configured_default == stem,
                 })
 
         return items

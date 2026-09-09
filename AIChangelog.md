@@ -6,6 +6,36 @@
 
 ## 2026
 
+### Standard-Workflow aus dem Pipeline-Tab setzbar (September 9, 2026)
+
+`SystemConfig.default_workflow` bestimmt, welcher Workflow beim Start
+vorausgewählt ist — im Pipeline-Tab, in der Webapp und bei `alima pipeline` ohne
+`--workflow`. Gesetzt werden konnte er nur über Einstellungen ▸ System ▸
+Standard-Workflow, also nicht dort, wo man den Workflow ohnehin auswählt. Neu:
+eine ⭐-Schaltfläche neben dem Picker (`PipelineTab.workflow_default_button` →
+`set_current_workflow_as_default`). Sie ist aus, solange die Auswahl schon der
+Standard ist, und nennt im Tooltip den Geltungsbereich.
+
+Dazu ein Anzeigefehler: der ⭐ im Picker klebte fest auf `alima_v51`
+(`_pipeline_tab_control.py`) und in `/api/workflows` ebenso. Wer wie die UB
+Freiberg `alima_v51_105` eingestellt hat, sah den Stern am falschen Eintrag —
+die Webapp wählte über das `default`-Flag korrekt vor, beschriftete aber
+`alima_v51`. Jetzt folgt der Stern in beiden Frontends der Einstellung, und der
+konfigurierte Standard steht im GUI-Picker an erster Stelle. Legacy-Workflows
+tragen im Webapp-Listing nun ebenfalls das `default`-Flag, sind also
+vorwählbar. Der ⭐ am Klassik-Eintrag des Einstellungsdialogs ist weg: dort
+*ist* die Combo die Einstellung, ein Stern auf einem festen Eintrag behauptet
+das Gegenteil.
+
+19 Tests (16 GUI-Mixin auf einem Stand-in mit echten Qt-Widgets und einem
+temporären `workflows/`, 3 Webapp-Endpunkt). Mutationsproben: Stern-Logik
+entfernt → 3 rot, Standard nicht mehr zuerst → 2 rot, Button-Deaktivierung
+entfernt → 1 rot, Rückgabewert von `save_config` ignoriert → 1 rot.
+Headless gegengeprüft am echten `PipelineTab` mit umgebogener Config-Datei:
+Auswahl `alima_v51_105` → Klick → `config.json` trägt
+`default_workflow: alima_v51_105`, der Stern steht danach am 105er, der Eintrag
+an erster Stelle. Suite 2142.
+
 ### Zusatzregeln im Menü (September 8, 2026)
 
 Der Regeldialog war nur über zwei Wege erreichbar, die man kennen muss: ein 📌
