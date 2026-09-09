@@ -473,3 +473,82 @@ function alimaFormatStreamBlockHtml(text) {
   return html.join('');
 }
 window.alimaFormatStreamBlockHtml = alimaFormatStreamBlockHtml;
+
+/* Copy button of the result card. One delegated listener, so it also serves
+ * blocks inserted later via innerHTML — in the webapp AND in the GUI, which
+ * loads this same asset into its QWebEngineView page. The async Clipboard API
+ * needs a secure context, which the GUI page is not, so execCommand stays as
+ * the fallback rather than the button silently doing nothing. - Claude Generated
+ */
+function _alimaCopyTarget(btn) {
+  // The attribute names WHAT to copy, as a selector relative to the enclosing
+  // copy scope; empty copies the whole scope. So one handler serves the result
+  // card's header, its rule snippet and anything a later card marks up — the
+  // copy function is not tied to one kind of content. - Claude Generated
+  var scope = btn.closest('.alima-copy-scope') || btn.closest('.block') || document;
+  var selector = btn.getAttribute('data-alima-copy');
+  return selector ? scope.querySelector(selector) : scope;
+}
+window._alimaCopyTarget = _alimaCopyTarget;
+
+function _alimaCopyableText(node) {
+  // Folded <details> are part of the result, so copy their content too — the
+  // reader closed them for reading, not to drop them. Copy buttons themselves
+  // must not end up in the text. - Claude Generated
+  var clone = node.cloneNode(true);
+  clone.querySelectorAll('[data-alima-copy]').forEach(function (b) { b.remove(); });
+  clone.querySelectorAll('details').forEach(function (d) { d.setAttribute('open', ''); });
+  var text = clone.innerText !== undefined ? clone.innerText : clone.textContent;
+  // Line ends trimmed too: a copied catalogue line should not carry the card's
+  // layout whitespace into WinIBW. - Claude Generated
+  return (text || '')
+    .split('\n')
+    .map(function (line) { return line.replace(/\s+$/, ''); })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+window._alimaCopyableText = _alimaCopyableText;
+
+function _alimaCopyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) { /* fall through to the textarea path */ }
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Guarded: this asset is also loaded outside a browser (the formatter
+// contract test evaluates it in Node), where `document` does not exist.
+if (typeof document !== 'undefined') {
+document.addEventListener('click', function (ev) {
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-alima-copy]') : null;
+  if (!btn) return;
+  var target = _alimaCopyTarget(btn);
+  if (!target) return;
+  var done = _alimaCopyText(_alimaCopyableText(target));
+  var previous = btn.textContent;
+  btn.textContent = done ? 'Kopiert' : 'Bitte markieren';
+  if (done) { btn.setAttribute('data-alima-copied', '1'); }
+  setTimeout(function () {
+    btn.textContent = previous;
+    btn.removeAttribute('data-alima-copied');
+  }, 1800);
+});
+}

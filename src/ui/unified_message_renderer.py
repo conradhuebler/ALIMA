@@ -876,7 +876,17 @@ class UnifiedMessageRenderer:
         try:
             from markdown_it import MarkdownIt
 
-            md_html = MarkdownIt("commonmark", {"breaks": True}).enable("table").render(markdown_text)
+            # ``html: False`` — the commonmark preset lets raw HTML through, and
+            # this block carries library data, not markup. A GND heading with an
+            # RSWK qualifier ("Toleranz <Biologie>") was parsed as an unknown
+            # tag and vanished from the rendered block, so the WinIBW entry a
+            # cataloguer copies named a DIFFERENT authority record. Observed in
+            # the run of 9 Sept 2026. - Claude Generated
+            md_html = (
+                MarkdownIt("commonmark", {"breaks": True, "html": False})
+                .enable("table")
+                .render(markdown_text)
+            )
             html = f'<div class="md-body">{md_html}</div>'
         except Exception:
             html = (

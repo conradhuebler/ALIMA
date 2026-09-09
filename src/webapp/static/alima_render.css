@@ -246,3 +246,47 @@
 #log .stream-record-detail + .stream-record-detail { border-top: 1px dashed var(--alima-border-soft); margin-top: 4px; padding-top: 6px; }
 #log .stream-record-detail__label { font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--alima-accent); }
 #log .stream-record-detail__value { color: var(--alima-body); word-break: break-word; }
+
+/* Result card (WP: Kernergebnisse). Closes a run with one block instead of
+   five log lines: core headings, keywords, chains, notations, shelf place and
+   the catalogue snippet a personal rule produced. - Claude Generated */
+#log .alima-result {
+  border: 1px solid var(--alima-border); border-left: 3px solid var(--alima-green);
+  border-radius: 6px; background: var(--alima-surface); margin: 6px 0; overflow: hidden;
+}
+#log .alima-result__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 10px; background: var(--alima-surface-deep); color: var(--alima-green);
+  font-weight: 600; letter-spacing: 0.02em; border-bottom: 1px solid var(--alima-border-soft);
+}
+#log .alima-result__row {
+  display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px;
+  padding: 6px 10px; border-bottom: 1px dashed var(--alima-border-soft);
+}
+#log .alima-result__row:last-child { border-bottom: none; }
+#log .alima-result__label {
+  font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--alima-accent);
+}
+#log .alima-result__value { color: var(--alima-body); word-break: break-word; }
+#log .alima-result__muted { color: var(--alima-muted); font-size: 9pt; }
+#log .alima-result__chains { margin: 0; padding-left: 18px; }
+#log .alima-result__chains li { margin-bottom: 2px; }
+#log .alima-result__more > summary { cursor: pointer; color: var(--alima-accent); font-size: 9pt; }
+#log .alima-result__snippet { border-top: 1px solid var(--alima-border-soft); }
+#log .alima-result__snippet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; background: var(--alima-surface-deep);
+  font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--alima-accent);
+}
+#log .alima-result__pre {
+  margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9pt; color: var(--alima-body); background: var(--alima-surface);
+}
+#log .alima-copy {
+  border: 1px solid var(--alima-border); border-radius: 4px; cursor: pointer;
+  background: var(--alima-surface); color: var(--alima-body);
+  font: inherit; font-size: 8.5pt; padding: 2px 8px;
+}
+#log .alima-copy:hover { border-color: var(--alima-accent); color: var(--alima-accent); }
+#log .alima-copy[data-alima-copied] { color: var(--alima-green); border-color: var(--alima-green); }

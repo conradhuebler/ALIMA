@@ -404,6 +404,30 @@ class TestMarkdownBlock(RendererTestBase):
         self.renderer.render_markdown_block("")
         self.assertEqual(len(self.renderer.history), 0)
 
+    def test_an_rswk_qualifier_survives_the_markdown_pass(self):
+        """``Toleranz <Biologie>`` must not be parsed as an HTML tag.
+
+        The commonmark preset enables raw HTML, so the qualifier was dropped
+        from the rendered block and the WinIBW entry a cataloguer copies named
+        a different authority record. Observed in the run of 9 Sept 2026.
+        """
+        self.renderer.render_markdown_block("5553 Toleranz <Biologie>")
+        html = self.view.to_html()
+        self.assertIn("Biologie", html)
+        self.assertNotIn("<Biologie>", html)
+
+    def test_raw_html_in_the_block_is_not_executed(self):
+        self.renderer.render_markdown_block("Stand <b>fett</b> und <script>x</script>")
+        html = self.view.to_html()
+        self.assertNotIn("<script>", html)
+        self.assertIn("fett", html)
+
+    def test_the_plain_text_in_history_keeps_the_qualifier(self):
+        # The export path must carry the heading verbatim either way.
+        md = "5553 Toleranz <Biologie>"
+        self.renderer.render_markdown_block(md, kind="rule_output")
+        self.assertEqual(self.renderer.history[0].content, md)
+
     def test_history_records_kind_and_plain_text(self):
         md = "**Zusammenfassung:** 1 neu"
         self.renderer.render_markdown_block(md, kind="workflow_report")

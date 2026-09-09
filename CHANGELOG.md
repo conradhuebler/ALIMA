@@ -91,6 +91,9 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 ### Unified Render Layer (GUI ↔ Webapp)
 
+- A run now closes with one result card instead of several log lines that scrolled apart: working title, RSWK core, GND headings, keyword chains, the core notation, the shelf place with its reason, and the catalogue snippet a personal rule produced. Copying is generic: one button copies the whole result, another just the catalogue snippet, and folded sections travel with it. The detailed cards follow below it.
+- Fixed: the Markdown block passed raw HTML through, so a GND heading with an RSWK qualifier (`Toleranz <Biologie>`) lost its qualifier in the rendered output — the catalogue entry a cataloguer copies then named a different authority record.
+
 - GUI and web app now render the same pipeline log and result cards from a single shared event stream, so a run started in one frontend shows the same collapsible blocks, badges, and summary layout in the other.
 - Collapsible panels (DK/GND results, tool output, source notes) behave consistently across both frontends: native expand/collapse, state preserved while streaming, and consistent dark-theme styling.
 - Browser sessions resume cleanly after a websocket reconnect (no duplicate events, no missed steps), and the log stays in sync when you switch tabs or come back to a running run.

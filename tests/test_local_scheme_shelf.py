@@ -416,6 +416,31 @@ class ShelfReachesTheResult(unittest.TestCase):
             context.extra["shelf_final"] = dict(self.PLACEMENT)
         return context.to_keyword_analysis_state()
 
+    def _rendered(self, state) -> str:
+        from src.utils.pipeline_formatters import render_pipeline_result
+
+        lines = []
+
+        class Renderer:
+            """Collects everything the renderer emits.
+
+            The result moved from log lines into an HTML card; a fake that
+            only captured ``render_pipeline_log`` would have reported the
+            placement as missing while it was there. - Claude Generated
+            """
+
+            def render_pipeline_log(self, text, kind="info"):
+                lines.append(text)
+
+            def render_html_block(self, html, *, kind=None, plain_text=""):
+                lines.append(html)
+
+            def render_markdown_block(self, markdown_text, *, kind=None):
+                lines.append(markdown_text)
+
+        render_pipeline_result(Renderer(), state)
+        return "\n".join(lines)
+
     def test_the_context_carries_it_into_the_analysis_state(self):
         state = self._state(with_placement=True)
         self.assertEqual(state.shelf["placement"]["notation"], "622.34")
@@ -426,6 +451,28 @@ class ShelfReachesTheResult(unittest.TestCase):
         from src.core.agents.shared_context import SharedContext
 
         self.assertEqual(SharedContext().to_keyword_analysis_state().shelf, {})
+
+    def test_the_shared_renderer_shows_the_placement(self):
+        text = self._rendered(self._state(with_placement=True))
+        self.assertIn("Aufstellung", text)
+        self.assertIn("622.34", text)
+        self.assertIn("Standort OG", text)
+        self.assertIn("Erzgewinnung", text)
+
+    def test_without_a_pick_the_renderer_shows_the_candidates(self):
+        # This is the whole output when shelf_select is disabled.
+        text = self._rendered(self._state(with_placement=False))
+        self.assertIn("Vorschläge", text)
+        self.assertIn("622.3", text)
+
+    def test_the_unplaced_notations_are_named(self):
+        self.assertIn("004.42", self._rendered(self._state(with_placement=True)))
+
+    def test_a_run_without_shelf_renders_nothing_about_it(self):
+        from src.core.agents.shared_context import SharedContext
+
+        text = self._rendered(SharedContext().to_keyword_analysis_state())
+        self.assertNotIn("Aufstellung", text)
 
     def test_the_webapp_payload_carries_it(self):
         from src.webapp.result_serialization import extract_results_from_analysis_state

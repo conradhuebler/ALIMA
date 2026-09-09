@@ -848,6 +848,226 @@ class PipelineResultFormatter:
         return "Niedrig", "\U0001f7e9"
 
     @staticmethod
+    def format_final_result_card_html(analysis_state: Any) -> Tuple[str, str]:
+        """Build the closing result card (HTML, plain_text). - Claude Generated
+
+        One card instead of five log lines that scroll apart: what a cataloguer
+        takes away from the run — the RSWK core, the chains, the notations, the
+        shelf place, and the entry a personal rule produced for the catalogue.
+        The long lists sit in ``<details>`` so the card stays readable.
+
+        The rule output is rendered as ``<pre>``, never through the Markdown
+        pass: it is a field-format snippet, and a GND heading with an RSWK
+        qualifier ("Toleranz <Biologie>") is not markup. Styled by the
+        ``#log``-scoped ``.alima-result`` rules in ``alima_render.css``, so the
+        GUI log and the webapp show the same card. Returns ``("", "")`` when the
+        run produced nothing worth summarising.
+        """
+        if analysis_state is None:
+            return "", ""
+        esc = PipelineResultFormatter._escape_card_html
+
+        def _get(name, default=None):
+            return getattr(analysis_state, name, default) or default
+
+        final_llm = getattr(analysis_state, "final_llm_analysis", None)
+        core = list(_get("core_keywords", []) or [])
+        form = list(_get("form_keywords", []) or [])
+        # Three sources, in order of trustworthiness: the structured field, the
+        # same field on the LLM analysis (agentic), and finally the "→" lines in
+        # the response text. The scrape is what the GUI showed before the
+        # structured field existed; dropping it would lose the chains of every
+        # state that only carries prose. - Claude Generated
+        chains = list(_get("keyword_chains", []) or [])
+        if not chains and final_llm is not None:
+            chains = list(getattr(final_llm, "keyword_chains", []) or [])
+        shelf = dict(_get("shelf", {}) or {})
+        rule_output = str(_get("rule_output", "") or "").strip()
+        entries = list(_get("classification_entries", []) or [])
+        codes = list(_get("dk_classifications", []) or [])
+        keywords = []
+        if final_llm is not None:
+            keywords = list(getattr(final_llm, "extracted_gnd_keywords", []) or [])
+
+        if not chains and final_llm is not None:
+            # States that carry the chains only as prose. The GUI showed these
+            # before the structured field existed; the check below must see
+            # them, or such a run gets no card at all. - Claude Generated
+            response_text = str(getattr(final_llm, "response_full_text", "") or "")
+            if "schlagwortketten" in response_text.lower():
+                chains = [
+                    line.strip()
+                    for line in response_text.split("\n")
+                    if "→" in line or "->" in line
+                ][:10]
+
+        if not any((core, form, chains, shelf, rule_output, entries, codes, keywords)):
+            return "", ""
+
+        rows: List[str] = []
+        text: List[str] = []
+        title = str(_get("working_title", "") or "").strip()
+
+        def _row(label: str, value_html: str, plain: str) -> None:
+            rows.append(
+                f'<div class="alima-result__row">'
+                f'<span class="alima-result__label">{esc(label)}</span>'
+                f'<span class="alima-result__value">{value_html}</span></div>'
+            )
+            text.append(f"{label}: {plain}")
+
+        if core:
+            plain = " · ".join(core)
+            value = " · ".join(f"<strong>{esc(k)}</strong>" for k in core)
+            if form:
+                value += ' <span class="alima-result__muted">Form: ' + esc(", ".join(form)) + "</span>"
+                plain += f" (Form: {', '.join(form)})"
+            _row("Kernschlagworte", value, plain)
+
+        if keywords:
+            preview = ", ".join(keywords[:8])
+            rest = keywords[8:]
+            value = esc(preview)
+            if rest:
+                value += (
+                    f'<details class="alima-result__more">'
+                    f'<summary>… {len(rest)} weitere</summary>{esc(", ".join(rest))}</details>'
+                )
+            # "gesamt" only makes sense against a named core; without one the
+            # list IS the selection. The distinction predates the card and is
+            # kept. - Claude Generated
+            label = "GND-Schlagworte gesamt" if core else "GND-Schlagworte ausgewählt"
+            _row(f"{label} ({len(keywords)})", value, ", ".join(keywords))
+
+        if chains:
+            items = []
+            plain_chains = []
+            for chain in chains:
+                if isinstance(chain, dict):
+                    parts = [str(x) for x in (chain.get("chain") or []) if x]
+                else:
+                    parts = [str(chain)]
+                if not parts:
+                    continue
+                joined = " → ".join(parts)
+                items.append(f"<li>{esc(joined)}</li>")
+                plain_chains.append(joined)
+            if items:
+                _row(
+                    f"Schlagwortketten ({len(items)})",
+                    f'<ol class="alima-result__chains">{"".join(items)}</ol>',
+                    " | ".join(plain_chains),
+                )
+
+        if entries or codes:
+            all_codes = [
+                str(e.get("display") or e.get("code") or "")
+                for e in entries
+                if isinstance(e, dict) and (e.get("display") or e.get("code"))
+            ] or [str(c) for c in codes if c]
+            core_codes = [
+                str(e.get("display") or e.get("code") or "")
+                for e in entries
+                if isinstance(e, dict) and str(e.get("rank") or "") == "core"
+            ]
+            lead = core_codes or all_codes[:1]
+            rest = [c for c in all_codes if c not in lead]
+            value = " · ".join(f"<strong>{esc(c)}</strong>" for c in lead)
+            plain = " · ".join(lead)
+            if rest:
+                # Never a dead end: "+ N weitere" has to open. The DK card below
+                # carries the catalog titles; here it is the bare list.
+                # - Claude Generated
+                value += (
+                    f'<details class="alima-result__more">'
+                    f'<summary>… {len(rest)} weitere</summary>'
+                    f'{esc(" · ".join(rest))}</details>'
+                )
+                plain += " · " + " · ".join(rest)
+            _row("Klassifikation", value, plain)
+
+        placement = (shelf.get("placement") or {}) if shelf else {}
+        if placement.get("notation"):
+            # The vocabulary's label carries a "| darunter: …" tail; the card
+            # shows the heading and keeps the rest in the title attribute.
+            label = str(placement.get("label") or "")
+            head = label.split(" | ")[0]
+            location = placement.get("location") or "?"
+            value = (
+                f'<strong>{esc(str(placement["notation"]))}</strong> '
+                f'<span title="{esc(label)}">{esc(head)}</span> '
+                f'<span class="alima-result__muted">Standort {esc(str(location))}</span>'
+            )
+            plain = f"{placement['notation']} {head} (Standort {location})"
+            # Why this place was picked. A cataloguer checking the placement
+            # needs the reason, not just the notation. - Claude Generated
+            reason = str(placement.get("selected_reason") or "").strip()
+            if reason:
+                value += f'<div class="alima-result__muted">{esc(reason)}</div>'
+                plain += f" — {reason}"
+            _row("Aufstellung", value, plain)
+        elif shelf.get("candidates"):
+            cands = list(shelf["candidates"])
+            first = cands[0]
+
+            def _cand(item) -> str:
+                return (
+                    f'{item.get("notation", "")} — {item.get("label", "")} '
+                    f'(Standort {item.get("location") or "?"})'
+                )
+
+            value = (
+                f'<strong>{esc(str(first.get("notation", "")))}</strong> '
+                f'{esc(str(first.get("label", "")).split(" | ")[0])} '
+                f'<span class="alima-result__muted">Standort '
+                f'{esc(str(first.get("location") or "?"))} · keine Auswahl</span>'
+            )
+            plain = "Vorschläge: " + " | ".join(_cand(c) for c in cands)
+            if len(cands) > 1:
+                items = "".join(f"<li>{esc(_cand(c))}</li>" for c in cands[1:])
+                value += (
+                    f'<details class="alima-result__more">'
+                    f'<summary>… {len(cands) - 1} weitere Vorschläge</summary>'
+                    f'<ol class="alima-result__chains">{items}</ol></details>'
+                )
+            _row("Aufstellung", value, plain)
+
+        unplaced = list(shelf.get("unplaced") or []) if shelf else []
+        if unplaced:
+            plain = ", ".join(str(u) for u in unplaced)
+            _row(
+                "Ohne eigene Stelle",
+                f'<span class="alima-result__muted">{esc(plain)}</span>',
+                plain,
+            )
+
+        body = "".join(rows)
+        if rule_output:
+            body += (
+                '<div class="alima-result__snippet">'
+                '<div class="alima-result__snippet-head">'
+                '<span>Aus einer Zusatzregel</span>'
+                '<button type="button" class="alima-copy" '
+                'data-alima-copy=".alima-result__pre">Kopieren</button>'
+                "</div>"
+                f'<pre class="alima-result__pre">{esc(rule_output)}</pre></div>'
+            )
+            text.append("")
+            text.append(rule_output)
+
+        header = "Ergebnis" + (f" · {esc(title)}" if title else "")
+        html = (
+            f'<div class="alima-result alima-copy-scope">'
+            f'<div class="alima-result__head">'
+            f'<span>{header}</span>'
+            f'<button type="button" class="alima-copy" data-alima-copy '
+            f'title="Das ganze Ergebnis als Text kopieren">Alles kopieren</button>'
+            f"</div>{body}</div>"
+        )
+        plain_header = "Ergebnis" + (f" · {title}" if title else "")
+        return html, "\n".join([plain_header, *text])
+
+    @staticmethod
     def format_dk_auswertung_card_html(analysis_state: Any) -> Tuple[str, str]:
         """Build the DK/RVK frequency-Auswertung + RVK-provenance card. - Claude Generated
 
@@ -1091,38 +1311,17 @@ def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str]
         f"\U0001f389 Pipeline vollständig abgeschlossen{duration_suffix}!", "success"
     )
 
-    # The RSWK core first, then the full list. The core is what goes into a
-    # catalogue record; the full list serves retrieval. Runs whose model did not
-    # name a core show the full list alone, as before. - Claude Generated
-    core_kws = list(getattr(analysis_state, "core_keywords", []) or []) if analysis_state else []
-    form_kws = list(getattr(analysis_state, "form_keywords", []) or []) if analysis_state else []
-    if core_kws:
-        core_line = f"\U0001f3af Kernschlagworte ({len(core_kws)}):\n" + ", ".join(core_kws)
-        if form_kws:
-            core_line += "\nForm: " + ", ".join(form_kws)
-        renderer.render_pipeline_log(core_line, "success")
-
-    if analysis_state and getattr(analysis_state, "final_llm_analysis", None):
-        kw_list = analysis_state.final_llm_analysis.extracted_gnd_keywords or []
-        if kw_list:
-            kw_display = ", ".join(kw_list)
-            label = (
-                "GND-Schlagworte gesamt" if core_kws else "GND-Schlagworte ausgewählt"
-            )
-            renderer.render_pipeline_log(
-                f"\U0001f4cc {len(kw_list)} {label}:\n{kw_display}",
-                "success",
-            )
-        response_text = analysis_state.final_llm_analysis.response_full_text or ""
-        if "schlagwortketten" in response_text.lower():
-            chain_lines = [
-                line for line in response_text.split("\n") if "→" in line or "->" in line
-            ]
-            if chain_lines:
-                renderer.render_pipeline_log(
-                    "\U0001f517 Schlagwortketten:\n" + "\n".join(chain_lines[:10]),
-                    "success",
-                )
+    # One result card instead of five log lines that scroll apart: core,
+    # keywords, chains, notations, shelf place and the catalogue snippet a
+    # personal rule produced. The detailed cards (DK, Auswertung, report)
+    # follow below as the backing detail. - Claude Generated
+    card_html, card_plain = (
+        PipelineResultFormatter.format_final_result_card_html(analysis_state)
+    )
+    if card_html:
+        renderer.render_html_block(
+            card_html, kind="final_result", plain_text=card_plain
+        )
 
     if analysis_state and getattr(analysis_state, "dk_classifications", None):
         card_html, dk_codes_text = (
@@ -1159,13 +1358,6 @@ def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str]
                 + "\n".join(lines),
                 "info",
             )
-
-    # Output a personal rule asked for at the end of the run, produced by the
-    # reflection gate. - Claude Generated
-    rule_output = str(getattr(analysis_state, "rule_output", "") or "") if analysis_state else ""
-    if rule_output:
-        renderer.render_pipeline_log("\U0001f4dd Aus einer Zusatzregel:", "success")
-        renderer.render_markdown_block(rule_output, kind="rule_output")
 
     report_markdown = getattr(analysis_state, "report_markdown", "") if analysis_state else ""
     if report_markdown:

@@ -6,6 +6,56 @@
 
 ## 2026
 
+### Abschlusskarte statt verstreuter Logzeilen (September 9, 2026)
+
+Am Ende eines Laufs standen fünf Zeilen (Kern, Schlagworte, Ketten,
+Aufstellung) plus ein Markdown-Block mit der Regelausgabe, verteilt über ein
+Protokoll, in dem dazwischen zehn Zusatzregeln ausgeschrieben stehen. Das
+Stück, das jemand tatsächlich braucht, stand ganz unten und scrollte weg. Neu
+eine Karte (`format_final_result_card_html`, `kind="final_result"`):
+Arbeitstitel, Kernschlagworte, GND-Schlagworte (ab neun gefaltet),
+Schlagwortketten, Kernnotation plus Zahl der weiteren, Aufstellung mit Standort
+und Begründung, und die Regelausgabe als `<pre>` mit Kopierknopf. Die
+Detailkarten (DK, Auswertung, Regelliste, Workflow-Report) folgen unverändert
+darunter; die Regelliste bleibt ausgeschrieben, sie erklärt das Ergebnis.
+
+**Ein Fehler, der die Ausgabe verfälscht hat.** `render_markdown_block` nutzte
+das commonmark-Preset, und das lässt rohes HTML durch. Das Schlagwort
+`Toleranz <Biologie>` wurde als unbekanntes Tag geparst und verschwand aus dem
+gerenderten Block — der WinIBW-Eintrag, den man kopiert, benannte damit einen
+**anderen** GND-Satz. Behoben (`html: False`; Tabellen bleiben), zusätzlich
+liegt die Regelausgabe in der Karte jetzt in `<pre>` und kommt an keinem
+Markdown-Parser mehr vorbei. Gefunden im Lauf vom 9. September, nicht durch
+einen Test.
+
+**Was beim Umbau fast verloren ging** und deshalb jetzt gepinnt ist: der
+Prosa-Rückfall für Ketten (Zustände, die sie nur als Text tragen, hätten ohne
+ihn gar keine Karte bekommen), die Unterscheidung „GND-Schlagworte gesamt" vs.
+„ausgewählt" (sie hängt daran, ob ein Kern benannt wurde), die Begründung der
+Stellenwahl und die Zeile „Ohne eigene Stelle". Die vorhandenen Render-Tests
+haben zwei davon gefangen, weil sie am Wortlaut hängen; die übrigen fielen beim
+Abgleich Zeile für Zeile gegen den alten Ablauf auf.
+
+Kopieren läuft über einen delegierten Handler in `alima_render.js` — dasselbe
+Asset lädt die GUI in ihre QWebEngine-Seite, deshalb greift er in beiden
+Flächen; `navigator.clipboard` braucht einen sicheren Kontext, den die
+GUI-Seite nicht hat, daher `execCommand` als Rückfall. CSS in
+`alima_render.css` (`.alima-result`), ebenfalls geteilt.
+
+**Kopieren hängt nicht an der Zusatzregel.** Zuerst saß der Knopf nur am
+Regelblock: ohne passende Regel gab es nichts zu kopieren, obwohl die Karte
+voller Ergebnis ist. Jetzt ist es ein generischer Mechanismus —
+`data-alima-copy` benennt als Selektor, *was* kopiert wird, leer heißt „der
+ganze Bereich" (`.alima-copy-scope`). Die Karte trägt damit einen Knopf
+„Alles kopieren" in der Kopfzeile und der Regelblock behält seinen eigenen.
+Gefaltete `<details>` reisen mit (der Leser hat sie zum Lesen zugeklappt, nicht
+zum Wegwerfen), die Knöpfe selbst nicht, Zeilenenden werden getrimmt.
+**Der Knopf in der GUI ist noch nicht geklickt worden** (Klick-Tests laufen
+beim Benutzen).
+
+15 Kartentests plus die angepassten Render-Tests, 6 Mutationsproben (jede rot).
+Suite 2219.
+
 ### Aufstellungssystematik als Lookup-Plugin (September 9, 2026)
 
 Die Freihandsystematik der UB Freiberg (657 Notationen mit Bezeichnung und

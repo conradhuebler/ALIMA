@@ -164,15 +164,14 @@ class TestCoreKeywordsReachTheResult(unittest.TestCase):
             extracted_gnd_keywords=["Werkstoffkunde (GND-ID: 4079184-1)", "Keramik"],
         )
 
-        logs = []
-        renderer = MagicMock()
-        renderer.render_pipeline_log.side_effect = lambda msg, kind=None: logs.append(msg)
-        render_pipeline_result(renderer, state)
+        # The result is one card now; the core still has to come first and the
+        # form headings still have to travel with it. - Claude Generated
+        emitted = _collect(render_pipeline_result, state)
 
-        core_idx = next(i for i, m in enumerate(logs) if "Kernschlagworte" in m)
-        full_idx = next(i for i, m in enumerate(logs) if "GND-Schlagworte gesamt" in m)
+        core_idx = emitted.index("Kernschlagworte")
+        full_idx = emitted.index("GND-Schlagworte gesamt")
         self.assertLess(core_idx, full_idx)
-        self.assertIn("Lehrbuch", logs[core_idx])
+        self.assertIn("Lehrbuch", emitted[core_idx:full_idx])
 
     def test_render_without_a_core_keeps_the_old_wording(self):
         from src.core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
@@ -192,13 +191,29 @@ class TestCoreKeywordsReachTheResult(unittest.TestCase):
             response_full_text="",
             extracted_gnd_keywords=["Keramik"],
         )
-        logs = []
-        renderer = MagicMock()
-        renderer.render_pipeline_log.side_effect = lambda msg, kind=None: logs.append(msg)
-        render_pipeline_result(renderer, state)
+        emitted = _collect(render_pipeline_result, state)
 
-        self.assertFalse(any("Kernschlagworte" in m for m in logs))
-        self.assertTrue(any("GND-Schlagworte ausgewählt" in m for m in logs))
+        self.assertNotIn("Kernschlagworte", emitted)
+        self.assertIn("GND-Schlagworte ausgewählt", emitted)
+
+
+def _collect(render, state) -> str:
+    """Everything ``render_pipeline_result`` emits, as one string.
+
+    Log lines AND cards: the result moved into an HTML block, and a fake that
+    watches only the log would report it as missing. - Claude Generated
+    """
+    parts: list = []
+    renderer = MagicMock()
+    renderer.render_pipeline_log.side_effect = lambda msg, kind=None: parts.append(msg)
+    renderer.render_html_block.side_effect = (
+        lambda html, kind=None, plain_text="": parts.append(html)
+    )
+    renderer.render_markdown_block.side_effect = (
+        lambda md, kind=None: parts.append(md)
+    )
+    render(renderer, state)
+    return "\n".join(parts)
 
 
 class TestPromptRules(unittest.TestCase):

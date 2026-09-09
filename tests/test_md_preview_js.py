@@ -43,6 +43,52 @@ if (touched) { console.error('FAIL _ensureLinksNewTab ignored same-window flag')
 delete window.__alimaSameWindowLinks;
 _ensureLinksNewTab({ querySelectorAll: () => { touched = true; return []; } });
 if (!touched) { console.error('FAIL _ensureLinksNewTab inactive without flag'); fails++; }
+// Copy helpers (result card). The attribute names what to copy; folded
+// <details> travel with it, the buttons themselves do not.
+// The fake behaves like the DOM does: text inside a CLOSED <details> is not
+// part of innerText, and a removed button contributes nothing. So the
+// assertions below actually depend on the clone being manipulated.
+function fakeNode(opts) {
+  return {
+    cloneNode: function () {
+      return {
+        buttons: opts.buttons || 0,
+        detailsOpen: false,
+        querySelectorAll: function (sel) {
+          const holder = this;
+          if (sel.indexOf('details') >= 0) {
+            return opts.folded
+              ? [{ setAttribute: () => { holder.detailsOpen = true; } }]
+              : [];
+          }
+          return Array.from({ length: holder.buttons }, () => ({
+            remove: () => { holder.buttons--; },
+          }));
+        },
+        get innerText() {
+          let out = '  ' + (opts.text || '') + '  ';
+          if (opts.folded && this.detailsOpen) { out += '\n\n\n\n' + opts.folded; }
+          if (this.buttons > 0) { out += '\nKopieren'; }
+          return out;
+        },
+      };
+    },
+  };
+}
+const copied = _alimaCopyableText(fakeNode({ text: 'a', buttons: 2, folded: 'b' }));
+if (copied !== 'a\n\nb') { console.error('FAIL copyable text', JSON.stringify(copied)); fails++; }
+const noFold = _alimaCopyableText(fakeNode({ text: 'a', buttons: 1 }));
+if (noFold !== 'a') { console.error('FAIL button stripping', JSON.stringify(noFold)); fails++; }
+
+const scope = {
+  querySelector: (sel) => ({ sel: sel }),
+  _isScope: true,
+};
+const btnWhole = { closest: (s) => (s === '.alima-copy-scope' ? scope : null), getAttribute: () => null };
+if (_alimaCopyTarget(btnWhole) !== scope) { console.error('FAIL whole-scope copy'); fails++; }
+const btnPart = { closest: (s) => (s === '.alima-copy-scope' ? scope : null), getAttribute: () => '.x' };
+if (_alimaCopyTarget(btnPart).sel !== '.x') { console.error('FAIL selector copy'); fails++; }
+
 process.exit(fails ? 1 : 0);
 """
 
