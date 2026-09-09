@@ -216,6 +216,8 @@ Groups child steps. Rarely used. See `composite_step.py`.
 | `gnd_entry_lookup` | `gnd_id: str`, `config: {fallback_to_lobid}` | `entry`, `source` |
 | `extract_gnd_related` | `gnd_id: str` | `related` |
 | `gnd_batch_metadata` | `gnd_ids: List[str]`, `config: {fallback_to_lobid}` | `entries`, `missing`, `tool_calls` |
+| `shelf_candidates` | `notations`, `keywords`, `config: {lookup, max_results, core_only}` | `candidates`, `unplaced`, `prompt_text`, `scheme` |
+| `filter_unauthorized_shelf` | (reads context), `config: {candidates_key, selection_key}` | `shelf`, `dropped`, `checked` |
 
 Source: `src/core/agents/deterministic_functions.py`.
 

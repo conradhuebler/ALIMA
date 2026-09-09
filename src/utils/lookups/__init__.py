@@ -18,6 +18,7 @@ from . import rvk  # noqa: F401 — registers the rvk_api lookup
 from . import k10plus  # noqa: F401 — registers the k10plus lookup
 from . import dnb  # noqa: F401 — registers the dnb lookup
 from . import webindex  # noqa: F401 — registers the webindex lookup (website RAG)
+from . import local_scheme  # noqa: F401 — registers the local_scheme lookup (Aufstellungssystematik)
 from .resolve import build_lookup, resolve_lookup_instance  # noqa: F401
 
 __all__ = [

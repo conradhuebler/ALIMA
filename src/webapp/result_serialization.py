@@ -350,6 +350,10 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
             getattr(analysis_state, "dk_search_results_flattened", [])
         ),
         "dk_statistics": ensure_json_serializable(getattr(analysis_state, "dk_statistics", None)),
+        # Shelf placement in the library's own Aufstellungssystematik — beside
+        # the classifications, never among them. Empty {} for workflows without
+        # the shelf steps. - Claude Generated
+        "shelf": ensure_json_serializable(getattr(analysis_state, "shelf", {}) or {}),
         "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
         "final_llm_call_details": ensure_json_serializable(final_llm_details),
         "dk_llm_analysis_details": ensure_json_serializable(dk_llm_details),

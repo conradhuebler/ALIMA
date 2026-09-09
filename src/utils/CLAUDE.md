@@ -27,6 +27,11 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 - `pipeline_persistence.py`: `PipelineJsonManager`, `export_analysis_state_to_file`, `AnalysisPersistence`.
 - `chunking.py`: `split_into_equal_chunks` (shared with agentic `llm_agent_step`).
 
+### Lookups (`lookups/`)
+- `LOOKUP_REGISTRY` + `@register_lookup`; a lookup answers an authority question and is exposed purely as an agent tool (`mcp_tool_specs`). One construction path per source via `build_lookup` (honours the operator's disable switch — **callers must guard against `None`**).
+- Types: `rvk_api`, `k10plus`, `dnb`, `webindex`, `local_scheme`.
+- `local_scheme` (Sept 9): an institution's own Aufstellungssystematik as a vocabulary file (`vocabularies/<id>.yaml`), matched by notation proximity (decimal-hierarchy containment, ranges, nearest neighbours) plus optional label hits. Proposes shelf places, never decides. Measured hit rate against 407 real UB Freiberg call numbers: 66.6 % top-1 / 76.9 % top-5 from the core notation; using every assigned notation instead costs 25 points. Consumed by the `shelf_*` steps of `alima_v51_105`.
+
 ### Configuration
 - Location: `~/.config/alima/config.json` (unified JSON; legacy migration complete).
 - Sections (dataclasses): `AlimaConfig`, `DatabaseConfig`, `PromptConfig`, `SystemConfig`, `UIConfig`, `UnifiedProviderConfig`.

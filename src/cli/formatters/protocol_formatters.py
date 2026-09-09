@@ -316,6 +316,37 @@ def format_step_dk_classification(state: KeywordAnalysisState):
             label = classification.get('label', '')
             print(f"  * {code}" + (f" - {label}" if label else ""))
 
+    _print_shelf(state)
+
+
+def _print_shelf(state: KeywordAnalysisState):
+    """Print the local shelf placement, if the workflow produced one.
+
+    A house shelf mark is not a classification; it is printed after the DK
+    block, not inside it. - Claude Generated
+    """
+    shelf = getattr(state, "shelf", None) or {}
+    if not shelf:
+        return
+    scheme = shelf.get("scheme") or {}
+    name = scheme.get("label") or scheme.get("id") or "lokale Systematik"
+    placement = shelf.get("placement") or {}
+    print(f"\nAufstellung ({name}):")
+    if placement.get("notation"):
+        location = placement.get("location") or "?"
+        print(f"  * {placement['notation']} - {placement.get('label', '')} "
+              f"[Standort {location}]")
+        reason = str(placement.get("selected_reason") or "").strip()
+        if reason:
+            print(f"    {reason}")
+    else:
+        for item in (shelf.get("candidates") or [])[:5]:
+            print(f"  ? {item.get('notation')} - {item.get('label', '')} "
+                  f"[Standort {item.get('location') or '?'}] ({item.get('reason', '')})")
+    unplaced = shelf.get("unplaced") or []
+    if unplaced:
+        print("  ohne eigene Stelle: " + ", ".join(str(u) for u in unplaced))
+
 
 def display_protocol_compact(json_file: str, steps: List[str]):
     """Display pipeline results in compact CSV format.

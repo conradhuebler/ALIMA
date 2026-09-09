@@ -6,6 +6,74 @@
 
 ## 2026
 
+### Aufstellungssystematik als Lookup-Plugin (September 9, 2026)
+
+Die Freihandsystematik der UB Freiberg (657 Notationen mit Bezeichnung und
+Standort) hängt jetzt am Ende des 105er-Workflows. Sie ist **keine eigene
+Klassifikation**, sondern eine kontrollierte DK-Teilmenge plus Standort; die
+Notationen sind DK/UDC, inklusive Bereichen (`122/129`), offenen Stellen
+(`32...`), Anhängezahlen (`069(036)`) und Relationen (`622:943.21`). Ein
+fünfter Eintrag in `KNOWN_SYSTEMS` wäre falsch gewesen: `classification_systems`
+lässt lokale Systematiken bewusst fallen. Die Stelle steht deshalb in einem
+eigenen Feld neben den Sachnotationen, nicht unter ihnen.
+
+**Aufbau.** Generisches Lookup-Plugin `local_scheme` (`src/utils/lookups/`),
+Vokabular als Datei (`vocabularies/freihand_fg.yaml`) mit eigener Herkunft
+(`source`, `retrieved`). Ein Haus, eine Datei; der Code ist institutionsfrei.
+Drei Steps nur im 105er: `shelf_candidates` (deterministisch, immer),
+`shelf_select` (LLM-Auswahl, `enabled: false` schaltet sie ab und lässt es bei
+der Kandidatenliste), `shelf_guard` (verwirft, was nicht aus der Liste stammt —
+Zwilling von `filter_unauthorized_rvk`, nur mit stärkerer Autorität, weil die
+Kandidaten deterministisch entstanden sind).
+
+**Gemessen, nicht angenommen.** Die Frage war, ob das Verkürzen einer Notation
+wieder auf den echten Standort führt. An 407 Freiberger Freihandtiteln, die
+sowohl eine Signatur als auch DK-Notationen tragen (finc-Index,
+`building:"(DE-105)HB"`, 26 Präfixabfragen `udk_raw_de105:dk\ <p>*`, limit 100,
+Dedup über die Record-Id; Signatur = der `callNumbers`-Eintrag der Form
+`<Notation> <Cutter>`, Magazinsignaturen `NN.NNNN` verworfen; Vergleich über
+`digits_of` + Anhängezahl, damit `54...` und `54....` dieselbe Stelle sind):
+
+| Signal | top-1 | top-3 | top-5 |
+|---|---|---|---|
+| nur Kernnotation | **66,6 %** | 75,2 % | 76,9 % |
+| Kernnotation + Schlagworte | 65,1 % | 75,4 % | **78,4 %** |
+| alle vergebenen Notationen | 41,3 % | 60,0 % | 67,8 % |
+| nur Schlagworte | 11,8 % | 20,9 % | 25,3 % |
+
+Zwei Entwurfsentscheidungen hängen daran und sind entsprechend gesetzt:
+`core_only: true` (alle Notationen zu nehmen kostet 25 Punkte) und das
+Label-Signal ist einen Punkt Recall wert, nicht mehr — es bleibt an, aber
+abschaltbar (`use_labels`). Das verbleibende Viertel ist aus der Notation nicht
+erreichbar (Relationsstellen wie `55:93/99`, thematische Sprünge). Deshalb
+schlägt der Schritt vor und entscheidet nie.
+
+**Drei Fehler, die die Messung aufgedeckt hat.** (1) `551(98/99)` „Arktis,
+Antarktis" wurde als Bereich 551.98–99 gelesen und fing fremde Codes ein — ein
+Schrägstrich in der Anhängezahl ist kein Bereich (6 Einträge betroffen).
+(2) Ein Code *oberhalb* eines Bereichs fand ihn nicht (DK `2` → Stelle
+`21/29`). (3) Der Abzug für „(Allgemeines)"-Stellen war wirkungslos, wo die
+Spezifität schon trennt, und schädlich, wo er eine spezifischere Auffangstelle
+unter eine gröbere Oberstelle drückte; ersatzlos gestrichen. Dazu ein
+Bequemlichkeitsfehler: `shelf_select` startete mit `max_tokens: 4096`, was
+`tests/test_token_budget_override` zu Recht abgefangen hat.
+
+**Ausgabe.** Der Standort landete zunächst nur in `extra.shelf_final` und war
+damit ein Ergebnis, das der Lauf erzeugt und niemand sieht. Jetzt trägt ihn
+`KeywordAnalysisState.shelf` (`{placement, candidates, unplaced, scheme}`, leer
+für jeden Workflow ohne die Steps) in die Ergebnisse: Webapp-JSON und
+CLI-Protokoll, und von dort in die Anzeige. Ohne Auswahl reisen die Kandidaten
+mit — genau das, was zählt, wenn `shelf_select` aus ist. Die
+Schemaherkunft (`scheme`) reist mit, damit später erklärbar bleibt, welcher
+Vokabularstand das Ergebnis erzeugt hat.
+
+58 Tests (Notationsarithmetik, beide Signale, Vokabular-Integrität, die drei
+Steps, Workflow-Verdrahtung, Ausgabekette), 17 Mutationsproben; die überlebende Probe war der
+Auffangstellen-Abzug und führte zu seiner Streichung statt zu einem Test um ihn
+herum. Headless-Durchstich über die echten Step-Klassen mit gestubbtem LLM:
+Auswahl übernommen, erfundene Notation verworfen, `null` sauber behandelt.
+Suite 2193.
+
 ### Standard-Workflow aus dem Pipeline-Tab setzbar (September 9, 2026)
 
 `SystemConfig.default_workflow` bestimmt, welcher Workflow beim Start

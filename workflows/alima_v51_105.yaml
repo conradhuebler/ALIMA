@@ -10,6 +10,10 @@ description: |
 
   Steps: extraction → search → selection_chunks → selection
        → dk_collect → classification → dk_postprocess
+       → shelf_candidates → shelf_select → shelf_guard
+
+  Zusätzlich zu alima_v51: die Aufstellung im Freihandbestand (Steps 8a-8c)
+  über das Plugin `local_scheme` mit dem Vokabular `freihand_fg`.
 
   Run via:
     CLI:  alima workflow alima_v51_105 --input '{"abstract": "..."}'
@@ -34,10 +38,11 @@ settings:
 # kept as two separate prompts on purpose so they cross-check each other.
 meta_agent:
   enabled: false
-  # 8 enabled steps run one-per-cycle; with the targeted missing-concept
+  # 12 enabled steps run one-per-cycle; with the targeted missing-concept
   # re-select (+selection_chunks/selection) and a safety buffer, 10 was too
-  # tight and the loop hit max_cycles before finishing. - Claude Generated
-  max_cycles: 16
+  # tight and the loop hit max_cycles before finishing. Raised from 16 with the
+  # three Aufstellungs-Steps. - Claude Generated
+  max_cycles: 20
 
   # The MetaAgent planner + reflection cores are GENERIC (ALIMA-branded) in
   # code. The DOMAIN rules (GND/DK/phase order) live HERE and are appended to
@@ -49,15 +54,19 @@ meta_agent:
     rules: |
       ALIMA-Verschlagwortung — Phasen-Routing:
       - Phasenkette: extraction → search → selection_chunks → selection →
-        dk_collect → classification → rvk_guard → dk_postprocess.
+        dk_collect → classification → rvk_guard → dk_postprocess →
+        shelf_candidates → shelf_select → shelf_guard.
       - Noch keine Keywords extrahiert → 'extraction'.
       - Keywords vorhanden, aber keine GND-Suche gelaufen → 'search'.
       - GND-Einträge vorhanden, aber keine Auswahl → 'selection_chunks' bzw. 'selection'.
       - Auswahl vorhanden, aber keine DK → 'dk_collect' bzw. 'classification'.
       - dk_collect gelaufen UND Katalogdaten stark (>20 Notationen, >30 Titel) → 'classification'.
       - 'classification' gelaufen UND 'DK-Codes (Ist)' nicht leer → nur noch
-        Abschluss-Steps (z.B. 'dk_postprocess'), dann 'finish'. 'classification'
-        NICHT ohne einen konkreten, benannten Mangel wiederholen.
+        Abschluss-Steps ('dk_postprocess', dann die Aufstellung:
+        'shelf_candidates' → 'shelf_select' → 'shelf_guard'), dann 'finish'.
+        'classification' NICHT ohne einen konkreten, benannten Mangel wiederholen.
+      - Die Aufstellungs-Steps sind Abschluss, kein Qualitätstor: sie laufen
+        einmal und werden nie wiederholt.
       - Fehlende Konzepte als 'offen, noch nicht gesucht' markiert → 'search' (erneut, einmalig).
       - Fehlende Konzepte als 'alle bereits gesucht' markiert → NICHT erneut 'search',
         sondern mit 'dk_collect'/'classification' fortfahren.
@@ -78,7 +87,8 @@ meta_agent:
       ALIMA-Verschlagwortung — Phasen & Prüflogik:
       Phasen: initialisation→Keywords | search→GND | selection_chunks→gefiltert |
       selection→Ketten+final_keywords | dk_collect→DK/RVK aus Katalog |
-      classification→finale DK-Zuweisung.
+      classification→finale DK-Zuweisung | shelf_*→Aufstellung im Freihandbestand
+      (deterministische Kandidaten + Auswahl, KEIN Prüftor).
       - Nach initialisation: Keywords sinnvoll, deutsch, zerlegt
         (z.B. 'Dampfschifffahrt | Kapitän')?
       - Nach search: GND-Einträge vorhanden, Keywords aussagekräftig?
@@ -93,8 +103,11 @@ meta_agent:
       gaps-Vokabular: missing_concepts, shallow_dk, no_keywords, no_rvk.
       Terminierung (gegen Endlosschleifen):
       - 'classification' gelaufen, DK-Codes vorhanden, 'Hat tiefe DK-Codes'=ja →
-        KEIN Rerun: action='finish' (oder 'continue', falls noch ein
-        deterministischer Abschluss-Step wie 'dk_postprocess' aussteht).
+        KEIN Rerun: action='finish' (oder 'continue', falls noch Abschluss-Steps
+        wie 'dk_postprocess' oder die Aufstellungs-Steps ausstehen).
+      - Eine fehlende Freihandstelle ist KEIN Mangel der Erschließung: sie
+        bedeutet, dass die Systematik für diese Notation keine Stelle führt.
+        Niemals deswegen 'classification' wiederholen.
       - status='complete', sobald classification DK-Codes geliefert hat und keine
         UNGESUCHTEN fehlenden Konzepte mehr offen sind.
       - Fehlende Konzepte gemeldet UND noch NICHT gesucht → action='search_missing'
@@ -817,3 +830,129 @@ steps:
 
     outputs:
       dk_search_results_flattened: "result.results"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 8: Aufstellung — Freihandsystematik der UB Freiberg
+  #
+  # Sacherschließungs-DK (WinIBW) und Aufstellungs-DK sind NICHT
+  # deckungsgleich. Die Kernnotation (`rank: core`) liegt typischerweise nahe
+  # der Freihandstelle, aber es gibt genug Fälle, wo die Stelle thematisch
+  # woanders sitzt. Deshalb zwei unabhängige Signale im Plugin: Notationsnähe
+  # (Enthaltensein, Bereiche, Nachbarstellen) und Label-Treffer gegen die
+  # finalen Schlagworte.
+  #
+  # 8a liefert immer Kandidaten (deterministisch, kein LLM).
+  # 8b wählt eine davon aus — `enabled: false` setzen, dann bleibt es bei der
+  #    Kandidatenliste und der Erschließer entscheidet.
+  # 8c hält die Auswahl auf die Kandidatenliste fest.
+  #
+  # Vokabular: vocabularies/freihand_fg.yaml (Plugin `local_scheme`).
+  # ──────────────────────────────────────────────────────────────────
+  - id: shelf_candidates
+    type: deterministic
+    function: shelf_candidates
+    description: "Freihandstellen-Kandidaten aus der lokalen Aufstellungssystematik"
+    enabled: true
+    depends_on: [dk_postprocess]
+
+    inputs:
+      notations: "${dk_classifications}"
+      keywords: "${extra.final_keywords}"
+
+    outputs:
+      extra.shelf: "result"
+
+    config:
+      lookup: local_scheme
+      max_results: 6
+      # Nur die Kernnotation(en) als Notationssignal; die Zusatznotationen
+      # ziehen die Stelle sonst in Nebenthemen. Fällt auf alle zurück, wenn
+      # keine Kernnotation vergeben wurde.
+      core_only: true
+
+  - id: shelf_select
+    type: llm_agent
+    description: "Eine Freihandstelle aus den Kandidaten wählen"
+    enabled: true
+    depends_on: [shelf_candidates]
+    when: "${extra.shelf.prompt_text} != ''"
+
+    inputs:
+      abstract: "${abstract}"
+      candidates: "${extra.shelf.prompt_text}"
+      final_keywords: "${extra.final_keywords}"
+      dk_codes: "${dk_classifications}"
+
+    outputs:
+      extra.shelf_selection: "response.shelf"
+
+    llm:
+      temperature: 0.1
+      top_p: 0.5
+      # 32768 wie jeder Schritt: bei Reasoning-Modellen zehrt der Denkkanal am
+      # selben Budget, 4096 verschluckt die Antwort (tests/test_token_budget_override).
+      max_tokens: 32768
+      max_iterations: 1
+
+    tools: []
+
+    system_prompt: |
+      **Deine Rolle: Aufstellung im Freihandbestand der UB Freiberg.**
+
+      Ein Werk ist sachlich erschlossen (DK-Notationen und Schlagworte liegen
+      vor). Du bestimmst, **an welcher Stelle des Freihandbestands** es steht.
+
+      **Was du wissen musst:**
+      - Die Aufstellungsnotation ist **nicht** dieselbe wie die
+        Sacherschließungs-DK. Sie liegt meist in deren Nähe, kann aber
+        thematisch woanders sitzen, wenn das Werk dort besser steht.
+      - Ein Werk steht an **genau einer** Stelle. Wähle die, an der ein
+        Benutzer es sucht, nicht die formal nächstliegende.
+      - Eine Stelle mit „(Allgemeines)" ist die Auffangstelle einer Gruppe.
+        Nimm sie nur, wenn keine spezifische Stelle das Werk trägt.
+      - **Wähle ausschließlich aus der vorgelegten Kandidatenliste.** Erfinde
+        keine Notation. Passt keine, gib `null` zurück und begründe das.
+
+      **Ausgabeformat (nur JSON, kein weiterer Text):**
+      ```json
+      {
+        "shelf": {
+          "notation": "622.34",
+          "reason": "Werk behandelt Erzgewinnung; Kernnotation 622.341 fällt hierunter."
+        }
+      }
+      ```
+      Passt keine Stelle:
+      ```json
+      {"shelf": null, "reason": "Keine der Kandidatenstellen trägt das Thema."}
+      ```
+
+    user_prompt: |
+      **Abstract:**
+      {abstract}
+
+      **Vergebene Klassifikationen:**
+      {dk_codes}
+
+      **Schlagworte:**
+      {final_keywords}
+
+      {candidates}
+
+      Wähle die Freihandstelle. Nur JSON.
+
+  - id: shelf_guard
+    type: deterministic
+    function: filter_unauthorized_shelf
+    description: "Verwirft eine Freihandstelle, die nicht aus der Kandidatenliste stammt"
+    enabled: true
+    depends_on: [shelf_select]
+
+    inputs: {}
+
+    outputs:
+      extra.shelf_final: "result.shelf"
+
+    config:
+      candidates_key: shelf
+      selection_key: shelf_selection

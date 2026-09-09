@@ -22,9 +22,9 @@ means adding `status: "research"`.
 
 ## Institution-Specific Variants
 
-- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`.
-  - **Only difference:** classification prompt restricts RVK to economics/business (WiWi); non-WiWi subjects use DK only. DDC is not used in Freiberg.
-  - Proof-of-concept for local, prompt-level institution customization.
+- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Two differences, both deliberate:
+  - **Classification prompt** restricts RVK to economics/business (WiWi); non-WiWi subjects use DK only. DDC is not used in Freiberg.
+  - **Aufstellung** (`shelf_candidates` → `shelf_select` → `shelf_guard`): the Freihandsystematik via the `local_scheme` plugin. `shelf_select` is the LLM pick; `enabled: false` leaves it at the deterministic candidate list.
 
 ## RVK via `rvk_lookup` tool (both v51 + v51_105)
 
@@ -38,7 +38,9 @@ means adding `status: "research"`.
     WiWi**; non-WiWi → no tool call, DK only.
 - **Sync rule:** the non-prompt wiring (`rvk_inline`, `tools`,
   `max_iterations`, `final_keywords` input) is identical in both files; only
-  the RVK prompt block differs (general vs. WiWi-only).
+  the RVK prompt block differs (general vs. WiWi-only). The three
+  `shelf_*` steps exist **only** in the 105 — a house shelf system is not
+  general-purpose. Everything else stays in step.
 
 ## Erschließungsregeln (both v51 + v51_105)
 

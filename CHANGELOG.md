@@ -35,6 +35,8 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 ### DK And RVK Classification
 
+- New `local_scheme` lookup plugin: a library's own shelf classification (Aufstellungssystematik) as a vocabulary file, proposing shelf places for a work's classification with notation, wording and floor. Wired into the UB Freiberg workflow as three closing steps (`shelf_candidates` → `shelf_select` → `shelf_guard`); the LLM pick is switchable off, and a guard drops any notation that is not among the proposed candidates. Measured against 407 real Freiberg call numbers, the core notation reaches the actual shelf place in 66.6 % of cases as the first proposal and 76.9 % within five; the rest is not derivable from the notation, so the step proposes rather than decides. The placement is shown in the desktop chat, the web app and the CLI protocol, and travels in the saved result together with the vocabulary version that produced it; without an LLM pick the proposals are shown instead.
+
 - Expanded DK and RVK handling across the application, including richer candidate display, provenance tracking, and structured export data.
 - Added RVK validation metadata so results distinguish standard, non-standard, and validation-error notations.
 - Added RVK lookup support through the official API and a local MarcXML-backed GND index.

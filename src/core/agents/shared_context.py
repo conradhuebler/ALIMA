@@ -507,6 +507,20 @@ class SharedContext(BaseSharedContext):
             dict(entry) for entry in (getattr(self, "applied_user_rules", None) or [])
         ]
         state.rule_output = str((self.extra or {}).get("rule_output", "") or "")
+
+        # Shelf placement (local Aufstellungssystematik). ``shelf_final`` is what
+        # survived the guard; the candidates travel with it so a result stays
+        # readable when the LLM pick is switched off or was rejected.
+        # - Claude Generated
+        shelf_payload = (self.extra or {}).get("shelf") or {}
+        placement = (self.extra or {}).get("shelf_final") or {}
+        if placement or shelf_payload.get("candidates"):
+            state.shelf = {
+                "placement": dict(placement) if isinstance(placement, dict) else {},
+                "candidates": list(shelf_payload.get("candidates") or []),
+                "unplaced": list(shelf_payload.get("unplaced") or []),
+                "scheme": dict(shelf_payload.get("scheme") or {}),
+            }
         state.keyword_chains = list(self.keyword_chains or [])
         state.core_keywords = _as_titles("core_keywords")
         state.form_keywords = _as_titles("form_keywords")

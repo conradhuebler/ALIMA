@@ -168,9 +168,35 @@ class TestShippedDefaults(unittest.TestCase):
             )
 
     def test_the_two_workflows_agree(self):
-        """Sync rule from workflows/CLAUDE.md: only the classification prompt
-        may differ between v51 and v51_105."""
-        self.assertEqual(self._budgets("alima_v51"), self._budgets("alima_v51_105"))
+        """Sync rule from workflows/CLAUDE.md.
+
+        The 105 carries three steps the general workflow does not (the house
+        shelf system, which is not general-purpose), so the budget lists differ
+        in length. Every entry still has to be the shipped budget, and nothing
+        else may drift apart. - Claude Generated
+        """
+        general = self._budgets("alima_v51")
+        freiberg = self._budgets("alima_v51_105")
+        self.assertEqual(set(general), set(freiberg))
+        self.assertEqual(
+            len(freiberg) - len(general), 1,
+            "unerwarteter Schritt-Unterschied zwischen v51 und v51_105: "
+            f"{len(general)} vs. {len(freiberg)} max_tokens-Angaben",
+        )
+
+    def test_only_the_shelf_steps_are_extra_in_the_freiberg_workflow(self):
+        """Which steps the 105 adds is a decision, not an accident."""
+        import yaml
+
+        def step_ids(stem):
+            path = Path(__file__).resolve().parent.parent / "workflows" / f"{stem}.yaml"
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return [s["id"] for s in data["steps"]]
+
+        extra = set(step_ids("alima_v51_105")) - set(step_ids("alima_v51"))
+        self.assertEqual(
+            extra, {"shelf_candidates", "shelf_select", "shelf_guard"}
+        )
 
     def test_code_fallback_matches_the_workflows(self):
         ctx = SharedContext(abstract="a", initial_keywords=[])

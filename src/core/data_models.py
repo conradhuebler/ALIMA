@@ -146,6 +146,16 @@ class KeywordAnalysisState:
     # own format). Empty unless such a rule fired. - Claude Generated
     rule_output: str = ""
     report_markdown: str = ""  # Generic workflow-report Markdown (e.g. title_list_search's duplicate table), rendered as an HTML block in the GUI - Claude Generated
+    # Where the work is shelved in the library's own Aufstellungssystematik.
+    # ``{placement, candidates, unplaced, scheme}``: the guarded pick (empty
+    # when the workflow only proposed or the pick was rejected), the
+    # deterministic proposals, the assigned notations with no shelf place at
+    # all, and which vocabulary version produced it. Empty for every workflow
+    # that does not run the shelf steps — the shelf mark is NOT a
+    # classification and deliberately lives beside ``dk_classifications``, not
+    # among them (see classification_systems on local systematics).
+    # - Claude Generated
+    shelf: Dict[str, Any] = field(default_factory=dict)
 
     # Iterative refinement support - Claude Generated
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata

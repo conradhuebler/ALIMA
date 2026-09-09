@@ -1771,6 +1771,202 @@ def gnd_batch_metadata(
     }
 
 
+# ============================================================
+# Shelf placement — local Aufstellungssystematik
+# ============================================================
+
+def _shelf_notations(entries: Optional[List[Any]], core_only: bool) -> List[str]:
+    """The subject notations to look shelf places up with.
+
+    The house shelf notation sits *near* the work's subject notation but need
+    not equal it, and the notation that carries the work is the one marked
+    ``rank: core`` (the "first DK" a cataloguer records). Core notations are
+    therefore the primary signal; the additional ones only join when there is no
+    core at all. - Claude Generated
+    """
+    from src.utils.classification_systems import RANK_CORE, normalize_rank
+
+    core: List[str] = []
+    other: List[str] = []
+    for entry in list(entries or []):
+        if isinstance(entry, dict):
+            code = str(entry.get("code") or entry.get("notation") or "").strip()
+            rank = normalize_rank(entry.get("rank"))
+        else:
+            code, rank = str(entry or "").strip(), ""
+        if not code:
+            continue
+        (core if rank == RANK_CORE else other).append(code)
+    return core if (core and core_only) else core + other
+
+
+def _shelf_keywords(items: Optional[List[Any]]) -> List[str]:
+    """Plain subject terms out of the curated keyword dicts."""
+    terms: List[str] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            term = str(item.get("keyword") or item.get("title") or "").strip()
+        else:
+            term = str(item or "").strip()
+        if term:
+            terms.append(term)
+    return terms
+
+
+def _format_shelf_candidates(payload: Dict[str, Any]) -> str:
+    """Render candidates as the block an LLM step (or a report) reads."""
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        return ""
+    scheme = payload.get("scheme") or {}
+    lines = [
+        f"Aufstellungssystematik: {scheme.get('label') or scheme.get('id') or 'lokal'}"
+        f" (Stand {scheme.get('retrieved') or 'unbekannt'})",
+        "Kandidaten für die Aufstellung (nur aus dieser Liste wählen):",
+    ]
+    for item in candidates:
+        location = item.get("location") or "?"
+        lines.append(
+            f"- {item.get('notation')} | {item.get('label')} | Standort: {location}"
+            f" | {item.get('reason', '')}"
+        )
+    unplaced = payload.get("unplaced") or []
+    if unplaced:
+        lines.append(
+            "Ohne eigene Freihandstelle: " + ", ".join(unplaced)
+            + " (die Kandidaten oben sind Nachbarstellen)"
+        )
+    return "\n".join(lines)
+
+
+@register_tool_fn("shelf_candidates")
+def shelf_candidates(
+    notations: Optional[List[Any]] = None,
+    keywords: Optional[List[Any]] = None,
+    *,
+    context: Any = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Shelf places of the local scheme that come into question for this work.
+
+    Deterministic and decision-free: it ranks candidates from the assigned
+    subject notations (notation proximity) and the final keywords (label match)
+    and reports which notations have no shelf place at all. An LLM step may pick
+    one; ``filter_unauthorized_shelf`` then holds it to this list.
+
+    Runs through ``build_lookup`` like every other lookup consumer, so the
+    operator's per-instance settings and the disable switch gate it too. A
+    disabled or unconfigured plugin yields an empty result, never an error.
+    - Claude Generated
+    """
+    cfg = config or {}
+    lookup_id = str(cfg.get("lookup") or "local_scheme")
+    max_results = int(cfg.get("max_results") or 6)
+    core_only = bool(cfg.get("core_only", True))
+
+    # Explicit inputs win; otherwise read the settled classification off the
+    # context. Either way the rank filter applies — a workflow passing
+    # ``${dk_classifications}`` still gets the core-first behaviour.
+    raw_notations = notations if notations else getattr(context, "dk_classifications", None)
+    raw_keywords = keywords
+    if not raw_keywords and context is not None:
+        raw_keywords = (getattr(context, "extra", None) or {}).get("final_keywords")
+    codes = _shelf_notations(raw_notations, core_only)
+    terms = _shelf_keywords(raw_keywords)
+
+    empty = {"candidates": [], "unplaced": [], "scheme": {}, "prompt_text": "", "count": 0}
+    if not (codes or terms):
+        logger.info("shelf_candidates: no notations and no keywords — nothing to place")
+        return empty
+
+    try:
+        from src.utils.lookups import build_lookup
+
+        lookup = build_lookup(None, lookup_id)
+    except Exception as exc:  # noqa: BLE001
+        log_caught(logger, exc, f"shelf_candidates: build_lookup({lookup_id})")
+        return empty
+    if lookup is None:
+        logger.info(f"shelf_candidates: lookup '{lookup_id}' disabled or absent")
+        return empty
+
+    try:
+        payload = lookup.lookup_shelf(
+            notations=codes, keywords=terms, max_results=max_results
+        )
+    except Exception as exc:  # noqa: BLE001
+        log_caught(logger, exc, f"shelf_candidates: {lookup_id}.lookup_shelf")
+        return empty
+
+    payload["prompt_text"] = _format_shelf_candidates(payload)
+    payload["count"] = len(payload.get("candidates") or [])
+    logger.info(
+        f"shelf_candidates: {payload['count']} candidates for {codes or terms} "
+        f"({len(payload.get('unplaced') or [])} without a shelf place)"
+    )
+    return payload
+
+
+@register_tool_fn("filter_unauthorized_shelf")
+def filter_unauthorized_shelf(
+    *,
+    context: Any = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Hold the chosen shelf place to the deterministic candidate list.
+
+    Twin of ``filter_unauthorized_rvk``, with a stronger authority: the
+    candidates come from a deterministic step, so the check is against data this
+    pipeline produced rather than against a model's retyping of a tool result. A
+    notation outside the list is dropped, not corrected.
+
+    No selection step (it is switched off) or no candidates → nothing to check,
+    and the candidate list stays the result. - Claude Generated
+    """
+    cfg = config or {}
+    candidates_key = str(cfg.get("candidates_key") or "shelf")
+    selection_key = str(cfg.get("selection_key") or "shelf_selection")
+
+    extra = (getattr(context, "extra", None) or {}) if context is not None else {}
+    payload = extra.get(candidates_key) or {}
+    allowed = {
+        str(item.get("notation") or "").strip()
+        for item in (payload.get("candidates") or [])
+        if isinstance(item, dict) and item.get("notation")
+    }
+    by_notation = {
+        str(item.get("notation")).strip(): item
+        for item in (payload.get("candidates") or [])
+        if isinstance(item, dict) and item.get("notation")
+    }
+
+    selection = extra.get(selection_key)
+    if not selection:
+        return {"shelf": None, "dropped": [], "checked": 0}
+
+    chosen = selection if isinstance(selection, dict) else {"notation": str(selection)}
+    notation = str(chosen.get("notation") or "").strip()
+    if not notation:
+        return {"shelf": None, "dropped": [], "checked": 0}
+
+    if notation not in allowed:
+        logger.warning(
+            f"filter_unauthorized_shelf: dropped '{notation}' — not among the "
+            f"{len(allowed)} deterministic candidates"
+        )
+        return {"shelf": None, "dropped": [notation], "checked": 1}
+
+    # The authority owns notation/label/location; the model owns the reasoning.
+    entry = dict(by_notation[notation])
+    reason = str(chosen.get("reason") or chosen.get("reasoning") or "").strip()
+    if reason:
+        entry["selected_reason"] = reason
+    entry["selected"] = True
+    return {"shelf": entry, "dropped": [], "checked": 1}
+
+
 def register_all() -> None:
     """Idempotent registration — importing this module is enough."""
     # Registration happens at import time via decorators.
