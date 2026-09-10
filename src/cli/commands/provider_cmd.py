@@ -411,9 +411,9 @@ def handle_provider_add(args, config_manager: ConfigManager, logger: logging.Log
         config.unified_config.add_provider(new_provider)
 
         # Save configuration
-        success = config_manager.save_config(config, args.scope)
+        success = config_manager.save_config(config)
         if success:
-            print(f"✅ Provider '{args.name}' added successfully to {args.scope} scope")
+            print(f"✅ Provider '{args.name}' angelegt")
             print(f"   Base URL: {args.base_url}")
             print(f"   Enabled: {'Yes' if args.enabled else 'No'}")
             if args.description:
@@ -442,9 +442,9 @@ def handle_provider_remove(args, config_manager: ConfigManager, logger: logging.
         # Remove provider
         success = config.unified_config.remove_provider(args.name)
         if success:
-            config_saved = config_manager.save_config(config, args.scope)
+            config_saved = config_manager.save_config(config)
             if config_saved:
-                print(f"✅ Provider '{args.name}' removed successfully from {args.scope} scope")
+                print(f"✅ Provider '{args.name}' entfernt")
             else:
                 print("❌ Failed to save configuration after removal")
         else:
@@ -477,9 +477,9 @@ def handle_provider_edit(args, config_manager: ConfigManager, logger: logging.Lo
             provider.enabled = args.enabled
 
         # Save configuration
-        success = config_manager.save_config(config, args.scope)
+        success = config_manager.save_config(config)
         if success:
-            print(f"✅ Provider '{args.name}' updated successfully in {args.scope} scope")
+            print(f"✅ Provider '{args.name}' aktualisiert")
             print(f"   Base URL: {provider.base_url}")
             print(f"   Enabled: {'Yes' if provider.enabled else 'No'}")
             if provider.description:

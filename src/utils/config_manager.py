@@ -720,8 +720,14 @@ class ConfigManager:
             unified_config.providers.append(unified_provider)
             self.logger.debug("Created Anthropic UnifiedProvider from API key")
 
-    def save_config(self, config: AlimaConfig, scope: str = 'user', preserve_unified: bool = True) -> bool:
-        """Save configuration to specified scope - Claude Generated"""
+    def save_config(self, config: AlimaConfig, preserve_unified: bool = True) -> bool:
+        """Write the configuration to ``self.config_file`` - Claude Generated.
+
+        There is exactly one config file (see :meth:`_setup_config_paths`). A
+        ``scope`` parameter used to be accepted here and never read, while the
+        settings dialog and five CLI subcommands offered a project/user/system
+        choice and reported which "scope" they had written to. Removed Sep 2026.
+        """
         try:
             # Persist resolved default models so an empty model isn't re-derived on
             # every read (and re-saved as empty next time), and keep the legacy
@@ -1076,14 +1082,14 @@ class ConfigManager:
             return False, f"❌ Configuration error: {str(e)}"
 
     def get_config_info(self) -> dict:
-        """Return configuration paths information - Claude Generated"""
+        """The configuration file in use - Claude Generated.
+
+        Used to report project/user/system paths; the first two were the same
+        string and the third the literal "Not used", because there has only ever
+        been one file.
+        """
         import platform
-        return {
-            'os': platform.system(),
-            'project_config': str(self.config_file),
-            'user_config': str(self.config_file),
-            'system_config': 'Not used'
-        }
+        return {'os': platform.system(), 'config_file': str(self.config_file)}
 
 
 # ============================================================================

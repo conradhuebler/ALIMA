@@ -75,30 +75,21 @@ def handle_db_show(config_manager: ConfigManager, logger: logging.Logger):
 
 
 def handle_db_paths(config_manager: ConfigManager, logger: logging.Logger):
-    """Show OS-specific configuration paths."""
+    """Show the configuration file in use.
+
+    Used to print a four-level Project/User/System/Legacy list. Three of those
+    entries never existed: ``get_config_info`` returned the same path twice, the
+    literal "Not used" for System, and no ``legacy_config`` key at all — so the
+    command raised KeyError after the third line and its own except logged it as
+    an error. - Claude Generated
+    """
     try:
-        config_info = config_manager.get_config_info()
-        print(f"🖥️  Configuration Paths for {config_info['os']}:")
-        print(f"   Project:  {config_info['project_config']}")
-        print(f"   User:     {config_info['user_config']}")
-        print(f"   System:   {config_info['system_config']}")
-        print(f"   Legacy:   {config_info['legacy_config']}")
-        print()
-
-        # Show which files exist
-        paths = [
-            ("Project", config_info['project_config']),
-            ("User", config_info['user_config']),
-            ("System", config_info['system_config']),
-            ("Legacy", config_info['legacy_config'])
-        ]
-
-        print("📁 File Status:")
-        for name, path in paths:
-            exists = Path(path).exists()
-            status = "✅ EXISTS" if exists else "❌ NOT FOUND"
-            print(f"   {name:8}: {status}")
-
+        info = config_manager.get_config_info()
+        path = Path(info['config_file'])
+        status = "✅ vorhanden" if path.exists() else "❌ noch nicht angelegt"
+        print(f"🖥️  Konfiguration ({info['os']}):")
+        print(f"   Datei:  {path}")
+        print(f"   Status: {status}")
     except Exception as e:
         logger.error(f"❌ Error showing config paths: {e}")
 
@@ -123,9 +114,9 @@ def handle_db_set_sqlite(args, config_manager: ConfigManager, logger: logging.Lo
         config.database.sqlite_path = args.path
 
         # Save configuration
-        success = config_manager.save_config(config, args.scope)
+        success = config_manager.save_config(config)
         if success:
-            print(f"✅ SQLite database configuration saved to {args.scope} scope")
+            print(f"✅ SQLite-Konfiguration gespeichert: {config_manager.config_file}")
             print(f"   Database path: {args.path}")
         else:
             print("❌ Failed to save SQLite configuration")
@@ -166,9 +157,9 @@ def handle_db_set_mysql(args, config_manager: ConfigManager, logger: logging.Log
         print("✅ Connection test successful!")
 
         # Save configuration
-        success = config_manager.save_config(config, args.scope)
+        success = config_manager.save_config(config)
         if success:
-            print(f"✅ MySQL database configuration saved to {args.scope} scope")
+            print(f"✅ MySQL-Konfiguration gespeichert: {config_manager.config_file}")
             print(f"   Host: {args.host}:{args.port}")
             print(f"   Database: {args.database}")
             print(f"   Username: {args.username}")

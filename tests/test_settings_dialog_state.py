@@ -54,10 +54,8 @@ class _DialogHarness:
         _qapp(self._kept)
         cm = MagicMock()
         cm.load_config.return_value = cfg
-        cm.get_config_info.return_value = {
-            "os": "Linux", "project_config": "/x/config.json",
-            "user_config": "/x/config.json", "system_config": "Not used",
-        }
+        cm.config_file = "/x/config.json"
+        cm.get_config_info.return_value = {"os": "Linux", "config_file": "/x/config.json"}
         # The two sub-tabs are real QWidgets (addTab needs one) with the handful
         # of methods the dialog calls on them.
         from PyQt6.QtCore import pyqtSignal
@@ -156,6 +154,47 @@ class DatabaseResetCompletesTest(_DialogHarness, unittest.TestCase):
         self.assertEqual(dlg.connection_timeout.value(), 30)
         self.assertTrue(dlg.auto_create_tables.isChecked())
         done.assert_called_once()
+
+
+class NoConfigScopeFictionTest(unittest.TestCase):
+    """There is one config file; nothing may offer a choice of "scope".
+
+    The dialog had a "Save Configuration To" group with Project/User/System
+    checkboxes and five CLI subcommands took --scope, all of it handed to a
+    save_config parameter that was never read — the CLI even printed "saved to
+    user scope" for a write that always went to the same file. - Claude Generated
+    """
+
+    def test_save_config_takes_no_scope(self):
+        import inspect
+
+        from src.utils.config_manager import ConfigManager
+
+        params = inspect.signature(ConfigManager.save_config).parameters
+        self.assertNotIn("scope", params)
+
+    def test_config_info_reports_one_file(self):
+        from src.utils.config_manager import ConfigManager
+
+        info = ConfigManager().get_config_info()
+        self.assertEqual(set(info), {"os", "config_file"})
+
+    def test_no_cli_subcommand_offers_a_scope(self):
+        from src.cli.main import create_argument_parser
+
+        found = []
+
+        def walk(parser, path=""):
+            for action in parser._actions:
+                if "--scope" in getattr(action, "option_strings", []):
+                    found.append(path)
+                choices = getattr(action, "choices", None)
+                if isinstance(choices, dict):
+                    for name, sub in choices.items():
+                        walk(sub, f"{path} {name}".strip())
+
+        walk(create_argument_parser())
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

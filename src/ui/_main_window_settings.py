@@ -331,14 +331,25 @@ class MainWindowSettingsMixin:
         about_dialog.setWindowTitle("Über AlIma")
         layout = QVBoxLayout(about_dialog)
 
-        # Über-Text
+        # Facts from src/core/about.py — the same source the settings About tab
+        # and the chat agent use, pinned against the README by tests/test_about.py.
+        # This label used to hardcode "Version 1.0" and a licence string that
+        # disagreed with it. - Claude Generated
+        from ..core import about as about_mod
+
+        pub = about_mod.PUBLICATION
         about_text = QLabel(
-            "AlIma - Sacherschließung mit LLMs\nVersion 1.0\n\n"
-            "Entwickelt von Conrad Hübler\n"
-            "TU Freiberg\n"
-            "Lizenz: LGPL-3.0 license \n"
-            "GitHub: https://github.com/conradhuebler/ALIMA"
+            f"<h3>{about_mod.NAME} — {about_mod.EXPANSION}</h3>"
+            f"<p>{about_mod.SUMMARY}</p>"
+            f"<p><b>Einrichtung:</b> {about_mod.INSTITUTION}<br>"
+            f"<b>Lizenz:</b> {about_mod.LICENSE}<br>"
+            f"<b>Repository:</b> <a href=\"{about_mod.REPOSITORY}\">"
+            f"{about_mod.REPOSITORY}</a></p>"
+            f"<p>{pub['citation']}<br>"
+            f"<a href=\"{pub['url']}\">{pub['url']}</a></p>"
         )
+        about_text.setWordWrap(True)
+        about_text.setOpenExternalLinks(True)
         layout.addWidget(about_text)
 
         # Schließen-Button

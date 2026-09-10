@@ -267,7 +267,6 @@ def create_argument_parser():
 
     db_sqlite_parser = db_subparsers.add_parser("set-sqlite", help="Configure SQLite database")
     db_sqlite_parser.add_argument("--path", default="alima_knowledge.db", help="SQLite database path")
-    db_sqlite_parser.add_argument("--scope", choices=["user", "project", "system"], default="user", help="Configuration scope")
 
     db_mysql_parser = db_subparsers.add_parser("set-mysql", help="Configure MySQL/MariaDB database")
     db_mysql_parser.add_argument("--host", required=True, help="Database host")
@@ -277,7 +276,6 @@ def create_argument_parser():
     db_mysql_parser.add_argument("--password", help="Database password (prompted if not provided)")
     db_mysql_parser.add_argument("--charset", default="utf8mb4", help="Character set")
     db_mysql_parser.add_argument("--ssl-disabled", action="store_true", help="Disable SSL connection")
-    db_mysql_parser.add_argument("--scope", choices=["user", "project", "system"], default="user", help="Configuration scope")
 
     # Provider management command
     provider_parser = subparsers.add_parser("provider", help="OpenAI-compatible provider management.")
@@ -292,11 +290,9 @@ def create_argument_parser():
     provider_add_parser.add_argument("--api-key", required=True, help="API key")
     provider_add_parser.add_argument("--description", default="", help="Provider description")
     provider_add_parser.add_argument("--enabled", action="store_true", default=True, help="Enable provider")
-    provider_add_parser.add_argument("--scope", choices=["user", "project", "system"], default="user", help="Configuration scope")
 
     provider_remove_parser = provider_subparsers.add_parser("remove", help="Remove provider")
     provider_remove_parser.add_argument("--name", required=True, help="Provider name to remove")
-    provider_remove_parser.add_argument("--scope", choices=["user", "project", "system"], default="user", help="Configuration scope")
 
     provider_edit_parser = provider_subparsers.add_parser("edit", help="Edit existing provider")
     provider_edit_parser.add_argument("--name", required=True, help="Provider name to edit")
@@ -306,7 +302,6 @@ def create_argument_parser():
     provider_edit_parser.add_argument("--description", help="New provider description")
     provider_edit_parser.add_argument("--enable", action="store_true", help="Enable provider")
     provider_edit_parser.add_argument("--disable", action="store_true", help="Disable provider")
-    provider_edit_parser.add_argument("--scope", choices=["user", "project", "system"], default="user", help="Configuration scope")
 
     provider_test_parser = provider_subparsers.add_parser("test", help="Test provider connection")
     provider_test_parser.add_argument("--name", required=True, help="Provider name to test")
