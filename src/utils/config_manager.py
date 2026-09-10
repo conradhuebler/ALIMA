@@ -1050,12 +1050,18 @@ class ConfigManager:
 
 
 
-    def test_database_connection(self) -> tuple[bool, str]:
-        """Test database connection using current configuration - Claude Generated"""
+    def test_database_connection(self, database_config=None) -> tuple[bool, str]:
+        """Test a database connection - Claude Generated.
+
+        ``database_config`` lets a caller probe settings that are not (yet) the
+        saved ones. The settings dialog used to achieve that by assigning its
+        unsaved config to ``self._config``, which published the whole editing
+        state — plugins and providers included — into this process-wide singleton,
+        and Cancel could not take it back.
+        """
         try:
-            # Get database configuration
-            config = self.load_config()
-            database_config = config.database_config
+            if database_config is None:
+                database_config = self.load_config().database_config
 
             # Import DatabaseManager
             from ..core.database_manager import DatabaseManager

@@ -155,6 +155,107 @@ class DatabaseResetCompletesTest(_DialogHarness, unittest.TestCase):
         done.assert_called_once()
 
 
+class CancelActuallyCancelsTest(_DialogHarness, unittest.TestCase):
+    """The dialog advertises a Unit of Work; two paths broke it.
+
+    * "🔧 Test Connection" called _get_config_from_ui — which pulls in the plugin
+      tab and the provider tab — and assigned the result to the process-wide
+      ConfigManager singleton. One click published every unsaved edit into the
+      running application, and Cancel could not take it back.
+    * Provider add/edit/remove wrote straight to disk, so a provider added and
+      then cancelled was saved anyway.
+
+    - Claude Generated
+    """
+
+    def test_test_connection_does_not_publish_the_editing_copy(self):
+        from unittest.mock import patch
+
+        dlg = self._dialog()
+        dlg.sqlite_path.setText("/tmp/probe.db")
+
+        with patch(
+            "src.ui.comprehensive_settings_dialog.DatabaseTestWorker"
+        ) as worker:
+            dlg._test_database_connection()
+
+        # The manager's cached config was never assigned to.
+        self.assertFalse(dlg.config_manager._config.__class__.__name__ == "AlimaConfig"
+                         and dlg.config_manager._config is dlg.config_to_edit)
+        # …and the probe carried the widget values, not the saved ones.
+        probe = worker.call_args[0][1]
+        self.assertEqual(probe.sqlite_path, "/tmp/probe.db")
+
+    def test_test_connection_probes_only_database_settings(self):
+        """It must not reach into the plugin/provider tabs to build its probe."""
+        from unittest.mock import patch
+
+        dlg = self._dialog()
+        with patch.object(dlg, "_get_config_from_ui") as harvest, patch(
+            "src.ui.comprehensive_settings_dialog.DatabaseTestWorker"
+        ):
+            dlg._test_database_connection()
+        harvest.assert_not_called()
+
+    def test_provider_edits_are_not_written_to_disk(self):
+        """Add/edit/remove buffer into the editing copy; only Save writes."""
+        import inspect
+
+        from src.ui import unified_provider_tab as upt
+
+        for name in ("_add_provider", "_edit_provider", "_remove_provider"):
+            src = inspect.getsource(getattr(upt.UnifiedProviderTab, name))
+            self.assertNotIn(
+                "save_config(", src,
+                f"{name} darf nicht direkt speichern — Cancel würde wirkungslos",
+            )
+
+
+class SaveConfigIsCalledWithAConfigTest(unittest.TestCase):
+    """`save_config()` with no argument is a TypeError, swallowed by an except.
+
+    Two call sites did it, so "🎯 Als Standardeinstellung speichern" in the
+    pipeline config dialog and the CLI's provider-preference learning both
+    reported a save error every time and never worked. - Claude Generated
+    """
+
+    def test_no_call_site_omits_the_config(self):
+        import re
+        from pathlib import Path
+
+        offenders = []
+        for path in Path("src").rglob("*.py"):
+            for i, line in enumerate(path.read_text().splitlines(), 1):
+                if re.search(r"config_manager\.save_config\(\s*\)", line):
+                    offenders.append(f"{path}:{i}")
+        self.assertEqual(offenders, [])
+
+
+class ChatUsesTheConfiguredIterationLimitTest(unittest.TestCase):
+    """CLI/GUI parity: the GUI hardcoded max_iterations=30.
+
+    headless_agent:156 reads ChatConfig.max_iterations, so the setting applied to
+    CLI and webapp but not to the GUI chat. - Claude Generated
+    """
+
+    def test_the_gui_does_not_hardcode_the_limit(self):
+        import inspect
+
+        from src.ui import _chat_panel_chat_agent as mod
+
+        lines = [
+            ln.strip()
+            for ln in inspect.getsource(mod).splitlines()
+            if "max_iterations" in ln and not ln.lstrip().startswith("#")
+        ]
+        self.assertTrue(lines, "keine max_iterations-Zuweisung gefunden")
+        self.assertNotIn("max_iterations=30,", lines)
+        self.assertTrue(
+            any("getattr(chat_config" in ln for ln in lines),
+            f"max_iterations kommt nicht aus der Konfiguration: {lines}",
+        )
+
+
 class NoConfigScopeFictionTest(unittest.TestCase):
     """There is one config file; nothing may offer a choice of "scope".
 

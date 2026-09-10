@@ -27,15 +27,22 @@ from ..utils.logging_utils import LOG_LEVEL_CHOICES
 
 
 class DatabaseTestWorker(QThread):
-    """Worker thread for database connection testing - Claude Generated"""
+    """Worker thread for database connection testing - Claude Generated
+
+    Takes the config to probe rather than reading the manager's, so testing
+    unsaved dialog settings does not require publishing them process-wide.
+    """
     test_completed = pyqtSignal(bool, str)
-    
-    def __init__(self, config_manager: ConfigManager):
+
+    def __init__(self, config_manager: ConfigManager, database_config=None):
         super().__init__()
         self.config_manager = config_manager
-        
+        self.database_config = database_config
+
     def run(self):
-        success, message = self.config_manager.test_database_connection()
+        success, message = self.config_manager.test_database_connection(
+            self.database_config
+        )
         self.test_completed.emit(success, message)
 
 
@@ -647,18 +654,32 @@ class ComprehensiveSettingsDialog(QDialog):
             self.sqlite_path.setText(file_path)
 
     def _test_database_connection(self):
-        """Test database connection - Claude Generated"""
-        # Update config with current settings
-        config = self._get_config_from_ui()
+        """Test the connection with the settings currently shown - Claude Generated
 
-        # Temporarily update config manager
-        self.config_manager._config = config
+        Reads only the database widgets. It used to call _get_config_from_ui and
+        assign the result to config_manager._config, which pushed every unsaved
+        edit — plugins, providers, chat settings — into the running application,
+        with no way back short of a restart.
+        """
+        from ..utils.config_models import DatabaseConfig
 
-        # Create and start test worker
+        probe = DatabaseConfig(
+            db_type=self.db_type_combo.currentText(),
+            sqlite_path=self.sqlite_path.text(),
+            host=self.mysql_host.text(),
+            port=self.mysql_port.value(),
+            database=self.mysql_database.text(),
+            username=self.mysql_username.text(),
+            password=self.mysql_password.text(),
+            charset=self.mysql_charset.currentText(),
+            ssl_disabled=self.mysql_ssl_disabled.isChecked(),
+            connection_timeout=self.connection_timeout.value(),
+        )
+
         self.db_test_button.setEnabled(False)
         self.db_test_button.setText("Testing...")
 
-        self.db_test_worker = DatabaseTestWorker(self.config_manager)
+        self.db_test_worker = DatabaseTestWorker(self.config_manager, probe)
         self.db_test_worker.test_completed.connect(self._on_db_test_completed)
         self.db_test_worker.start()
     

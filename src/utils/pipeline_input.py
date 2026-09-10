@@ -262,9 +262,13 @@ def _extract_from_image_pipeline(
         # Check if a vision-capable model is configured for OCR.
         # The PyQt settings UI stores this under "vision", while some older/manual configs
         # may use the prompt-specific key "image_text_extraction".
+        # Only the two vision task keys count. "initialisation" and "keywords"
+        # used to be accepted here as well, so a configured *text* model made the
+        # check pass and the failure surfaced later, inside the model call.
+        # - Claude Generated
         has_providers = False
         configured_task = None
-        for task_name in ["image_text_extraction", "vision", "initialisation", "keywords"]:
+        for task_name in ["image_text_extraction", "vision"]:
             task_prefs = config.unified_config.task_preferences.get(task_name)
             if task_prefs and bool(task_prefs.model_priority):
                 has_providers = True
@@ -273,11 +277,10 @@ def _extract_from_image_pipeline(
 
         if not has_providers:
             error_msg = (
-                "❌ Kein Vision-Modell für Bilderkennung konfiguriert!\n"
-                "Bitte in der Config file unter 'unified_config.task_preferences.vision' "
-                "oder 'unified_config.task_preferences.image_text_extraction' "
-                "einen 'model_priority'-Eintrag hinzufügen.\n"
-                "Beispiel: 'model_priority': [{'provider_name': 'openai_compatible', 'model_name': 'gpt-4o'}]"
+                "❌ Kein Vision-Modell für die Bilderkennung konfiguriert.\n"
+                "Einstellungen ▸ Providers & Models ▸ Task Preferences ▸ "
+                "'Vision' öffnen und dort ein bildfähiges Modell hinzufügen "
+                "(z. B. ein Modell mit Vision-Unterstützung des eigenen Anbieters)."
             )
             if logger:
                 logger.error(error_msg)

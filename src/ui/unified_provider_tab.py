@@ -493,9 +493,11 @@ class UnifiedProviderTab(QWidget):
                                   f"A provider with name '{new_provider.name}' already exists.")
                 return
             
-            # Add to configuration and persist immediately so reload picks it up
+            # Into the dialog's editing copy; written by "Save & Close". Used to
+            # call save_config here, so a provider added and then cancelled was on
+            # disk anyway. _load_configuration repopulates from unified_config in
+            # memory, not from the file. - Claude Generated
             self.unified_config.providers.append(new_provider)
-            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
             
@@ -514,7 +516,6 @@ class UnifiedProviderTab(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             updated_provider = dialog.get_provider_data()
             self.unified_config.providers[current_row] = updated_provider
-            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
 
@@ -531,13 +532,13 @@ class UnifiedProviderTab(QWidget):
         
         reply = QMessageBox.question(
             self, "Confirm Removal",
-            f"Are you sure you want to remove provider '{provider.name}'?\n\nThis cannot be undone.",
+            f"Provider '{provider.name}' entfernen?\n\n"
+            "Wirksam mit 'Save & Close'; 'Cancel' verwirft die Änderung.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             del self.unified_config.providers[current_row]
-            self.config_manager.save_config(self.config)
             self._load_configuration()
             self.config_changed.emit()
 

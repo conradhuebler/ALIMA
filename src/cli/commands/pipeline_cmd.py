@@ -321,7 +321,10 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                                     preferences_updated = True
 
                     if preferences_updated:
-                        config_manager.save_config()
+                        # Was save_config() with no argument — a TypeError that
+                        # the surrounding except logged as "Failed to save
+                        # provider preferences". - Claude Generated
+                        config_manager.save_config(config_manager.load_config())
                         print(f"\n✅ Provider preferences updated and saved:")
                         print(f"   Configuration: baseline + CLI overrides")
                         print(f"   Preferred provider: {unified_config.preferred_provider}")

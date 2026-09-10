@@ -349,8 +349,14 @@ class ChatAgentMixin:
             model=model,
             temperature=getattr(chat_config, "temperature", 0.5),
             max_tokens=getattr(chat_config, "max_tokens", 4096),
-            max_iterations=30,
-            timeout_seconds=getattr(chat_config, "timeout_seconds", 600),
+            # From the config, like the headless runner (headless_agent:156).
+            # Was hardcoded 30 here, so ChatConfig.max_iterations only ever
+            # applied to CLI and webapp — against the CLI/GUI parity rule.
+            # - Claude Generated
+            max_iterations=getattr(chat_config, "max_iterations", 30) or 30,
+            # ChatConfig has no timeout_seconds; this getattr always returned the
+            # fallback. Stated as the constant it is. - Claude Generated
+            timeout_seconds=600,
             history=history,
             think=self._get_chat_think_override(),
         )

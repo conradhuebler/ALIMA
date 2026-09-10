@@ -601,8 +601,10 @@ class PipelineConfigDialog(QDialog):
             # if self.smart_selector:
             #     validation_issues = unified_config.validate_preferences(self.smart_selector.provider_detection_service)
 
-            # Save updated config directly
-            self.config_manager.save_config()
+            # Save updated config directly. Was save_config() with no argument:
+            # a TypeError that the except below reported as "Fehler beim
+            # Speichern", so this button never worked. - Claude Generated
+            self.config_manager.save_config(self.config_manager.load_config())
             
             # Success message with summary
             success_message = "✅ Provider-Einstellungen erfolgreich gespeichert!\n\n"

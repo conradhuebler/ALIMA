@@ -273,7 +273,10 @@ class ProposeRuleTool(_RuleToolBase):
                 "source": "chat",
                 "session_id": str(self.session_id or ""),
                 "note": reason,
-                "author": _author(self.chat_config),
+                # No author name is configured anywhere; the field stays
+                # empty. Used to be a getattr for a ChatConfig.rule_author
+                # that does not exist. - Claude Generated
+                "author": "",
             },
         )
         if rule is None:
@@ -478,11 +481,6 @@ def _as_list(value: Any) -> List[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [str(v).strip() for v in value if str(v).strip()]
-
-
-def _author(chat_config: Any) -> str:
-    """Best-effort author name for provenance; empty is fine."""
-    return str(getattr(chat_config, "rule_author", "") or "")
 
 
 def rule_tools(
