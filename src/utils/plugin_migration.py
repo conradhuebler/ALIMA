@@ -32,7 +32,6 @@ SEARCH_FIELD_MAP: Dict[str, Dict[str, str]] = {
         "catalog_details": "catalog_details_url",
         "catalog_web_search_url": "catalog_web_search_url",
         "catalog_web_record_url": "catalog_web_record_url",
-        "catalog_type": "catalog_type",
         "strict_gnd_validation_for_dk_search": "strict_gnd_validation_for_dk_search",
     },
     "finc": {
@@ -210,6 +209,46 @@ def synthesize_input_instances(system_config) -> List:
             label="URL (Web-Scrape)", enabled=True, settings={},
         ),
     ]
+
+
+def migrate_catalog_type(plugins: List) -> bool:
+    """One-shot: legacy ``catalog.catalog_type`` -> ``sru.dk_enabled``.
+
+    Before the sru plugin had its own ``dk_enabled`` knob (symmetric to finc), the
+    DK backend was chosen by a ``catalog_type`` field on the *catalog* instance:
+    ``marcxml_sru`` meant SRU, ``auto`` meant SRU-if-configured. The field was
+    declared vestigial in July 2026 but stayed in the settings form, labelled
+    "DK-Backend", suggesting it still decided something. It did not — finc's and
+    sru's ``dk_enabled`` plus the precedence chain in ``resolve_dk_extractor`` do.
+
+    This carries the operator's old choice over exactly once and drops the key,
+    so the removed form field cannot silently change which backend a library uses.
+    Returns True when something was migrated. - Claude Generated
+    """
+    catalog = next(
+        (p for p in plugins if p.category == SEARCH_CATEGORY and p.provider_id == "catalog"),
+        None,
+    )
+    if catalog is None or "catalog_type" not in (catalog.settings or {}):
+        return False
+
+    cat_type = str(catalog.settings.pop("catalog_type") or "").strip()
+    sru = next(
+        (p for p in plugins if p.category == SEARCH_CATEGORY and p.provider_id == "sru"),
+        None,
+    )
+    if sru is None:
+        return True
+
+    # Only ever turns the backend *on*: an explicitly enabled sru stays enabled
+    # whatever the legacy value said.
+    settings = sru.settings or {}
+    if cat_type == "marcxml_sru":
+        settings["dk_enabled"] = True
+    elif cat_type == "auto" and (settings.get("preset") or settings.get("base_url")):
+        settings["dk_enabled"] = True
+    sru.settings = settings
+    return True
 
 
 def derive_input_mirrors(plugins: List, system_config) -> None:

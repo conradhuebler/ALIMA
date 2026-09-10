@@ -57,12 +57,17 @@ class SruProvider:
                 help="Eigener SRU-Endpoint, falls kein Preset gewählt ist.",
             ),
             ConfigField(key="database", label="Datenbank", kind=TEXT, help="Optionaler SRU-DB-Name."),
-            ConfigField(key="schema", label="Record-Schema", kind=CHOICE, choices=_SCHEMAS, default="marcxml"),
+            ConfigField(
+                key="schema", label="Record-Schema", kind=CHOICE, choices=_SCHEMAS,
+                default="marcxml",
+                help="Gilt nur für einen eigenen Endpunkt — ein gewähltes Preset "
+                "bringt sein eigenes Schema mit und überschreibt diesen Wert.",
+            ),
             ConfigField(key="max_records", label="Max. Datensätze", kind=INT, default=50),
             ConfigField(
                 key="dk_enabled", label="SRU für DK-Suche nutzen", kind=BOOL, default=False,
                 help="MARC-XML/SRU als DK/RVK-Backend statt Libero (symmetrisch zu finc). "
-                "Ersetzt das alte catalog_type='marcxml_sru'.",
+                "Schaltet die DK-Suche über diesen SRU-Endpunkt frei.",
             ),
         ]
 

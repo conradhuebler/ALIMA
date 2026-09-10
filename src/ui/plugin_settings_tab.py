@@ -19,6 +19,7 @@ import copy
 from typing import Dict, List, Optional
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -45,6 +46,16 @@ from src.core.plugins import CHOICE, INT, BOOL, SECRET, get_category, list_categ
 from src.utils.config_models import PluginInstanceConfig
 
 # Human labels for the known categories (fallback = the raw name).
+# Capability -> what it means for the operator. Keys are the SearchCapability
+# enum values; a type declaring none (input sources, lookups) shows nothing.
+# - Claude Generated
+_CAPABILITY_LABELS = {
+    "gnd_keywords": "GND-Schlagwortsuche",
+    "title_records": "Titeldaten",
+    "subject_facets": "Sachfacetten",
+    "classification": "DK/RVK-Klassifikation",
+}
+
 _CATEGORY_LABELS = {
     "search_provider": "🔎 Suchquellen",
     "input_source": "📥 Input-Quellen",
@@ -209,10 +220,28 @@ class _CategoryPanel(QWidget):
         if doc is not None and (doc.description or doc.input or doc.output):
             doc_lbl = QLabel(doc.as_text())
             doc_lbl.setWordWrap(True)
+            # Palette-derived, so the box follows the theme. Was a hardcoded
+            # light-mode pair (#f0f0f0 on #333) and unreadable in dark mode.
+            # - Claude Generated
+            pal = doc_lbl.palette()
+            bg = pal.color(QPalette.ColorRole.AlternateBase).name()
+            fg = pal.color(QPalette.ColorRole.WindowText).name()
             doc_lbl.setStyleSheet(
-                "background:#f0f0f0; color:#333; padding:6px; border-radius:4px;"
+                f"background:{bg}; color:{fg}; padding:6px; border-radius:4px;"
             )
             self.form_layout.addRow(doc_lbl)
+
+        # What this type can do. Capabilities are what the runtime actually
+        # selects on (factory.enabled_gnd_provider_ids, resolve_dk_extractor);
+        # type_meta has computed them all along and the form never showed them,
+        # so the operator saw prose and settings but not the selection rule.
+        # - Claude Generated
+        caps = list(getattr(meta, "capabilities", []) or [])
+        if caps:
+            cap_lbl = QLabel("Kann: " + ", ".join(_CAPABILITY_LABELS.get(c, str(c)) for c in caps))
+            cap_lbl.setWordWrap(True)
+            cap_lbl.setStyleSheet("color: gray; font-size: 10px;")
+            self.form_layout.addRow(cap_lbl)
 
         self._enabled_cb = QCheckBox("Aktiviert")
         self._enabled_cb.setChecked(inst.enabled)
@@ -273,9 +302,13 @@ class _CategoryPanel(QWidget):
             w = QComboBox()
             for c in (fld.choices or []):
                 w.addItem(str(c), c)
-            idx = w.findData(value)
-            if idx >= 0:
-                w.setCurrentIndex(idx)
+            # A stored value that is not among the choices (a legacy bool, a preset
+            # dropped from the list) used to leave the combo on index 0, and
+            # _flush_form then wrote that back — a silent value change on the next
+            # save. ConfigField.coerce has the right fallback: the declared
+            # default. - Claude Generated
+            idx = w.findData(fld.coerce(value))
+            w.setCurrentIndex(idx if idx >= 0 else 0)
             return w
         w = QLineEdit("" if value is None else str(value))
         if fld.kind == SECRET:

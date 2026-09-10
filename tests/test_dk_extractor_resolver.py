@@ -78,27 +78,8 @@ class BuiltinParityTest(unittest.TestCase):
         ex = resolve_dk_extractor(config=cfg)
         self.assertEqual(type(ex).__name__, "MarcXmlClient")
 
-    def test_legacy_catalog_type_marcxml_sru_still_selects_sru(self):
-        # Transition fallback: configs migrated before sru.dk_enabled existed keep
-        # their SRU backend via the catalog instance's catalog_type. - Claude Generated
-        cfg = _cfg(
-            _StubInstance("sru", settings={"preset": "dnb"}),
-            _StubInstance("catalog", settings={"catalog_type": "marcxml_sru"}),
-        )
-        ex = resolve_dk_extractor(config=cfg)
-        self.assertEqual(type(ex).__name__, "MarcXmlClient")
-
-    def test_legacy_catalog_type_auto_with_sru_configured_selects_sru(self):
-        cfg = _cfg(
-            _StubInstance("sru", settings={"base_url": "https://sru.example/x"}),
-            _StubInstance("catalog", settings={"catalog_type": "auto"}),
-        )
-        ex = resolve_dk_extractor(config=cfg)
-        self.assertEqual(type(ex).__name__, "MarcXmlClient")
-
     def test_default_selects_libero(self):
-        cfg = _cfg(_StubInstance("catalog", settings={
-            "catalog_type": "libero_soap", "token": "tok"}))
+        cfg = _cfg(_StubInstance("catalog", settings={"token": "tok"}))
         ex = resolve_dk_extractor(config=cfg)
         self.assertEqual(type(ex).__name__, "BiblioClient")
 
@@ -181,6 +162,76 @@ class ExtensibilityTest(unittest.TestCase):
         out = got.extract_dk_classifications_for_keywords(["Physik"], max_results=10)
         self.assertEqual(out[0]["classifications"][0]["dk"], "530")
         self.assertEqual(ext.calls, [(("Physik",), 10)])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class LegacyCatalogTypeMigrationTest(unittest.TestCase):
+    """``catalog_type`` chose the DK backend before sru had its own ``dk_enabled``.
+
+    It was declared vestigial in July 2026 but stayed in the settings form as a
+    prominent "DK-Backend" combo, so the form claimed to pick a backend that the
+    precedence chain in ``resolve_dk_extractor`` really decided. The field is gone;
+    ``migrate_catalog_type`` carries the operator's old choice over once, at load,
+    so no library silently changes backend. - Claude Generated
+    """
+
+    def _plugins(self, catalog_settings, sru_settings=None):
+        from src.utils.config_models import PluginInstanceConfig
+
+        out = [PluginInstanceConfig(
+            "catalog", "search_provider", "catalog", settings=dict(catalog_settings))]
+        if sru_settings is not None:
+            out.append(PluginInstanceConfig(
+                "sru", "search_provider", "sru", settings=dict(sru_settings)))
+        return out
+
+    def _migrate(self, plugins):
+        from src.utils.plugin_migration import migrate_catalog_type
+
+        migrate_catalog_type(plugins)
+        return {p.provider_id: p for p in plugins}
+
+    def test_marcxml_sru_becomes_dk_enabled(self):
+        by_id = self._migrate(self._plugins({"catalog_type": "marcxml_sru"}, {"preset": "dnb"}))
+        self.assertIs(by_id["sru"].settings["dk_enabled"], True)
+        self.assertNotIn("catalog_type", by_id["catalog"].settings)
+
+    def test_auto_with_a_configured_endpoint_becomes_dk_enabled(self):
+        by_id = self._migrate(self._plugins(
+            {"catalog_type": "auto"}, {"base_url": "https://sru.example/x"}))
+        self.assertIs(by_id["sru"].settings["dk_enabled"], True)
+
+    def test_auto_without_an_endpoint_stays_off(self):
+        by_id = self._migrate(self._plugins({"catalog_type": "auto"}, {}))
+        self.assertFalse(by_id["sru"].settings.get("dk_enabled"))
+
+    def test_libero_soap_stays_off(self):
+        by_id = self._migrate(self._plugins({"catalog_type": "libero_soap"}, {"preset": "dnb"}))
+        self.assertFalse(by_id["sru"].settings.get("dk_enabled"))
+        self.assertNotIn("catalog_type", by_id["catalog"].settings)
+
+    def test_migration_never_disables_an_enabled_backend(self):
+        """It only ever turns DK on: a legacy 'libero_soap' cannot switch sru off."""
+        by_id = self._migrate(self._plugins(
+            {"catalog_type": "libero_soap"}, {"dk_enabled": True}))
+        self.assertIs(by_id["sru"].settings["dk_enabled"], True)
+
+    def test_migration_is_idempotent(self):
+        plugins = self._plugins({"catalog_type": "marcxml_sru"}, {"preset": "dnb"})
+        from src.utils.plugin_migration import migrate_catalog_type
+
+        self.assertTrue(migrate_catalog_type(plugins))
+        self.assertFalse(migrate_catalog_type(plugins))
+
+    def test_the_migrated_config_still_resolves_to_sru(self):
+        """End to end: the whole point is that the backend does not change."""
+        plugins = self._plugins({"catalog_type": "marcxml_sru"}, {"preset": "dnb"})
+        self._migrate(plugins)
+        cfg = _cfg(*[_StubInstance(p.provider_id, settings=p.settings) for p in plugins])
+        self.assertEqual(type(resolve_dk_extractor(config=cfg)).__name__, "MarcXmlClient")
 
 
 if __name__ == "__main__":

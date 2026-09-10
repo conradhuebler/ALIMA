@@ -105,7 +105,7 @@ class PrimarySettingsTest(unittest.TestCase):
         ))
         out = plugin_settings(cfg, "catalog")
         self.assertEqual(out["token"], "TOK")                            # instance wins
-        self.assertEqual(out["catalog_type"], "libero_soap")             # declared default
+        self.assertEqual(out["catalog_details"], "")                     # declared default
         self.assertIs(out["strict_gnd_validation_for_dk_search"], True)  # declared default
 
     def test_enabled_only_gates_source_reads_but_not_policy_reads(self):
@@ -279,7 +279,7 @@ class MigrationTest(unittest.TestCase):
         """The upgrade must not hand ``None`` to a provider constructor.
 
         Until WP P7 the unset fields came back as the CatalogConfig dataclass
-        defaults (``getattr`` on an unset attribute → ``catalog_type='libero_soap'``).
+        defaults (``getattr`` on an unset attribute → the ConfigField default).
         Reading the raw JSON section with ``dict.get`` instead would silently produce
         ``None`` for every key the operator never set, and build_provider passes
         settings straight into ``cls(**settings)``. So absent ⇒ *omitted*, and the
@@ -289,7 +289,7 @@ class MigrationTest(unittest.TestCase):
 
         cat = insts["catalog"].settings
         self.assertEqual(cat["token"], "TOK")
-        for absent in ("catalog_type", "strict_gnd_validation_for_dk_search",
+        for absent in ("strict_gnd_validation_for_dk_search",
                        "catalog_search_url", "catalog_web_record_url"):
             self.assertNotIn(absent, cat, f"{absent} must be omitted, not None")
         self.assertEqual(insts["finc"].settings, {})
@@ -302,7 +302,7 @@ class MigrationTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.plugins = list(insts.values())
         eff = plugin_settings(cfg, "catalog", enabled_only=False)
-        self.assertEqual(eff["catalog_type"], "libero_soap")
+        self.assertIs(eff["strict_gnd_validation_for_dk_search"], True)
         self.assertIs(eff["strict_gnd_validation_for_dk_search"], True)
 
     def test_fresh_config_seeds_all_builtins(self):

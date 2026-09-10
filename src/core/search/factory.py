@@ -365,26 +365,15 @@ def _custom_classification_extractor(
     return None
 
 
-def _sru_selected_for_dk(sru_inst: Any, catalog_inst: Any) -> bool:
-    """Whether SRU is the operator's chosen DK backend.
+def _sru_selected_for_dk(sru_inst: Any, catalog_inst: Any = None) -> bool:
+    """Whether SRU is the operator's chosen DK backend: its own ``dk_enabled``.
 
-    The new explicit knob is the sru instance's own ``dk_enabled`` (symmetric to
-    finc). For configs migrated before that field existed we still honour the
-    legacy ``catalog_type == 'marcxml_sru'`` on the catalog instance (incl. the
-    ``'auto'`` heuristic: SRU when a preset/base_url is configured) so those
-    libraries keep their DK backend. ``catalog_type`` is thereby vestigial —
-    read only as a transition fallback, dropped with the mirror in WP P7.
-    - Claude Generated
+    Symmetric to finc. The legacy ``catalog_type`` on the catalog instance used to
+    be honoured here as a transition fallback; it is now carried over once at load
+    time by ``plugin_migration.migrate_catalog_type`` and the key is dropped, so
+    there is a single knob instead of two that could disagree. - Claude Generated
     """
-    if sru_inst is not None and (getattr(sru_inst, "settings", None) or {}).get("dk_enabled"):
-        return True
-    cat_type = str(((getattr(catalog_inst, "settings", None) or {}).get("catalog_type") or "")).strip()
-    if cat_type == "marcxml_sru":
-        return True
-    if cat_type == "auto" and sru_inst is not None:
-        s = getattr(sru_inst, "settings", None) or {}
-        return bool(s.get("preset") or s.get("base_url"))
-    return False
+    return bool((getattr(sru_inst, "settings", None) or {}).get("dk_enabled"))
 
 
 def resolve_dk_extractor(
@@ -404,8 +393,7 @@ def resolve_dk_extractor(
     1. **finc** — opt-in via the finc instance's ``dk_enabled``;
     2. **custom plugin** — any enabled non-built-in provider declaring CLASSIFICATION;
     3. **SRU / MARC-XML** — opt-in via the sru instance's ``dk_enabled``
-       (legacy ``catalog_type == 'marcxml_sru'`` still honoured, see
-       :func:`_sru_selected_for_dk`);
+       (see :func:`_sru_selected_for_dk`);
     4. **Libero SOAP** — the catalog instance, the default.
 
     Returns an object implementing the shared
@@ -440,7 +428,7 @@ def resolve_dk_extractor(
     )
     if ext is not None:
         return ext
-    # 3. SRU — opt-in (new dk_enabled knob or the legacy catalog_type fallback).
+    # 3. SRU — opt-in via its own dk_enabled knob.
     if _sru_selected_for_dk(by_id.get("sru"), by_id.get("catalog")):
         ext = _dk_extractor_from_instance(by_id.get("sru"), **common)
         if ext is not None:

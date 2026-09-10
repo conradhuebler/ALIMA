@@ -513,6 +513,7 @@ class ConfigManager:
                 SEARCH_CATEGORY,
                 ensure_lookup_instances,
                 instance_from_dict,
+                migrate_catalog_type,
                 synthesize_input_instances,
                 synthesize_missing_search_instances,
                 synthesize_search_instances,
@@ -531,6 +532,7 @@ class ConfigManager:
             if not any(p.category == INPUT_CATEGORY for p in plugins):
                 plugins += synthesize_input_instances(system_config)
             ensure_lookup_instances(plugins)
+            migrate_catalog_type(plugins)
             approved_plugins = dict(config_data.get("approved_plugins", {}) or {})
             installed_bundles = dict(config_data.get("installed_bundles", {}) or {})
 

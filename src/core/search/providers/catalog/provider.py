@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
-from src.core.plugins.schema import BOOL, CHOICE, URL, SECRET, ConfigField
+from src.core.plugins.schema import BOOL, URL, SECRET, ConfigField
 
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
@@ -50,11 +50,6 @@ class CatalogProvider(SuggesterBackedProvider):
             ConfigField(
                 key="catalog_web_record_url", label="Web-Record-URL (OPAC)", kind=URL,
                 help="Basis für OPAC-Titel-Weblinks (…/Record/<rsn>).",
-            ),
-            ConfigField(
-                key="catalog_type", label="DK-Backend", kind=CHOICE,
-                choices=["libero_soap", "marcxml_sru", "auto"], default="libero_soap",
-                help="Welches Backend die DK-Suche nutzt: Libero-SOAP, MARC-XML/SRU oder auto.",
             ),
             ConfigField(
                 key="strict_gnd_validation_for_dk_search", label="Strikte GND-Validierung (DK)",
