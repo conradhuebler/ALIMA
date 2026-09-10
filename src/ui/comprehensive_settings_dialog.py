@@ -395,8 +395,16 @@ class ComprehensiveSettingsDialog(QDialog):
 
 
         # Repetition Detection settings - Claude Generated
-        repetition_group = QGroupBox("🔄 Repetition Detection")
+        repetition_group = QGroupBox("🔄 Wiederholungserkennung (klassische Läufe)")
         repetition_layout = QFormLayout()
+
+        scope_note = QLabel(
+            "Wirkt auf die klassische Abstract-Analyse. Agentische Workflows "
+            "laufen über den LLM-Dienst und werden nicht überwacht."
+        )
+        scope_note.setWordWrap(True)
+        scope_note.setStyleSheet("color: gray; font-size: 10px;")
+        repetition_layout.addRow(scope_note)
 
         self.repetition_enabled = QCheckBox("Enable repetition detection")
         self.repetition_enabled.setToolTip("Detect when LLM falls into repetitive output loops")

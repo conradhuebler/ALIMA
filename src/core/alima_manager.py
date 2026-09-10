@@ -68,6 +68,16 @@ class AlimaManager:
         # Interrupt callback for streaming loop - Claude Generated
         self._interrupt_check_func: Optional[Callable[[], bool]] = None
 
+    def reload_repetition_config(self):
+        """Rebuild the detector from the current config - Claude Generated.
+
+        The GUI creates one AlimaManager for the process, so without this a
+        changed setting only reached the detector after a restart — and until
+        Sep 2026 not even then, because the loader never restored the section.
+        Called from MainWindow._refresh_components after a settings save.
+        """
+        self._init_repetition_detector()
+
     def _init_repetition_detector(self):
         """Initialize repetition detector from config - Claude Generated"""
         try:

@@ -468,6 +468,16 @@ class ConfigManager:
             chat_config_data = config_data.get("chat_config", {})
             chat_config = build_config_section(ChatConfig, chat_config_data, context="chat_config")
 
+            # Parse repetition-detection config. Missing until Sep 2026: the section
+            # was serialised by asdict and never read back, so the six controls in
+            # Settings ▸ System wrote to disk and the loader discarded them.
+            # - Claude Generated
+            repetition_config = build_config_section(
+                RepetitionDetectionConfig,
+                config_data.get("repetition_config", {}),
+                context="repetition_config",
+            )
+
             # Create unified provider config
             if "unified_config" in config_data:
                 # Already in unified format
@@ -535,6 +545,7 @@ class ConfigManager:
                 system_config=system_config,
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
                 chat_config=chat_config,  # Claude Generated (WP10 P-δ.1)
+                repetition_config=repetition_config,  # Claude Generated
                 unified_config=unified_config,
                 plugins=plugins,  # Claude Generated (plugin system)
                 approved_plugins=approved_plugins,  # Claude Generated (plugin system)

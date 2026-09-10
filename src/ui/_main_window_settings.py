@@ -268,6 +268,14 @@ class MainWindowSettingsMixin:
                 if hasattr(self, 'pipeline_manager'):
                     self.pipeline_manager.reload_config()
 
+            # 3b. Rebuild the repetition detector. AlimaManager is created once
+            # (main_window), so without this a changed threshold only took effect
+            # after a restart. - Claude Generated
+            with self._timed("repetition_detector.reload", self.logger):
+                mgr = getattr(self, "alima_manager", None)
+                if mgr is not None and hasattr(mgr, "reload_repetition_config"):
+                    mgr.reload_repetition_config()
+
             # 4. Update tabs with new provider information
             with self._timed("update_tabs_with_provider_info", self.logger):
                 self.update_tabs_with_provider_info()
