@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from copy import deepcopy
 
-from ..utils.config_manager import ConfigManager, AlimaConfig, DatabaseConfig, SystemConfig
+from ..utils.config_manager import ConfigManager, AlimaConfig
 from .workers import ModelLoadWorker
 from ..utils.error_visibility import log_caught
 from ..utils.config_models import UnifiedProvider
@@ -805,7 +805,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self.mysql_database.setText("")
             self.mysql_username.setText("")
             self.mysql_password.setText("")
-            self.mysql_charset.setText("utf8mb4")
+            self.mysql_charset.setCurrentText("utf8mb4")
             self.mysql_ssl_disabled.setChecked(False)
             self.connection_timeout.setValue(30)
             self.auto_create_tables.setChecked(True)
@@ -841,20 +841,22 @@ class ComprehensiveSettingsDialog(QDialog):
         except Exception as e:
             self.logger.warning(f"Could not sync provider tab defaults: {e}")
         
-        # Database configuration - Claude Generated fix for expanded DatabaseConfig
-        config.database_config = DatabaseConfig(
-            db_type=self.db_type_combo.currentText(),
-            sqlite_path=self.sqlite_path.text(),
-            host=self.mysql_host.text(),
-            port=self.mysql_port.value(),
-            database=self.mysql_database.text(),
-            username=self.mysql_username.text(),
-            password=self.mysql_password.text(),
-            charset=self.mysql_charset.currentText(),
-            ssl_disabled=self.mysql_ssl_disabled.isChecked(),
-            connection_timeout=self.connection_timeout.value(),
-            auto_create_tables=self.auto_create_tables.isChecked()
-        )
+        # Database configuration — mutate, never rebuild. A reconstructed dataclass
+        # resets every field this dialog has no widget for (gnd_local_path did
+        # exactly that until Sep 2026); mutating leaves them alone by construction.
+        # - Claude Generated
+        db = config.database_config
+        db.db_type = self.db_type_combo.currentText()
+        db.sqlite_path = self.sqlite_path.text()
+        db.host = self.mysql_host.text()
+        db.port = self.mysql_port.value()
+        db.database = self.mysql_database.text()
+        db.username = self.mysql_username.text()
+        db.password = self.mysql_password.text()
+        db.charset = self.mysql_charset.currentText()
+        db.ssl_disabled = self.mysql_ssl_disabled.isChecked()
+        db.connection_timeout = self.connection_timeout.value()
+        db.auto_create_tables = self.auto_create_tables.isChecked()
         
         # Unified provider configuration - use current configuration as-is
         # Provider settings are managed through the unified provider system
@@ -864,32 +866,21 @@ class ComprehensiveSettingsDialog(QDialog):
         # Per-plugin enable/config now lives in config.plugins (applied below,
         # after all legacy sections are built). - Claude Generated
 
-        # System configuration - Claude Generated fix for expanded config structure
-        config.system_config = SystemConfig(
-            debug=self.debug_mode.isChecked(),
-            log_level=self.log_level.currentText(),
-            cache_dir=self.cache_dir.text(),
-            data_dir=self.data_dir.text(),
-            temp_dir=self.temp_dir.text(),
-            autosave_dir=self.autosave_dir.text(),
-            default_workflow=self.default_workflow_combo.currentData(),
-            # DOI-Auflösung (contact_email + doi_use_*) is edited in the Plugins
-            # tab; preserve the loaded values here and let the plugin instances
-            # (via derive-on-save) be authoritative. - Claude Generated
-            contact_email=config.system_config.contact_email,
-            doi_use_crossref=config.system_config.doi_use_crossref,
-            doi_use_openalex=config.system_config.doi_use_openalex,
-            doi_use_datacite=config.system_config.doi_use_datacite,
-            # Preserve wizard/system flags that have no UI controls - Claude Generated
-            prompts_path=config.system_config.prompts_path,
-            first_run_completed=config.system_config.first_run_completed,
-            skip_first_run_check=config.system_config.skip_first_run_check,
-            # enable_code_plugins is edited in the Plugins tab; its apply_to()
-            # runs after this construction and overwrites the value. - Claude Generated
-            enable_code_plugins=config.system_config.enable_code_plugins,
-            enable_response_cache=self.enable_response_cache.isChecked(),
-            aggregate_from_raw=self.aggregate_from_raw.isChecked(),
-        )
+        # System configuration — only what this dialog has a widget for. Everything
+        # else (DOI mirror fields, the wizard flags, prompts_path,
+        # enable_code_plugins from the Plugins tab, url_fetch_allowlist /
+        # url_fetch_max_bytes with no widget at all) keeps its loaded value because
+        # it is not touched. - Claude Generated
+        sys_cfg = config.system_config
+        sys_cfg.debug = self.debug_mode.isChecked()
+        sys_cfg.log_level = self.log_level.currentText()
+        sys_cfg.cache_dir = self.cache_dir.text()
+        sys_cfg.data_dir = self.data_dir.text()
+        sys_cfg.temp_dir = self.temp_dir.text()
+        sys_cfg.autosave_dir = self.autosave_dir.text()
+        sys_cfg.default_workflow = self.default_workflow_combo.currentData()
+        sys_cfg.enable_response_cache = self.enable_response_cache.isChecked()
+        sys_cfg.aggregate_from_raw = self.aggregate_from_raw.isChecked()
 
         # Chat-Agent configuration — preserve all other ChatConfig fields (they
         # have no UI here; e.g. the persisted default provider/model combo,
@@ -900,29 +891,26 @@ class ComprehensiveSettingsDialog(QDialog):
         config.chat_config.institution_context = self.chat_institution_context.toPlainText().strip()
         config.chat_config.allow_model_switch = self.chat_allow_model_switch.isChecked()
 
-        # UI configuration - Claude Generated (Webcam Feature)
-        from ..utils.config_models import UIConfig, RepetitionDetectionConfig
-        config.ui_config = UIConfig(
-            enable_webcam_input=self.enable_webcam_input.isChecked(),
-            font_size=self.font_size_spin.value(),
-        )
+        # UI configuration — ui_language and ptheta_banner_seen have no widget and
+        # were reset on every save while this rebuilt the dataclass. - Claude Generated
+        from ..utils.config_models import RepetitionDetectionConfig
 
-        # Repetition Detection configuration - Claude Generated
-        config.repetition_config = RepetitionDetectionConfig(
-            enabled=self.repetition_enabled.isChecked(),
-            auto_abort=self.repetition_auto_abort.isChecked(),
-            ngram_threshold=self.repetition_ngram_threshold.value(),
-            min_text_length=self.repetition_min_text.value(),
-            char_repeat_threshold=self.repetition_char_threshold.value(),
-            grace_period_seconds=self.repetition_grace_period.value(),  # Claude Generated (2026-02-17)
-            # Keep other values at defaults or from existing config
-            ngram_size=getattr(config.repetition_config, 'ngram_size', 6) if hasattr(config, 'repetition_config') else 6,
-            window_size=getattr(config.repetition_config, 'window_size', 300) if hasattr(config, 'repetition_config') else 300,
-            window_similarity_threshold=getattr(config.repetition_config, 'window_similarity_threshold', 0.90) if hasattr(config, 'repetition_config') else 0.90,
-            min_windows=getattr(config.repetition_config, 'min_windows', 4) if hasattr(config, 'repetition_config') else 4,
-            check_interval=getattr(config.repetition_config, 'check_interval', 200) if hasattr(config, 'repetition_config') else 200,
-            show_suggestions=getattr(config.repetition_config, 'show_suggestions', True) if hasattr(config, 'repetition_config') else True,
-        )
+        config.ui_config.enable_webcam_input = self.enable_webcam_input.isChecked()
+        config.ui_config.font_size = self.font_size_spin.value()
+
+        # Repetition Detection — the six widgeted values; ngram_size, window_size,
+        # window_similarity_threshold, min_windows, check_interval and
+        # show_suggestions have no widget and keep their loaded values.
+        # - Claude Generated
+        if getattr(config, "repetition_config", None) is None:
+            config.repetition_config = RepetitionDetectionConfig()
+        rep = config.repetition_config
+        rep.enabled = self.repetition_enabled.isChecked()
+        rep.auto_abort = self.repetition_auto_abort.isChecked()
+        rep.ngram_threshold = self.repetition_ngram_threshold.value()
+        rep.min_text_length = self.repetition_min_text.value()
+        rep.char_repeat_threshold = self.repetition_char_threshold.value()
+        rep.grace_period_seconds = self.repetition_grace_period.value()
 
         # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)
 
