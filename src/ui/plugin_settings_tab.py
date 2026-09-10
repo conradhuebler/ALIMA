@@ -250,10 +250,26 @@ class _CategoryPanel(QWidget):
         self._label_edit = QLineEdit(inst.label)
         self.form_layout.addRow("Name", self._label_edit)
 
+        # Collapsed unless it has content. It is a real feature (the text is
+        # appended to the generated MCP tool description, see
+        # tool_registry._describe_with_hint), but it only matters with two
+        # instances of one type — a case no install has had — while occupying a
+        # 64px box on all 16 panels. - Claude Generated
         self._hint_edit = QTextEdit(inst.usage_hint)
-        self._hint_edit.setPlaceholderText("Optionaler Hinweis für den Agenten, wann diese Instanz genutzt werden soll.")
+        self._hint_edit.setPlaceholderText(
+            "Wann soll der Agent gerade diese Instanz nehmen? Nur nötig, wenn es "
+            "mehrere Instanzen desselben Typs gibt."
+        )
         self._hint_edit.setMaximumHeight(64)
-        self.form_layout.addRow("Agent-Hinweis", self._hint_edit)
+        self._hint_row = QWidget()
+        _hint_box = QVBoxLayout(self._hint_row)
+        _hint_box.setContentsMargins(0, 0, 0, 0)
+        _hint_box.addWidget(self._hint_edit)
+        self._hint_toggle = QCheckBox("Agent-Hinweis")
+        self._hint_toggle.setChecked(bool(inst.usage_hint))
+        self._hint_row.setVisible(bool(inst.usage_hint))
+        self._hint_toggle.toggled.connect(self._hint_row.setVisible)
+        self.form_layout.addRow(self._hint_toggle, self._hint_row)
 
         meta = self._adapter.type_meta(inst.provider_id)
         for fld in meta.config_fields:
