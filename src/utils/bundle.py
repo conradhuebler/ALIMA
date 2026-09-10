@@ -57,8 +57,6 @@ SYSTEM_ALLOWED_KEYS = {
     "enable_code_plugins",
     "enable_response_cache",
     "aggregate_from_raw",
-    "enable_dk_splitting",
-    "dk_split_threshold",
 }
 _SECRET_SUBSTR = ("api_key", "apikey", "token", "secret", "password")
 

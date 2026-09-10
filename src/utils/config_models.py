@@ -129,7 +129,6 @@ class DatabaseConfig:
 
     # Connection settings
     connection_timeout: int = 30
-    auto_create_tables: bool = True
     charset: str = 'utf8mb4'
     ssl_disabled: bool = False
 
@@ -770,25 +769,14 @@ class PluginInstanceConfig:
 
 
 @dataclass
-class PromptConfig:
-    """Prompt configuration settings - Claude Generated"""
-    prompts_file: str = 'prompts.json'
-    custom_prompts_dir: str = 'custom_prompts'
-    prompt_cache_enabled: bool = True
-
-
-@dataclass
 class SystemConfig:
     """System-wide configuration - Claude Generated
 
     NOTE: database_path has been moved to DatabaseConfig.sqlite_path
     This is now the single source of truth for database configuration.
     """
-    debug: bool = False
-    log_level: str = 'INFO'
+    log_level: str = 'normal'  # see logging_utils.LOG_LEVEL_CHOICES
     cache_dir: str = 'cache'
-    data_dir: str = 'data'
-    temp_dir: str = '/tmp'
 
     # Configurable file paths (can be absolute or relative to project root) - Claude Generated
     prompts_path: str = 'prompts.json'          # Path to prompts configuration file
@@ -903,11 +891,9 @@ class ChatConfig:
     max_tokens: int = 8192
     no_cache_writes: bool = True
     temperature: float = 0.5
-    system_prompt_override: str = ""
     # Institutional context prepended to every chat system prompt (e.g. "Du bist
     # der Chatbot der Universitätsbibliothek XYZ."). Lets an operator brand/scope
     # the agent without touching code; empty = no institutional framing. Distinct
-    # from `system_prompt_override`, which replaces the whole prompt. - Claude Generated
     institution_context: str = ""
     # Chat system-prompt tier: 'auto' (compact for small/code models, full
     # otherwise), 'compact' (always short), 'full' (always long). The full
@@ -937,7 +923,6 @@ class AlimaConfig:
     """Main ALIMA configuration with unified provider system - Claude Generated"""
     # Core configuration sections
     database_config: DatabaseConfig = field(default_factory=DatabaseConfig)
-    prompt_config: PromptConfig = field(default_factory=PromptConfig)
     system_config: SystemConfig = field(default_factory=SystemConfig)
     ui_config: UIConfig = field(default_factory=UIConfig)  # Claude Generated - Webcam Feature
     repetition_config: RepetitionDetectionConfig = field(default_factory=RepetitionDetectionConfig)  # Claude Generated
@@ -998,7 +983,6 @@ class AlimaConfig:
         return pool[0] if pool else None
 
 
-    # Version and metadata
+    # Version and metadata. created_at/updated_at used to sit here; nothing ever
+    # set or read them. - Claude Generated
     config_version: str = '2.0'  # Incremented for unified config
-    created_at: str = field(default_factory=lambda: "")
-    updated_at: str = field(default_factory=lambda: "")

@@ -13,6 +13,38 @@ from typing import Optional
 _current_log_level: int = 1
 
 
+# The four verbosity levels setup_logging actually implements, as the
+# (stored value, label) pairs a settings UI can offer. The settings dialog used
+# to show DEBUG/INFO/WARNING/ERROR/CRITICAL, which suggests five distinct
+# behaviours where there are four — and nothing read the value at all until
+# Sep 2026. - Claude Generated
+LOG_LEVEL_CHOICES = [
+    ("quiet", "Ruhig — nur Ergebnisse"),
+    ("normal", "Normal — INFO"),
+    ("debug", "Debug — ALIMA ausführlich"),
+    ("verbose", "Ausführlich — inkl. Fremdbibliotheken"),
+]
+
+_VERBOSITY = {"quiet": 0, "normal": 1, "debug": 2, "verbose": 3}
+
+# Values written by the old string combo, so an existing config keeps working.
+_LEGACY_VERBOSITY = {
+    "DEBUG": 2, "INFO": 1, "WARNING": 0, "ERROR": 0, "CRITICAL": 0,
+}
+
+
+def log_level_to_verbosity(name: str) -> int:
+    """Map a stored ``SystemConfig.log_level`` to a setup_logging level.
+
+    Unknown values fall back to Normal rather than silencing the log.
+    - Claude Generated
+    """
+    key = str(name or "").strip()
+    if key in _VERBOSITY:
+        return _VERBOSITY[key]
+    return _LEGACY_VERBOSITY.get(key.upper(), 1)
+
+
 def setup_logging(
     level: int = 1,
     log_file: str = "alima.log",

@@ -69,7 +69,6 @@ def handle_db_show(config_manager: ConfigManager, logger: logging.Logger):
             print(f"   Charset: {config.database.charset}")
             print(f"   SSL Disabled: {config.database.ssl_disabled}")
         print(f"   Connection Timeout: {config.database.connection_timeout}s")
-        print(f"   Auto Create Tables: {config.database.auto_create_tables}")
     except Exception as e:
         logger.error(f"❌ Error showing database config: {e}")
 

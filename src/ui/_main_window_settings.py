@@ -276,6 +276,23 @@ class MainWindowSettingsMixin:
                 if mgr is not None and hasattr(mgr, "reload_repetition_config"):
                     mgr.reload_repetition_config()
 
+            # 3c. Apply the configured log verbosity without a restart.
+            # - Claude Generated
+            with self._timed("logging.reload", self.logger):
+                try:
+                    from ..utils.logging_utils import (
+                        log_level_to_verbosity,
+                        setup_logging,
+                    )
+
+                    cfg = self.config_manager.load_config()
+                    setup_logging(
+                        level=log_level_to_verbosity(cfg.system_config.log_level),
+                        log_file="alima.log",
+                    )
+                except Exception:
+                    self.logger.debug("log level reload failed", exc_info=True)
+
             # 4. Update tabs with new provider information
             with self._timed("update_tabs_with_provider_info", self.logger):
                 self.update_tabs_with_provider_info()

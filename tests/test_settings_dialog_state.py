@@ -152,7 +152,6 @@ class DatabaseResetCompletesTest(_DialogHarness, unittest.TestCase):
         self.assertEqual(dlg.mysql_username.text(), "")
         self.assertEqual(dlg.mysql_charset.currentText(), "utf8mb4")
         self.assertEqual(dlg.connection_timeout.value(), 30)
-        self.assertTrue(dlg.auto_create_tables.isChecked())
         done.assert_called_once()
 
 

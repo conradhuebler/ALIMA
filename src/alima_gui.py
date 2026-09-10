@@ -67,9 +67,8 @@ def main():
     parser.add_argument("--reset-setup", action="store_true", help="Reset setup flag and run wizard (same as --wizard)")
     args = parser.parse_args()
 
-    # Setup centralized logging - Claude Generated
-    # Default to level 1 (Normal) for GUI
-    # TODO: Read from ~/.config/alima/config.json in future
+    # Bootstrap logging at Normal; re-applied from the config below, once it is
+    # loaded (the config load itself must be able to log). - Claude Generated
     setup_logging(level=1, log_file="alima.log")
     app = QApplication(sys.argv)
     _ = AlimaStateBus()  # Force singleton creation on main thread before workers spawn
@@ -86,6 +85,15 @@ def main():
     # Check for first-run setup or forced wizard - Claude Generated
     config_manager = ConfigManager()
     config = config_manager.load_config()
+
+    # Apply the configured verbosity. Until Sep 2026 the Log-Level control in
+    # Settings ▸ System wrote a value nothing read. - Claude Generated
+    from src.utils.logging_utils import log_level_to_verbosity
+
+    setup_logging(
+        level=log_level_to_verbosity(config.system_config.log_level),
+        log_file="alima.log",
+    )
 
     # Show wizard if: first run OR forced via --wizard/--reset-setup flag
     force_wizard = args.wizard or args.reset_setup

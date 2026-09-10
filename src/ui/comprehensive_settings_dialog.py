@@ -23,6 +23,7 @@ from ..utils.config_manager import ConfigManager, AlimaConfig
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
 from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
+from ..utils.logging_utils import LOG_LEVEL_CHOICES
 
 
 class DatabaseTestWorker(QThread):
@@ -207,9 +208,6 @@ class ComprehensiveSettingsDialog(QDialog):
         self.connection_timeout.setSuffix(" seconds")
         conn_layout.addRow("Connection Timeout:", self.connection_timeout)
         
-        self.auto_create_tables = QCheckBox("Automatically create database tables")
-        self.auto_create_tables.setChecked(True)
-        conn_layout.addRow("Auto-Setup:", self.auto_create_tables)
         
         conn_group.setLayout(conn_layout)
         layout.addWidget(conn_group)
@@ -254,9 +252,6 @@ class ComprehensiveSettingsDialog(QDialog):
         system_group = QGroupBox("System Settings")
         system_layout = QFormLayout()
         
-        self.debug_mode = QCheckBox("Enable debug mode")
-        system_layout.addRow("Debug:", self.debug_mode)
-
         # WP2 raw-first response cache toggles - Claude Generated
         self.enable_response_cache = QCheckBox("Cache source responses (raw-first)")
         self.enable_response_cache.setToolTip(
@@ -287,8 +282,13 @@ class ComprehensiveSettingsDialog(QDialog):
         system_layout.addRow("Schriftgröße:", self.font_size_spin)
 
         self.log_level = QComboBox()
-        self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-        system_layout.addRow("Log Level:", self.log_level)
+        for value, label in LOG_LEVEL_CHOICES:
+            self.log_level.addItem(label, value)
+        self.log_level.setToolTip(
+            "Wie ausführlich in alima.log geschrieben wird. Für eine Fehlermeldung "
+            "auf „Debug\u201c stellen, das Problem wiederholen und die Datei mitschicken."
+        )
+        system_layout.addRow("Protokoll:", self.log_level)
 
         # Default workflow for agentic pipeline runs - Claude Generated
         self.default_workflow_combo = QComboBox()
@@ -307,24 +307,6 @@ class ComprehensiveSettingsDialog(QDialog):
         cache_browse.clicked.connect(self._browse_cache_dir)
         cache_layout.addWidget(cache_browse)
         system_layout.addRow("Cache Directory:", cache_layout)
-
-        # Data Directory - Claude Generated
-        data_layout = QHBoxLayout()
-        self.data_dir = QLineEdit()
-        data_layout.addWidget(self.data_dir)
-        data_browse = QPushButton("Browse...")
-        data_browse.clicked.connect(self._browse_data_dir)
-        data_layout.addWidget(data_browse)
-        system_layout.addRow("Data Directory:", data_layout)
-
-        # Temp Directory - Claude Generated
-        temp_layout = QHBoxLayout()
-        self.temp_dir = QLineEdit()
-        temp_layout.addWidget(self.temp_dir)
-        temp_browse = QPushButton("Browse...")
-        temp_browse.clicked.connect(self._browse_temp_dir)
-        temp_layout.addWidget(temp_browse)
-        system_layout.addRow("Temp Directory:", temp_layout)
 
         # Autosave / batch output directory - Claude Generated
         autosave_layout = QHBoxLayout()
@@ -519,7 +501,6 @@ class ComprehensiveSettingsDialog(QDialog):
         self.mysql_charset.setCurrentText(config.database.charset)
         self.mysql_ssl_disabled.setChecked(config.database.ssl_disabled)
         self.connection_timeout.setValue(config.database.connection_timeout)
-        self.auto_create_tables.setChecked(config.database.auto_create_tables)
         
         # LLM settings are now handled by the unified provider tab
         # Note: Static provider API keys (Gemini, Anthropic) are managed through the unified provider system
@@ -531,21 +512,19 @@ class ComprehensiveSettingsDialog(QDialog):
         self.plugin_settings_tab.load(config)
         
         # System settings
-        self.debug_mode.setChecked(config.system_config.debug)
         self.enable_response_cache.setChecked(
             getattr(config.system_config, "enable_response_cache", True)
         )
         self.aggregate_from_raw.setChecked(
             getattr(config.system_config, "aggregate_from_raw", True)
         )
-        self.log_level.setCurrentText(config.system_config.log_level)
+        lvl_idx = self.log_level.findData(config.system_config.log_level)
+        self.log_level.setCurrentIndex(lvl_idx if lvl_idx >= 0 else 1)
         default_workflow = getattr(config.system_config, "default_workflow", "alima_v51") or "alima_v51"
         idx = self.default_workflow_combo.findData(default_workflow)
         if idx >= 0:
             self.default_workflow_combo.setCurrentIndex(idx)
         self.cache_dir.setText(config.system_config.cache_dir)
-        self.data_dir.setText(config.system_config.data_dir)
-        self.temp_dir.setText(config.system_config.temp_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
 
         # Chat-Agent settings - Claude Generated
@@ -656,22 +635,6 @@ class ComprehensiveSettingsDialog(QDialog):
         if directory:
             self.cache_dir.setText(directory)
 
-    def _browse_data_dir(self):
-        """Browse for data directory - Claude Generated"""
-        directory = QFileDialog.getExistingDirectory(
-            self, "Daten-Verzeichnis wählen", self.data_dir.text()
-        )
-        if directory:
-            self.data_dir.setText(directory)
-
-    def _browse_temp_dir(self):
-        """Browse for temp directory - Claude Generated"""
-        directory = QFileDialog.getExistingDirectory(
-            self, "Temp-Verzeichnis wählen", self.temp_dir.text()
-        )
-        if directory:
-            self.temp_dir.setText(directory)
-
     def _browse_sqlite_path(self):
         """Browse for SQLite database path - Claude Generated"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -732,7 +695,6 @@ class ComprehensiveSettingsDialog(QDialog):
             self.mysql_charset.setCurrentText("utf8mb4")
             self.mysql_ssl_disabled.setChecked(False)
             self.connection_timeout.setValue(30)
-            self.auto_create_tables.setChecked(True)
 
             # Trigger UI updates
             self._on_db_type_changed("sqlite")
@@ -766,7 +728,6 @@ class ComprehensiveSettingsDialog(QDialog):
         db.charset = self.mysql_charset.currentText()
         db.ssl_disabled = self.mysql_ssl_disabled.isChecked()
         db.connection_timeout = self.connection_timeout.value()
-        db.auto_create_tables = self.auto_create_tables.isChecked()
         
         # Unified provider configuration - use current configuration as-is
         # Provider settings are managed through the unified provider system
@@ -782,11 +743,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # url_fetch_max_bytes with no widget at all) keeps its loaded value because
         # it is not touched. - Claude Generated
         sys_cfg = config.system_config
-        sys_cfg.debug = self.debug_mode.isChecked()
-        sys_cfg.log_level = self.log_level.currentText()
+        sys_cfg.log_level = self.log_level.currentData()
         sys_cfg.cache_dir = self.cache_dir.text()
-        sys_cfg.data_dir = self.data_dir.text()
-        sys_cfg.temp_dir = self.temp_dir.text()
         sys_cfg.autosave_dir = self.autosave_dir.text()
         sys_cfg.default_workflow = self.default_workflow_combo.currentData()
         sys_cfg.enable_response_cache = self.enable_response_cache.isChecked()

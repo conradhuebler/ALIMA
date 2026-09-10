@@ -20,7 +20,7 @@ from enum import Enum
 # Import centralized data models
 from .config_models import (
     AlimaConfig, ChatConfig, DatabaseConfig,
-    PromptConfig, UIConfig,
+    UIConfig,
     UnifiedProviderConfig, UnifiedProvider, TaskPreference, PipelineStepConfig,
     OllamaProvider, OpenAICompatibleProvider, GeminiProvider, AnthropicProvider,
     TaskType, PipelineMode
@@ -428,10 +428,6 @@ class ConfigManager:
             # Create main config sections - Claude Generated
             database_config = build_config_section(
                 DatabaseConfig, database_config_data, context="database_config")
-            prompt_config = build_config_section(
-                PromptConfig,
-                config_data.get("prompt_config", config_data.get("prompt", {})),
-                context="prompt_config")
             system_config = build_config_section(
                 SystemConfig, system_config_data, context="system_config")
 
@@ -541,7 +537,6 @@ class ConfigManager:
             # Create main config
             config = AlimaConfig(
                 database_config=database_config,
-                prompt_config=prompt_config,
                 system_config=system_config,
                 ui_config=ui_config,  # Claude Generated (Webcam Feature Fix)
                 chat_config=chat_config,  # Claude Generated (WP10 P-δ.1)
@@ -898,10 +893,6 @@ class ConfigManager:
     def get_database_config(self) -> DatabaseConfig:
         """Get database configuration - Claude Generated"""
         return self.load_config().database_config
-
-    def get_prompt_config(self) -> PromptConfig:
-        """Get prompt configuration - Claude Generated"""
-        return self.load_config().prompt_config
 
     def get_ui_config(self) -> UIConfig:
         """Get UI configuration - Claude Generated"""

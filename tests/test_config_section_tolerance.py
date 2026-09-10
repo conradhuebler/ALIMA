@@ -101,3 +101,77 @@ class LoadWithRemovedKeysTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RemovedSettingsDoNotResetTheConfigTest(unittest.TestCase):
+    """The Sep-2026 removals, on a config written before them.
+
+    Removed: SystemConfig.debug/data_dir/temp_dir (no readers — the log level
+    beside them was wired up instead), the whole PromptConfig section (three
+    fields, zero readers repo-wide), ChatConfig.system_prompt_override,
+    DatabaseConfig.auto_create_tables, PluginInstanceConfig.is_primary, and
+    AlimaConfig.created_at/updated_at. Every existing config.json carries some of
+    them. - Claude Generated
+    """
+
+    def setUp(self):
+        ConfigManager.reset()
+        self.tmp = Path(tempfile.mkdtemp()) / "config.json"
+
+    def tearDown(self):
+        ConfigManager.reset()
+
+    def test_an_old_config_keeps_everything_that_still_exists(self):
+        self.tmp.write_text(json.dumps({
+            "unified_config": {"providers": [], "gemini_api_key": "KEEP-ME"},
+            "system_config": {
+                "debug": True, "log_level": "DEBUG",
+                "data_dir": "/old/data", "temp_dir": "/old/tmp",
+                "autosave_dir": "/keep/results", "contact_email": "me@x.org",
+            },
+            "prompt_config": {"prompts_file": "old.json", "prompt_cache_enabled": False},
+            "chat_config": {"system_prompt_override": "gone", "max_iterations": 12},
+            "database_config": {"auto_create_tables": False, "sqlite_path": "/keep/db.sqlite"},
+            "plugins": [{"instance_id": "lobid", "category": "search_provider",
+                         "provider_id": "lobid", "enabled": True, "is_primary": True,
+                         "settings": {}}],
+            "created_at": "2025-01-01", "updated_at": "2025-06-01",
+        }))
+        ConfigManager.reset()
+        cm = ConfigManager()
+        cm.config_file = self.tmp
+        cfg = cm.load_config()
+
+        # Nothing was reset by the unknown keys.
+        self.assertEqual(cfg.system_config.autosave_dir, "/keep/results")
+        self.assertEqual(cfg.system_config.contact_email, "me@x.org")
+        self.assertEqual(cfg.database_config.sqlite_path, "/keep/db.sqlite")
+        self.assertEqual(cfg.chat_config.max_iterations, 12)
+        self.assertEqual(cfg.unified_config.gemini_api_key, "KEEP-ME")
+        self.assertTrue(any(p.provider_id == "lobid" for p in cfg.plugins))
+
+        # The removed names are gone from the model.
+        for obj, name in [
+            (cfg.system_config, "debug"),
+            (cfg.system_config, "data_dir"),
+            (cfg.system_config, "temp_dir"),
+            (cfg.chat_config, "system_prompt_override"),
+            (cfg.database_config, "auto_create_tables"),
+            (cfg, "prompt_config"),
+            (cfg, "created_at"),
+        ]:
+            self.assertFalse(hasattr(obj, name), f"{name} sollte entfernt sein")
+
+    def test_a_legacy_log_level_string_still_maps(self):
+        """The combo used to store DEBUG/INFO/...; those values must keep working."""
+        from src.utils.logging_utils import log_level_to_verbosity
+
+        self.assertEqual(log_level_to_verbosity("DEBUG"), 2)
+        self.assertEqual(log_level_to_verbosity("INFO"), 1)
+        self.assertEqual(log_level_to_verbosity("CRITICAL"), 0)
+        self.assertEqual(log_level_to_verbosity("debug"), 2)
+        self.assertEqual(log_level_to_verbosity("bogus"), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

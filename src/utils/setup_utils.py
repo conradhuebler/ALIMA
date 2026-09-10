@@ -16,7 +16,7 @@ from urllib.parse import urlparse  # BUGFIX: For parsing Ollama base_url - Claud
 
 from .config_models import (
     AlimaConfig, SystemConfig, DatabaseConfig, UIConfig,
-    PromptConfig, UnifiedProviderConfig,
+    UnifiedProviderConfig,
     UnifiedProvider, TaskPreference, TaskType
 )
 
@@ -280,9 +280,6 @@ class ConfigurationBuilder:
         # Create UI config
         ui_config = UIConfig()
 
-        # Create prompt config
-        prompt_config = PromptConfig()
-
         # ARCHITECTURAL FIX: Use OpenAI-compatible API for Ollama (simpler, more reliable)
         # Ollama supports OpenAI-compatible API as primary interface
         actual_provider_type = provider_type
@@ -361,7 +358,6 @@ class ConfigurationBuilder:
             database_config=database_config,
             system_config=system_config,
             ui_config=ui_config,
-            prompt_config=prompt_config,
             unified_config=unified_config
         )
 
