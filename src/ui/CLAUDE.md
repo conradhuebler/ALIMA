@@ -43,7 +43,7 @@
 
 ### Findings — `ProviderModelSelector` adoption (decide when working through cleanup)
 Shared `provider_model_selector.ProviderModelSelector` is used by `unified_provider_tab`, `image_analysis_tab`, `pipeline_chat_panel`, `pipeline_tab`, and now `single_step_dialog` (migrated June 2026). The remaining builders of their own provider/model combos are **not** clean dedup — each has an *intentional* behavior difference, so adopting the selector would change UX. Decide deliberately (not as "cleanup"):
-- **`comprehensive_settings_dialog`**: `load_providers` intentionally lists the 4 common providers (ollama/gemini/openai/anthropic) **plus** enabled ones; the selector shows **enabled-only**. Also has a separate `custom_model_input`. → adoption shrinks the provider list.
+- ~~`comprehensive_settings_dialog`~~: erledigt — der dortige `ModelSelectionDialog` war eine tote Kopie hinter einem nie eingehängten Tab und ist mit ihm gelöscht (Sep 2026). Der lebende Picker ist `provider_dialogs.TaskModelSelectionDialog`; er baut seine Provider-Liste aus `ProviderDetectionService.get_available_providers()`, nicht aus den 4 üblichen plus den aktivierten. Tests: `tests/test_task_model_selection_dialog.py`.
 - **`abstract_tab`**: model combo is filled from a **pushed `self.available_models` cache** (not async pull); tracks `explicit_provider/model_selection` + `user_interaction_mode`; recommended-model and history-restore use synchronous `findText`+`setCurrentIndex` that breaks under the selector's **async** loading. → adoption is a re-architecture, not a dedup.
 - **`pipeline_config_dialog`**: per-step provider/model grid (~26/50 combo refs) — large, out of scope.
 
