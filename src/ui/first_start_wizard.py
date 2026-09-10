@@ -66,6 +66,39 @@ class FirstStartWizard(QWizard):
         # Store configuration results
         self.config = None
 
+    #: Sections the wizard actually asks about. Everything else on an existing
+    #: config is left alone. - Claude Generated
+    _WIZARD_OWNED_PROVIDER_FIELDS = (
+        "providers", "task_preferences", "preferred_provider", "preferred_model",
+        "gemini_api_key", "anthropic_api_key",
+        "gemini_preferred_model", "anthropic_preferred_model",
+    )
+
+    def _apply_onto_existing(self, wizard_config):
+        """Merge the wizard's answers into the configuration already on disk.
+
+        Returns ``wizard_config`` unchanged on a genuine first run (nothing to
+        preserve). Otherwise the loaded config is the base and only the sections
+        the wizard asks about are overwritten. - Claude Generated
+        """
+        try:
+            existing = ConfigManager().load_config()
+        except Exception as e:
+            logger.warning(f"Bestehende Konfiguration nicht lesbar, nutze Wizard-Stand: {e}")
+            return wizard_config
+
+        if not getattr(existing.system_config, "first_run_completed", False):
+            return wizard_config
+
+        logger.info("Wizard auf bestehender Konfiguration: nur die abgefragten Bereiche werden ersetzt")
+        for field in self._WIZARD_OWNED_PROVIDER_FIELDS:
+            if hasattr(wizard_config.unified_config, field):
+                setattr(
+                    existing.unified_config, field,
+                    getattr(wizard_config.unified_config, field),
+                )
+        return existing
+
     def accept(self):
         """Handle wizard completion - Claude Generated"""
         try:
@@ -92,9 +125,9 @@ class FirstStartWizard(QWizard):
                 elif provider_type == 'anthropic':
                     models = ['claude-3-5-haiku-20241022']
 
-            # Build configuration with task selections - Claude Generated
+            # Build the config the wizard's answers describe…
             from ..utils.setup_utils import ConfigurationBuilder
-            self.config = ConfigurationBuilder.create_initial_config(
+            wizard_config = ConfigurationBuilder.create_initial_config(
                 provider_type=provider_type,
                 provider_name=provider_name,
                 base_url=base_url,
@@ -102,6 +135,17 @@ class FirstStartWizard(QWizard):
                 models=models,
                 task_model_selections=task_model_selections
             )
+
+            # …and, on a machine that is already set up, apply it *onto* the
+            # existing configuration instead of replacing it. create_initial_config
+            # returns a fresh AlimaConfig, and save_config writes it wholesale — so
+            # re-running the wizard used to wipe every plugin instance's settings
+            # (finc endpoint, sru preset, the webindex fields, k10plus, dnb),
+            # chat_config, ui_config, repetition_config, the Tier-2 plugin
+            # approvals, the installed bundles and every additional LLM provider.
+            # That was tolerable while --wizard was the only way in; it is not
+            # once the wizard is reachable from the menu. - Claude Generated
+            self.config = self._apply_onto_existing(wizard_config)
 
             # Apply directory settings from wizard - Claude Generated
             root_dir = self.directory_page.root_dir_input.text().strip()

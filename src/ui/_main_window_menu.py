@@ -117,6 +117,17 @@ class MainWindowMenuMixin:
         settings_action = edit_menu.addAction("⚙️ &Einstellungen")
         settings_action.triggered.connect(self.show_settings)
 
+        # Einrichtungsassistent — derselbe Wizard wie beim ersten Start, vorher
+        # nur über --wizard erreichbar. Er ersetzt seit Sep 2026 nur die
+        # Bereiche, die er abfragt (siehe FirstStartWizard._apply_onto_existing);
+        # ohne das wäre dieser Eintrag ein Datenverlust-Knopf. - Claude Generated
+        wizard_action = edit_menu.addAction("🧭 Einrichtungs&assistent…")
+        wizard_action.setToolTip(
+            "Führt durch LLM-Anbieter, Modelle, Datenbank und Katalog. "
+            "Plugin-Einstellungen, Freigaben und Bundles bleiben erhalten."
+        )
+        wizard_action.triggered.connect(self.show_setup_wizard)
+
         # Prompt-Konfiguration-Aktion
         prompt_config_action = edit_menu.addAction("📝 &Prompt-Konfiguration")
         prompt_config_action.triggered.connect(self.show_prompt_editor)

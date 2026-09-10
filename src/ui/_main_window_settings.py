@@ -60,6 +60,32 @@ class MainWindowSettingsMixin:
                 self, "Fehler", f"Fehler beim Öffnen der Einstellungen: {str(e)}"
             )
 
+    def show_setup_wizard(self):
+        """Re-run the setup wizard on the running installation - Claude Generated.
+
+        Same wizard as the first start. It merges onto the existing config rather
+        than replacing it (``FirstStartWizard._apply_onto_existing``), so plugin
+        settings, Tier-2 approvals, bundles and the chat/UI sections survive.
+        """
+        try:
+            from .first_start_wizard import FirstStartWizard
+
+            wizard = FirstStartWizard(self)
+            if wizard.exec() != QDialog.DialogCode.Accepted:
+                return
+            self.config_manager.load_config(force_reload=True)
+            self._on_config_changed()
+            self._refresh_plugin_tools()
+            if hasattr(self, "global_status_bar"):
+                self.global_status_bar.show_temporary_message(
+                    "✅ Einrichtung übernommen", 5000
+                )
+        except Exception as e:
+            self.logger.error(f"Fehler im Einrichtungsassistenten: {e}", exc_info=True)
+            QMessageBox.critical(
+                self, "Fehler", f"Einrichtungsassistent fehlgeschlagen:\n{e}"
+            )
+
     def _refresh_plugin_tools(self):
         """Rebuild the embedded chat panel's MCP tool registry after a settings
         save, so plugin enable/disable + config changes apply at runtime. - Claude Generated"""
