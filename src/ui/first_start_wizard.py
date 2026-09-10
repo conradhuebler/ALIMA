@@ -118,8 +118,8 @@ class FirstStartWizard(QWizard):
             # Save catalog SOAP configuration onto the catalog instance (WP P7:
             # was the CatalogConfig mirror, which save_config lifted into the
             # instances). - Claude Generated
-            from ..core.search.factory import set_primary_settings
-            set_primary_settings(self.config, "catalog", {
+            from ..core.search.factory import set_plugin_settings
+            set_plugin_settings(self.config, "catalog", {
                 "catalog_search_url": self.catalog_page.soap_search_url.text().strip(),
                 "catalog_details": self.catalog_page.soap_details_url.text().strip(),
                 "token": self.catalog_page.catalog_token.text().strip(),

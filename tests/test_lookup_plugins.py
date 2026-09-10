@@ -36,7 +36,7 @@ def _lookup_registry():
     """
     cfg = AlimaConfig()
     cfg.plugins = [
-        PluginInstanceConfig(lid, "lookup", lid, enabled=True, is_primary=True)
+        PluginInstanceConfig(lid, "lookup", lid, enabled=True)
         for lid in list_lookups()
     ]
     reg = ToolRegistry(config_manager=types.SimpleNamespace(load_config=lambda **k: cfg))
@@ -149,7 +149,7 @@ class LookupToolHandlerTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.system_config.enable_response_cache = True
         cfg.plugins = [PluginInstanceConfig(
-            "fake_lk", "lookup", "fake_lk", enabled=True, is_primary=True,
+            "fake_lk", "lookup", "fake_lk", enabled=True,
             settings={"cache_responses": cache_pref},
         )]
         reg = ToolRegistry.__new__(ToolRegistry)
@@ -168,7 +168,7 @@ class LookupToolHandlerTest(unittest.TestCase):
         # synthesize-all fallback. - Claude Generated
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "fake_lk", "lookup", "fake_lk", enabled=False, is_primary=True,
+            "fake_lk", "lookup", "fake_lk", enabled=False,
         )]
         reg = ToolRegistry.__new__(ToolRegistry)
         reg._config_manager = types.SimpleNamespace(load_config=lambda **k: cfg)
@@ -334,7 +334,7 @@ class LookupRawCacheHelperTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.system_config.enable_response_cache = True
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=True,
             settings={"cache_responses": pref},
         )]
         return cfg
@@ -422,7 +422,6 @@ class LookupSeedingTest(unittest.TestCase):
         for i in insts:
             self.assertEqual(i.category, LOOKUP_CATEGORY)
             self.assertTrue(i.enabled)
-            self.assertTrue(i.is_primary)
             self.assertTrue(i.label)  # non-empty display label from the plugin class
 
     def test_load_config_seeds_lookup_instances(self):
@@ -455,9 +454,9 @@ class LookupSeedingTest(unittest.TestCase):
 
         existing = [
             PluginInstanceConfig("rvk_api", LOOKUP_CATEGORY, "rvk_api",
-                                 label="RVK", enabled=True, is_primary=True, settings={}),
+                                 label="RVK", enabled=True, settings={}),
             PluginInstanceConfig("k10plus", LOOKUP_CATEGORY, "k10plus",
-                                 label="K10", enabled=True, is_primary=True, settings={}),
+                                 label="K10", enabled=True, settings={}),
         ]
         added = synthesize_missing_lookup_instances(existing)
         added_ids = {i.provider_id for i in added}
@@ -515,7 +514,7 @@ class BuildLookupResolverTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=True,
             settings={"timeout": 3},
         )]
         inst = resolve_lookup_instance(cfg, "rvk_api")
@@ -529,7 +528,7 @@ class BuildLookupResolverTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=False, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=False,
             settings={"timeout": 3},
         )]
         self.assertIsNone(resolve_lookup_instance(cfg, "rvk_api"))
@@ -553,7 +552,7 @@ class BuildLookupResolverTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=False, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=False,
         )]
         self.assertIsNone(build_lookup(cfg, "rvk_api"))
 
@@ -562,7 +561,7 @@ class BuildLookupResolverTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=True,
             settings={"timeout": 3},
         )]
         plugin = build_lookup(cfg, "rvk_api")
@@ -580,7 +579,7 @@ class BuildLookupResolverTest(unittest.TestCase):
         # unrelated reason. This test locks the return shape, not the gating.
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "rvk_api", "lookup", "rvk_api", enabled=True, is_primary=True,
+            "rvk_api", "lookup", "rvk_api", enabled=True,
         )]
 
         with patch("src.utils.clients.rvk_api_client.RvkApiClient") as MC:

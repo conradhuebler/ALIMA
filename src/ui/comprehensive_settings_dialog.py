@@ -992,8 +992,8 @@ class ComprehensiveSettingsDialog(QDialog):
         # is about the endpoints, not about what is switched on right now. The
         # preset's wire keys stay as they are: presets are read by other
         # installations. - Claude Generated
-        from src.core.search.factory import primary_settings
-        cat = primary_settings(self.config_to_edit, "catalog", enabled_only=False)
+        from src.core.search.factory import plugin_settings
+        cat = plugin_settings(self.config_to_edit, "catalog", enabled_only=False)
         catalog_block: dict = {}
         for wire_key, setting_key in (
             ("soap_search_url", "catalog_search_url"),

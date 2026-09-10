@@ -44,7 +44,7 @@ class ToolGenerationMixin:
         from src.utils.config_models import PluginInstanceConfig
         from src.utils.input_sources import list_input_sources
         return [
-            PluginInstanceConfig(instance_id=sid, category="input_source", provider_id=sid, is_primary=True)
+            PluginInstanceConfig(instance_id=sid, category="input_source", provider_id=sid)
             for sid in list_input_sources()
         ]
 
@@ -172,7 +172,7 @@ class ToolGenerationMixin:
         from src.utils.config_models import PluginInstanceConfig
 
         return [
-            PluginInstanceConfig(instance_id=lid, category="lookup", provider_id=lid, is_primary=True)
+            PluginInstanceConfig(instance_id=lid, category="lookup", provider_id=lid)
             for lid in list_lookups()
         ]
 
@@ -576,7 +576,7 @@ class ToolGenerationMixin:
         return handler
 
     def _make_instance_handler(self, spec, inst):
-        """Handler for a *non-primary* search instance: build the provider from its
+        """Handler for a *non-canonical* search instance: build the provider from its
         own settings via the factory and serialize the typed result. Fully guarded
         so a bad config/serialization returns JSON, never crashes the agent. This
         path is exercised only when the operator adds a second instance of a type,

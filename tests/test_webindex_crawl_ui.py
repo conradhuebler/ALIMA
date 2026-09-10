@@ -66,7 +66,7 @@ class WebIndexCrawlUITest(unittest.TestCase):
         panel = _CategoryPanel("lookup")
         inst = PluginInstanceConfig(
             "webindex", "lookup", "webindex", label="Webindex",
-            enabled=True, is_primary=True, settings={"base_url": BASE},
+            enabled=True, settings={"base_url": BASE},
         )
         panel.load([inst])
         panel.list.setCurrentRow(0)

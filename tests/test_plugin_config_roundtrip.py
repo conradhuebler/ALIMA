@@ -83,6 +83,51 @@ class PluginConfigRoundTripTest(unittest.TestCase):
         ids = [p.instance_id for p in cfg.instances_for("search_provider")]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_a_config_written_before_is_primary_was_removed_still_loads(self):
+        """Backward compatibility for the removed ``is_primary`` flag (Sep 2026).
+
+        Every config written before the removal carries ``is_primary`` on every
+        instance. ``instance_from_dict`` filters unknown keys silently, so such a
+        config must load with its settings intact — and the stale key must be gone
+        from disk after the next save rather than lingering as a settable field
+        with no effect. - Claude Generated
+        """
+        older = {
+            "unified_config": {"providers": [], "gemini_api_key": "K"},
+            "plugins": [
+                {"instance_id": "catalog", "category": "search_provider",
+                 "provider_id": "catalog", "enabled": True, "is_primary": True,
+                 "settings": {"token": "KEEP"}},
+            ],
+        }
+        self.tmp.write_text(json.dumps(older))
+        cfg = self._reload()
+        insts = {p.instance_id: p for p in cfg.instances_for("search_provider")}
+        self.assertEqual(insts["catalog"].settings["token"], "KEEP")
+        self.assertFalse(hasattr(insts["catalog"], "is_primary"))
+
+        ConfigManager.reset()
+        cm = ConfigManager()
+        cm.config_file = self.tmp
+        cm.save_config(cm.load_config())
+        on_disk = json.loads(self.tmp.read_text())
+        self.assertTrue(on_disk["plugins"])
+        for entry in on_disk["plugins"]:
+            self.assertNotIn("is_primary", entry)
+
+    def test_the_first_instance_of_a_type_represents_it(self):
+        """``type_instance`` replaced the flag: config order decides. - Claude Generated"""
+        cfg = self.cm.load_config()
+        from src.utils.config_models import PluginInstanceConfig
+
+        second = PluginInstanceConfig(
+            "catalog-2", "search_provider", "catalog", settings={"token": "SECOND"}
+        )
+        cfg.plugins.append(second)
+        chosen = cfg.type_instance("search_provider", "catalog")
+        self.assertEqual(chosen.instance_id, "catalog")
+        self.assertEqual(chosen.settings.get("token"), "TOK")
+
     def test_an_existing_instance_keeps_its_settings_when_a_builtin_is_added(self):
         older = {
             "unified_config": {"providers": [], "gemini_api_key": "K"},

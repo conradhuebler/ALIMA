@@ -74,10 +74,10 @@ class GeneratedSearchToolTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
-            PluginInstanceConfig("swb", "search_provider", "swb", enabled=True, is_primary=True),
-            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True, is_primary=True),
-            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True, is_primary=True),
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True),
+            PluginInstanceConfig("swb", "search_provider", "swb", enabled=True),
+            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True),
+            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True),
         ]
         reg = ToolRegistry.__new__(ToolRegistry)
         reg._config_manager = types.SimpleNamespace(load_config=lambda **k: cfg)
@@ -175,7 +175,7 @@ class ProviderConfigGatingTest(unittest.TestCase):
         cfg.plugins = [
             PluginInstanceConfig(
                 pid, "search_provider", pid,
-                enabled=pid not in ("finc", "swb"), is_primary=True,
+                enabled=pid not in ("finc", "swb"),
             )
             for pid in ("lobid", "swb", "catalog", "finc")
         ]
@@ -227,7 +227,7 @@ class CodePluginToolGenerationTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True),
             PluginInstanceConfig("lobid_copy", "search_provider", "lobid_copy", enabled=True),
         ]
         reg = ToolRegistry.__new__(ToolRegistry)
@@ -323,7 +323,7 @@ class CanonicalCodePluginNuancesTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.plugins = [
             PluginInstanceConfig(provider_id, "search_provider", provider_id,
-                                 enabled=True, is_primary=True)
+                                 enabled=True)
         ]
         reg = ToolRegistry.__new__(ToolRegistry)
         reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
@@ -391,3 +391,52 @@ class CanonicalCodePluginNuancesTest(unittest.TestCase):
         reg = self._registry("odd_shape")
         tools = reg._generated_search_tools()  # must not raise
         self.assertIn("search_odd", [td.name for td, _ in tools])
+
+
+class SiblingInstancesOwnTheCanonicalNameTest(unittest.TestCase):
+    """Two instances of the *same* type: the first one owns the plain tool name.
+
+    This is the rule that replaced the ``is_primary`` flag (removed Sep 2026).
+    The flag was set on 16 of 16 instances in real configs and no install ever
+    had two instances of one type, so it discriminated nothing — but it was the
+    only thing deciding this case, and nothing pinned it. Now config order
+    decides, and this test is what says so. - Claude Generated
+    """
+
+    def _registry(self, *instance_ids):
+        from src.utils.config_models import AlimaConfig, PluginInstanceConfig
+
+        cfg = AlimaConfig()
+        cfg.plugins = [
+            PluginInstanceConfig(iid, "search_provider", "lobid", enabled=True)
+            for iid in instance_ids
+        ]
+        reg = ToolRegistry.__new__(ToolRegistry)
+        reg._config_manager = types.SimpleNamespace(load_config=lambda: cfg)
+        return reg
+
+    def test_first_instance_keeps_the_plain_name(self):
+        reg = self._registry("lobid", "lobid_ubf")
+        names = [td.name for td, _ in reg._generated_search_tools()]
+        self.assertIn("search_lobid", names)
+        self.assertIn("search_lobid_lobid_ubf", names)
+        self.assertEqual(names.count("search_lobid"), 1)
+
+    def test_order_decides_not_identity(self):
+        """Reversed config order moves the plain name to the other instance.
+
+        Stated explicitly because it is the cost of dropping the flag: the rule
+        is positional, not "the built-in wins". A tie-break on
+        ``instance_id == provider_id`` was considered and declined — it would
+        reintroduce an invisible precedence rule.
+        """
+        reg = self._registry("lobid_ubf", "lobid")
+        names = [td.name for td, _ in reg._generated_search_tools()]
+        self.assertIn("search_lobid", names)
+        self.assertIn("search_lobid_lobid", names)
+
+    def test_single_instance_is_unsuffixed(self):
+        reg = self._registry("lobid")
+        names = [td.name for td, _ in reg._generated_search_tools()]
+        self.assertIn("search_lobid", names)
+        self.assertFalse([n for n in names if n.startswith("search_lobid_")])

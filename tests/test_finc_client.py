@@ -588,8 +588,7 @@ class TestSearchFincMCPHandler(unittest.TestCase):
             prov.suggester.client.search = fake_client
 
         inst = PluginInstanceConfig(
-            instance_id="finc", category="search_provider", provider_id="finc",
-            is_primary=True, settings=settings,
+            instance_id="finc", category="search_provider", provider_id="finc", settings=settings,
         )
         reg = ToolRegistry.__new__(ToolRegistry)
         reg._config_manager = config_manager
@@ -790,7 +789,7 @@ class TestSearchFincMCPHandler(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            "catalog", "search_provider", "catalog", enabled=True,
             settings={"catalog_web_record_url": "https://legacy.example.org/Record/"},
         )]
         cm = MagicMock()

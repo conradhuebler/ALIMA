@@ -215,7 +215,7 @@ class AggregateDefaultSourcesTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig(pid, "search_provider", pid, enabled=True, is_primary=True)
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=True)
             for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
         ]
         return cfg
@@ -260,7 +260,7 @@ class AggregateDefaultSourcesTest(unittest.TestCase):
             cfg = AlimaConfig()
             cfg.plugins = [
                 PluginInstanceConfig("poc_lobid", "search_provider", "poc_lobid",
-                                     enabled=True, is_primary=True)
+                                     enabled=True)
             ]
             self.km.store_raw_response("poc_lobid", "wasser", {"search_type": "kw"}, "{}")
             reg = self._registry(cfg)
@@ -293,7 +293,7 @@ class AggregateDefaultSourcesTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig(pid, "search_provider", pid, enabled=False, is_primary=True)
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=False)
             for pid in ("lobid", "swb", "catalog", "finc", "sru", "gnd_local")
         ]
         return cfg

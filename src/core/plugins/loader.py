@@ -182,7 +182,6 @@ def _seed_instance(manifest: PluginManifest, type_id: str) -> "Any":
         provider_id=type_id,
         label=manifest.label,
         enabled=True,
-        is_primary=False,
         usage_hint=manifest.usage_hint,
         settings=settings,
     )

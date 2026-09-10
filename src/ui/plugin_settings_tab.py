@@ -1,7 +1,7 @@
 """Category-grouped plugin settings tab - Claude Generated.
 
 Replaces the checkbox-only ``SearchProviderSelectorWidget`` ("nur ticks"). Each
-plugin *instance* gets its own panel: enable, label, primary flag, an agent
+plugin *instance* gets its own panel: enable, label, an agent
 ``usage_hint``, and a form auto-generated from the plugin type's declared
 ``config_fields`` (so finc-URL, Libero-token, DOI contact-email … live *with* the
 plugin, not scattered in the config). Instances can be added, duplicated and
@@ -130,9 +130,8 @@ class _CategoryPanel(QWidget):
         self.list.blockSignals(True)
         self.list.clear()
         for inst in self._instances:
-            flag = " ★" if inst.is_primary else ""
             state = "" if inst.enabled else "  (deaktiviert)"
-            QListWidgetItem(f"{inst.display_label()} [{inst.provider_id}]{flag}{state}", self.list)
+            QListWidgetItem(f"{inst.display_label()} [{inst.provider_id}]{state}", self.list)
         self.list.blockSignals(False)
 
     def _unique_id(self, base: str) -> str:
@@ -150,14 +149,12 @@ class _CategoryPanel(QWidget):
             return
         meta = self._adapter.type_meta(type_id)
         settings = {f.key: f.default for f in meta.config_fields}
-        has_primary = any(i.provider_id == type_id and i.is_primary for i in self._instances)
         inst = PluginInstanceConfig(
             instance_id=self._unique_id(type_id),
             category=self.category,
             provider_id=type_id,
             label=meta.label,
             enabled=True,
-            is_primary=not has_primary,
             settings=settings,
         )
         self._flush_form()
@@ -172,7 +169,6 @@ class _CategoryPanel(QWidget):
         src = self._instances[self._current_row]
         clone = copy.deepcopy(src)
         clone.instance_id = self._unique_id(src.instance_id)
-        clone.is_primary = False
         clone.label = f"{src.display_label()} (Kopie)"
         self._instances.append(clone)
         self._refresh_list()
@@ -221,10 +217,6 @@ class _CategoryPanel(QWidget):
         self._enabled_cb = QCheckBox("Aktiviert")
         self._enabled_cb.setChecked(inst.enabled)
         self.form_layout.addRow(self._enabled_cb)
-
-        self._primary_cb = QCheckBox("Primär (klassischer Pfad)")
-        self._primary_cb.setChecked(inst.is_primary)
-        self.form_layout.addRow(self._primary_cb)
 
         self._label_edit = QLineEdit(inst.label)
         self.form_layout.addRow("Name", self._label_edit)
@@ -320,7 +312,6 @@ class _CategoryPanel(QWidget):
             return
         inst = self._instances[self._current_row]
         inst.enabled = self._enabled_cb.isChecked()
-        inst.is_primary = self._primary_cb.isChecked()
         inst.label = self._label_edit.text()
         inst.usage_hint = self._hint_edit.toPlainText()
         meta = self._adapter.type_meta(inst.provider_id)
@@ -328,11 +319,6 @@ class _CategoryPanel(QWidget):
             w = self._field_widgets.get(fld.key)
             if w is not None:
                 inst.settings[fld.key] = self._read_field_widget(fld, w)
-        # Enforce single primary per type.
-        if inst.is_primary:
-            for other in self._instances:
-                if other is not inst and other.provider_id == inst.provider_id:
-                    other.is_primary = False
         self._refresh_list()
 
 
@@ -386,8 +372,9 @@ class PluginSettingsTab(QWidget):
         layout = QVBoxLayout(self)
         info = QLabel(
             "Plugins bündeln ihre eigene Konfiguration (Endpunkte, Tokens …). Jede "
-            "Instanz kann aktiviert, als primär markiert und mit einem Agent-Hinweis "
-            "versehen werden. Mehrere Instanzen eines Typs sind möglich."
+            "Instanz kann aktiviert und mit einem Agent-Hinweis versehen werden. "
+            "Mehrere Instanzen eines Typs sind möglich; die erste vertritt den Typ "
+            "dort, wo nur eine gemeint sein kann."
         )
         info.setWordWrap(True)
         layout.addWidget(info)

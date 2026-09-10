@@ -199,7 +199,7 @@ class WebIndexToolRegistryTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.system_config.enable_response_cache = False
         cfg.plugins = [PluginInstanceConfig(
-            "wi", "lookup", "webindex", enabled=True, is_primary=True,
+            "wi", "lookup", "webindex", enabled=True,
             settings={"db_path": self._db, "cache_responses": "off"},
         )]
         reg = ToolRegistry.__new__(ToolRegistry)

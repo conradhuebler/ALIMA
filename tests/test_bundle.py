@@ -182,11 +182,11 @@ class BundleTest(unittest.TestCase):
         cfg.plugins = [
             PluginInstanceConfig(
                 "catalog", "search_provider", "catalog", label="My Catalog",
-                enabled=True, is_primary=True,
+                enabled=True,
                 settings={"token": "SEKRET", "catalog_search_url": "https://x.example/s"},
             ),
-            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
-            PluginInstanceConfig("swb", "search_provider", "swb", enabled=False, is_primary=True),
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True),
+            PluginInstanceConfig("swb", "search_provider", "swb", enabled=False),
         ]
         return cfg
 
@@ -242,10 +242,8 @@ class BundleTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True,
-                                 is_primary=True, settings={"catalog_search_url": "https://c.example"}),
-            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True,
-                                 is_primary=True, settings={"base_url": "https://f.example"}),
+            PluginInstanceConfig("catalog", "search_provider", "catalog", enabled=True, settings={"catalog_search_url": "https://c.example"}),
+            PluginInstanceConfig("finc", "search_provider", "finc", enabled=True, settings={"base_url": "https://f.example"}),
         ]
         cm = _FakeCM(cfg, self.plugins_dir)
         out = B.export_bundle(self.tmp / "exp", bundle_id="sel", instance_ids=["catalog"],
@@ -265,7 +263,7 @@ class BundleTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("mycode", "search_provider", "mycode", enabled=True, is_primary=True)
+            PluginInstanceConfig("mycode", "search_provider", "mycode", enabled=True)
         ]
         cm = _FakeCM(cfg, self.plugins_dir)
         out = B.export_bundle(self.tmp / "expc", bundle_id="cb", config_manager=cm)

@@ -33,7 +33,7 @@ config, is configured per-instance in one place, and can be added from a directo
 | `loader.py` | Directory scan → declarative instances + gated code plugins. |
 
 `PluginInstanceConfig` (in `config_models.py`) is the per-instance record shared by all
-categories: `instance_id, category, provider_id, label, enabled, is_primary, usage_hint,
+categories: `instance_id, category, provider_id, label, enabled, usage_hint,
 settings`. `AlimaConfig.plugins` is the authoritative list.
 
 ### Categories
@@ -70,12 +70,18 @@ datacite toggles are on the three DOI input-source plugins. `_get_config_from_ui
 builds `CatalogConfig`/the DOI `SystemConfig` fields — they are derived from the instances
 on save.
 
-**Multiple instances / primary / usage_hint.** Several instances of one type may coexist
-(e.g. two finc endpoints). Exactly one `is_primary` per type drives the classic
-single-result path + the mirror; `usage_hint` is appended to the generated MCP tool
-description so an agent can steer between siblings. The primary instance of a type keeps
-the canonical tool name (`search_lobid`); additional instances get a unique name
-(`search_finc_<id>`) and a factory-built handler.
+**Multiple instances / usage_hint.** Several instances of one type may coexist
+(e.g. two finc endpoints). Where exactly one has to represent the type — the classic
+single-result path, the mirrors, the canonical tool name — the **first** instance in
+config order is used (`AlimaConfig.type_instance`). It keeps the canonical tool name
+(`search_lobid`); additional instances get a unique name (`search_finc_<id>`) and a
+factory-built handler. `usage_hint` is appended to the generated MCP tool description so
+an agent can steer between siblings.
+
+The `is_primary` flag this replaced was removed in September 2026: every consumer already
+fell back to "the first", real configs had it set on every instance, and no install ever
+had two instances of one type — so it discriminated nothing while occupying a checkbox on
+every plugin panel.
 
 ## Directory plugins + two-tier security
 

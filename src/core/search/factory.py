@@ -149,10 +149,10 @@ def enabled_gnd_provider_ids(
         return None
 
 
-def primary_settings(
+def plugin_settings(
     config: Any, provider_id: str, *, enabled_only: bool = True
 ) -> Dict[str, Any]:
-    """Settings of the primary instance of ``provider_id``, over its declared defaults.
+    """Settings of the instance representing ``provider_id``, over its declared defaults.
 
     The read-side counterpart of :func:`build_provider` for the handful of call
     sites that need a single setting rather than a built provider — the successor
@@ -165,7 +165,7 @@ def primary_settings(
       disabling a plugin stops the feature (Search parity, WP P5).
     * ``False`` — *policy* settings that merely live on a plugin but are not gated
       by it (the DK step's strict-GND flag, the OPAC web bases). This is what the
-      mirror did: ``derive_search_mirrors`` copied from the primary regardless of
+      mirror did: ``derive_search_mirrors`` copied from that instance regardless of
       its enable state.
 
     ``ConfigField`` defaults are layered underneath, replacing the dataclass
@@ -176,9 +176,9 @@ def primary_settings(
             from src.utils.config_manager import ConfigManager
 
             config = ConfigManager().load_config()
-        inst = config.primary_instance(CATEGORY, provider_id, include_disabled=not enabled_only)
+        inst = config.type_instance(CATEGORY, provider_id, include_disabled=not enabled_only)
     except Exception as e:
-        logger.debug(f"primary_settings({provider_id}) config read failed: {e}")
+        logger.debug(f"plugin_settings({provider_id}) config read failed: {e}")
         return {}
     if inst is None:
         return {}
@@ -193,10 +193,10 @@ def primary_settings(
     return out
 
 
-def set_primary_settings(config: Any, provider_id: str, settings: Dict[str, Any]) -> None:
-    """Merge ``settings`` into the primary instance of ``provider_id`` - Claude Generated.
+def set_plugin_settings(config: Any, provider_id: str, settings: Dict[str, Any]) -> None:
+    """Merge ``settings`` into the instance representing ``provider_id`` - Claude Generated.
 
-    The write-side counterpart of :func:`primary_settings`, for the setup wizards:
+    The write-side counterpart of :func:`plugin_settings`, for the setup wizards:
     they assemble an ``AlimaConfig`` from scratch and used to hand their catalog
     values to the ``CatalogConfig`` mirror, relying on ``save_config`` to lift them
     into instances. Keys are the plugin's own ``ConfigField`` keys (``token``,
@@ -206,9 +206,9 @@ def set_primary_settings(config: Any, provider_id: str, settings: Dict[str, Any]
     from src.utils.plugin_migration import ensure_search_instances
 
     ensure_search_instances(config.plugins)
-    inst = config.primary_instance(CATEGORY, provider_id, include_disabled=True)
+    inst = config.type_instance(CATEGORY, provider_id, include_disabled=True)
     if inst is None:
-        logger.warning(f"set_primary_settings: no {provider_id} instance to write to")
+        logger.warning(f"set_plugin_settings: no {provider_id} instance to write to")
         return
     inst.settings = {**(inst.settings or {}), **settings}
 
@@ -224,8 +224,8 @@ def catalog_web_bases(config: Any = None) -> "tuple[str, str]":
     has none. Policy read (``enabled_only=False``): a link base stays valid for
     rendering old results even when the source is switched off. - Claude Generated
     """
-    cat = primary_settings(config, "catalog", enabled_only=False)
-    finc = primary_settings(config, "finc", enabled_only=False)
+    cat = plugin_settings(config, "catalog", enabled_only=False)
+    finc = plugin_settings(config, "finc", enabled_only=False)
     record = (cat.get("catalog_web_record_url") or finc.get("catalog_web_record_url") or "")
     return str(record or ""), str(cat.get("catalog_web_search_url") or "")
 

@@ -643,8 +643,8 @@ class ClassicStepExecutorMixin:
             # source gate → read even when the catalog source is disabled (finc/SRU
             # may be the DK backend). The endpoints/token are not read here: the
             # extractor builds itself (resolve_dk_extractor, WP P4). - Claude Generated
-            from .search.factory import primary_settings
-            _strict = primary_settings(None, "catalog", enabled_only=False).get(
+            from .search.factory import plugin_settings
+            _strict = plugin_settings(None, "catalog", enabled_only=False).get(
                 "strict_gnd_validation_for_dk_search"
             )
             strict_gnd_validation = True if _strict is None else bool(_strict)

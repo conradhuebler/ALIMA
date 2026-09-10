@@ -35,7 +35,7 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 ### Configuration
 - Location: `~/.config/alima/config.json` (unified JSON; legacy migration complete).
 - Sections (dataclasses): `AlimaConfig`, `DatabaseConfig`, `PromptConfig`, `SystemConfig`, `UIConfig`, `UnifiedProviderConfig`.
-- **Plugin instances** (`AlimaConfig.plugins`, `PluginInstanceConfig`) are the *only* per-provider/source config — `CatalogConfig`/`SearchProviderConfig` deleted (WP P7). Read via `factory.primary_settings`, write via `set_primary_settings`. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+- **Plugin instances** (`AlimaConfig.plugins`, `PluginInstanceConfig`) are the *only* per-provider/source config — `CatalogConfig`/`SearchProviderConfig` deleted (WP P7). Read via `factory.plugin_settings`, write via `set_plugin_settings`. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
 - Legacy `catalog_config`/`search_provider_config` JSON sections are one-way migration input (`plugin_migration.synthesize_search_instances`), dropped on next save. Absent keys are **omitted** so the plugin's `ConfigField` default applies — never written as `None`.
 - The DOI `SystemConfig` fields remain a **derived mirror** (`derive_input_mirrors` on save).
 

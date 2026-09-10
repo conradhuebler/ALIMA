@@ -144,7 +144,7 @@ DOI-Plugin-Instanzen bei jedem Save in `SystemConfig`-Felder (P7 hat bewusst
 nur die Such-Mirrors entfernt).
 **Ansatz:** exakt die P7-Methodik (`docs/wp_plugin_convergence.md`):
 Leser-Inventar (Achtung: P7 fand tote Leser-Cluster — AST-prüfen), Leser auf
-`factory.primary_settings(cfg, "doi_*")` umstellen, `derive_input_mirrors` +
+`factory.plugin_settings(cfg, "doi_*")` umstellen, `derive_input_mirrors` +
 Mirror-Felder löschen, Legacy-JSON bleibt einmalige Migrations-Eingabe.
 **Dateien:** `config_models.py`, `config_manager.py`, `plugin_migration.py`,
 DOI-Leser (`doi_resolver`-Aufrufer, Webapp `_get_doi_config`).

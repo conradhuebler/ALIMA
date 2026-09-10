@@ -30,7 +30,7 @@ def resolve_lookup_instance(config: Any, lookup_id: str):
     * config readable + an **enabled** instance of that type → return it;
     * config readable + the instance **disabled** (or absent) → ``None`` — the
       operator's disable gates this path (Search parity, WP P5);
-    * config **unreadable** (raises) → a synthetic enabled primary so a pipeline
+    * config **unreadable** (raises) → a synthetic enabled instance so a pipeline
       anchor still works despite a config error.
 
     ``ensure_lookup_instances`` seeds one enabled instance per registered lookup
@@ -49,7 +49,7 @@ def resolve_lookup_instance(config: Any, lookup_id: str):
         except Exception as e:  # config read error → anchor safety below
             logger.debug(f"resolve_lookup_instance({lookup_id}) config read failed: {e}")
     return PluginInstanceConfig(
-        instance_id=lookup_id, category="lookup", provider_id=lookup_id, is_primary=True
+        instance_id=lookup_id, category="lookup", provider_id=lookup_id
     )
 
 

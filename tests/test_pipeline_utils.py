@@ -395,8 +395,7 @@ class TestPipelineStepExecutor(unittest.TestCase):
         from src.utils.config_models import AlimaConfig, PluginInstanceConfig
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            instance_id="catalog", category="search_provider", provider_id="catalog",
-            is_primary=True, enabled=True,
+            instance_id="catalog", category="search_provider", provider_id="catalog", enabled=True,
             settings={"token": "test_token", "catalog_search_url": "test_search_url",
                       "catalog_details": "test_details_url", "catalog_type": "libero_soap"},
         )]

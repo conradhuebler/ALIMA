@@ -224,8 +224,8 @@ Z. 1101/1253 (`search_catalog_titles`). Der `source_tool_map`-Ausweg existiert u
 ### P7 — Config-Mirror-Abbau ✅ ABGESCHLOSSEN (July 17)
 
 > **Ergebnis:** `CatalogConfig` + `SearchProviderConfig` + `CatalogType` sind gelöscht.
-> `AlimaConfig.plugins` ist die einzige Wahrheit; gelesen über `factory.primary_settings`,
-> geschrieben über `set_primary_settings`. Die Legacy-JSON-Sektionen sind einmalige
+> `AlimaConfig.plugins` ist die einzige Wahrheit; gelesen über `factory.plugin_settings`,
+> geschrieben über `set_plugin_settings`. Die Legacy-JSON-Sektionen sind einmalige
 > Migrations-Eingabe und verschwinden beim nächsten Save. Der DOI-`SystemConfig`-Mirror
 > bleibt (nicht P7). Commits `8596d97` (A) · `fb2bf75` (B) · `354a39d` (C) · D.
 >

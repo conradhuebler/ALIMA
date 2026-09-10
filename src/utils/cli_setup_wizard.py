@@ -78,15 +78,15 @@ class CLISetupWizard:
             # Apply catalog/finc settings onto their instances (WP P7: was the
             # CatalogConfig mirror, which save_config lifted into the instances).
             # - Claude Generated
-            from src.core.search.factory import set_primary_settings
+            from src.core.search.factory import set_plugin_settings
             if (self.catalog_search_url or self.catalog_details_url or self.catalog_token
                     or self.finc_base_url):
-                set_primary_settings(config, "catalog", {
+                set_plugin_settings(config, "catalog", {
                     "catalog_search_url": self.catalog_search_url,
                     "catalog_details": self.catalog_details_url,
                     "token": self.catalog_token,
                 })
-                set_primary_settings(config, "finc", {
+                set_plugin_settings(config, "finc", {
                     "base_url": self.finc_base_url,
                     "web_record_url": self.finc_web_record_url,
                     "default_limit": self.finc_default_limit,

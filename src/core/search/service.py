@@ -92,7 +92,7 @@ def resolve_gnd_instances(
     """Resolve the :class:`PluginInstanceConfig`s to search.
 
     ``ids=None`` or an ``"all"`` entry → every enabled GND-keyword instance in the
-    config (the authoritative enable/disable gate). A specific id list → one primary
+    config (the authoritative enable/disable gate). A specific id list → one
     instance per id, synthesising a default instance only for ids the config knows
     nothing about (no-config fallback); an id that exists but is *disabled* is
     respected (skipped), so this is the single gate.
@@ -149,7 +149,7 @@ def resolve_gnd_instances(
         inst = None
         if config is not None:
             try:
-                inst = config.primary_instance(CATEGORY, pid)
+                inst = config.type_instance(CATEGORY, pid)
             except Exception:
                 inst = None
         if inst is not None:
@@ -166,7 +166,6 @@ def resolve_gnd_instances(
                 category=CATEGORY,
                 provider_id=pid,
                 enabled=True,
-                is_primary=True,
                 settings=settings,
             )
         )

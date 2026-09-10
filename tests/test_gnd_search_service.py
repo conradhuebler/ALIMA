@@ -76,14 +76,11 @@ class _StubConfig:
     def enabled_instances_for(self, category):
         return [p for p in self._instances if p.category == category and p.enabled]
 
-    def primary_instance(self, category, provider_id=None):
+    def type_instance(self, category, provider_id=None):
         pool = [
             p for p in self.enabled_instances_for(category)
             if provider_id is None or p.provider_id == provider_id
         ]
-        for p in pool:
-            if p.is_primary:
-                return p
         return pool[0] if pool else None
 
 
@@ -96,7 +93,7 @@ class ResolveInstancesTest(unittest.TestCase):
         return PluginInstanceConfig(
             instance_id=kw.get("instance_id", pid), category="search_provider",
             provider_id=pid, enabled=kw.get("enabled", True),
-            is_primary=kw.get("is_primary", True), settings=kw.get("settings", {}),
+            settings=kw.get("settings", {}),
         )
 
     def test_synth_for_unknown_id(self):
@@ -147,7 +144,7 @@ class SearchServiceTest(unittest.TestCase):
     def _inst(pid):
         return PluginInstanceConfig(
             instance_id=pid, category="search_provider", provider_id=pid,
-            enabled=True, is_primary=True,
+            enabled=True,
         )
 
     def test_fresh_entry_accepts_wpd2_entry_shape_classifications(self):

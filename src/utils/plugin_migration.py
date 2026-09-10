@@ -83,7 +83,7 @@ def instance_from_dict(data: Dict[str, Any]):
 
 
 def synthesize_search_instances(catalog_section, gate_section=None) -> List:
-    """One primary instance per built-in search type, from the legacy JSON sections.
+    """One instance per built-in search type, from the legacy JSON sections.
 
     ``catalog_section`` is the raw ``catalog_config`` dict of a pre-plugin config
     (``{}`` for a fresh one); ``gate_section`` the raw ``search_provider_config``
@@ -115,7 +115,6 @@ def synthesize_search_instances(catalog_section, gate_section=None) -> List:
                 provider_id=pid,
                 label=_SEARCH_LABELS.get(pid, pid),
                 enabled=bool(providers.get(pid, True)),
-                is_primary=True,
                 settings=settings,
             )
         )
@@ -123,7 +122,7 @@ def synthesize_search_instances(catalog_section, gate_section=None) -> List:
 
 
 def synthesize_missing_search_instances(existing_search_instances: List) -> List:
-    """One enabled primary instance per built-in search type that has none yet
+    """One enabled instance per built-in search type that has none yet
     - Claude Generated.
 
     The search twin of :func:`synthesize_missing_lookup_instances`. Backfilling
@@ -153,7 +152,6 @@ def synthesize_missing_search_instances(existing_search_instances: List) -> List
             provider_id=pid,
             label=_SEARCH_LABELS.get(pid, pid),
             enabled=True,
-            is_primary=True,
             settings={},
         )
         for pid in _SEARCH_ORDER
@@ -195,22 +193,21 @@ def synthesize_input_instances(system_config) -> List:
     return [
         PluginInstanceConfig(
             instance_id="doi_crossref", category=INPUT_CATEGORY, provider_id="doi_crossref",
-            label="DOI: Crossref", enabled=bool(getattr(system_config, "doi_use_crossref", True)),
-            is_primary=True, settings={"contact_email": email},
+            label="DOI: Crossref", enabled=bool(getattr(system_config, "doi_use_crossref", True)), settings={"contact_email": email},
         ),
         PluginInstanceConfig(
             instance_id="doi_openalex", category=INPUT_CATEGORY, provider_id="doi_openalex",
             label="DOI: OpenAlex", enabled=bool(getattr(system_config, "doi_use_openalex", True)),
-            is_primary=False, settings={"contact_email": email},
+            settings={"contact_email": email},
         ),
         PluginInstanceConfig(
             instance_id="doi_datacite", category=INPUT_CATEGORY, provider_id="doi_datacite",
             label="DOI: DataCite", enabled=bool(getattr(system_config, "doi_use_datacite", True)),
-            is_primary=False, settings={},
+            settings={},
         ),
         PluginInstanceConfig(
             instance_id="url_fetch", category=INPUT_CATEGORY, provider_id="url_fetch",
-            label="URL (Web-Scrape)", enabled=True, is_primary=True, settings={},
+            label="URL (Web-Scrape)", enabled=True, settings={},
         ),
     ]
 
@@ -221,9 +218,6 @@ def derive_input_mirrors(plugins: List, system_config) -> None:
 
     def _find(pid):
         pool = [p for p in inp if p.provider_id == pid]
-        for p in pool:
-            if p.is_primary:
-                return p
         return pool[0] if pool else None
 
     cr, oa, dc = _find("doi_crossref"), _find("doi_openalex"), _find("doi_datacite")
@@ -233,7 +227,7 @@ def derive_input_mirrors(plugins: List, system_config) -> None:
         system_config.doi_use_openalex = bool(oa.enabled)
     if dc is not None:
         system_config.doi_use_datacite = bool(dc.enabled)
-    # Shared contact_email mirror from the primary crossref, else openalex.
+    # Shared contact_email mirror from the crossref instance, else openalex.
     for p in (cr, oa):
         if p is not None and "contact_email" in (p.settings or {}):
             system_config.contact_email = p.settings.get("contact_email") or ""
@@ -248,7 +242,7 @@ LOOKUP_CATEGORY = "lookup"
 
 
 def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List:
-    """One enabled primary instance per registered lookup type that has no instance
+    """One enabled instance per registered lookup type that has no instance
     yet - Claude Generated.
 
     Unlike search/input, lookups have **no legacy config section** to mirror, so the
@@ -275,7 +269,6 @@ def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List
                 provider_id=lid,
                 label=getattr(cls, "label", lid),
                 enabled=True,
-                is_primary=True,
                 settings={},
             )
         )
@@ -283,7 +276,7 @@ def synthesize_missing_lookup_instances(existing_lookup_instances: List) -> List
 
 
 def synthesize_lookup_instances() -> List:
-    """One primary instance per registered lookup (all of them) — the fresh-config
+    """One instance per registered lookup (all of them) — the fresh-config
     seed. Thin wrapper over :func:`synthesize_missing_lookup_instances`. - Claude Generated"""
     return synthesize_missing_lookup_instances([])
 

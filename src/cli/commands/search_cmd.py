@@ -85,8 +85,8 @@ def handle_test_catalog(args, logger: logging.Logger):
         # the --catalog-* flags still win. Read regardless of the instance's enable
         # state: this is the diagnostic command for exactly the case where the
         # source is not working yet. - Claude Generated
-        from src.core.search.factory import primary_settings
-        cat = primary_settings(None, "catalog", enabled_only=False)
+        from src.core.search.factory import plugin_settings
+        cat = plugin_settings(None, "catalog", enabled_only=False)
 
         catalog_token = args.catalog_token or cat.get("token") or ""
         catalog_search_url = args.catalog_search_url or cat.get("catalog_search_url") or ""

@@ -77,10 +77,10 @@ class AllExternalPluginsPocTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig(pid, "search_provider", pid, enabled=False, is_primary=True)
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=False)
             for pid in BUILTIN_IDS
         ] + [
-            PluginInstanceConfig(pid, "search_provider", pid, enabled=True, is_primary=True)
+            PluginInstanceConfig(pid, "search_provider", pid, enabled=True)
             for pid in POC_IDS
         ]
         return cfg

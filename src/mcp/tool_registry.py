@@ -383,7 +383,6 @@ class ToolRegistry(ToolGenerationMixin):
                     "type": p.provider_id,
                     "label": p.display_label(),
                     "enabled": p.enabled,
-                    "is_primary": p.is_primary,
                     "usage_hint": p.usage_hint,
                     "capabilities": list(getattr(meta, "capabilities", []) or []),
                     "description": meta.doc.description if meta else "",
@@ -1299,10 +1298,10 @@ class ToolRegistry(ToolGenerationMixin):
 
     @staticmethod
     def _canonical_instance(instances):
-        """The instance that owns the canonical tool name: the primary, else the first."""
-        for inst in instances:
-            if getattr(inst, "is_primary", False):
-                return inst
+        """The instance that owns the canonical tool name: the first of its type.
+
+        Siblings get an ``_<instance_id>`` suffix (see :meth:`_instance_tool_name`),
+        so config order decides which one keeps the plain name. - Claude Generated"""
         return instances[0]
 
     @staticmethod

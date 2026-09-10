@@ -396,9 +396,9 @@ def finc_subject_harvest(
     # to report the flag regardless of the source's enable state. - Claude Generated
     enabled = bool(config.get("enabled")) if config and "enabled" in config else None
     if enabled is None:
-        from src.core.search.factory import primary_settings
+        from src.core.search.factory import plugin_settings
 
-        enabled = bool(primary_settings(None, "finc").get("harvest_enabled", False))
+        enabled = bool(plugin_settings(None, "finc").get("harvest_enabled", False))
     if not enabled:
         return {"entries": [], "harvested_terms": [], "subjects_reconciled": 0,
                 "merged_added": 0, "tool_calls": 0, "enabled": False}

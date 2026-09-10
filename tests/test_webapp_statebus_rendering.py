@@ -90,7 +90,7 @@ class TestSessionBusSubscriber(unittest.TestCase):
         # The OPAC base comes from the catalog *instance* since WP P7.
         cfg = AlimaConfig()
         cfg.plugins = [PluginInstanceConfig(
-            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            "catalog", "search_provider", "catalog", enabled=True,
             settings={"catalog_web_record_url": "https://katalog.ub.tu-freiberg.de/Record/"},
         )]
         cm = _mock.MagicMock()

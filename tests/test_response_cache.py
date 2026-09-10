@@ -419,7 +419,7 @@ class AgentViewSurfacingTest(unittest.TestCase):
             cfg = AlimaConfig()
             cfg.plugins = [
                 PluginInstanceConfig("poc_lobid", "search_provider", "poc_lobid",
-                                     enabled=True, is_primary=True)
+                                     enabled=True)
             ]
             blob = json.dumps({"totalItems": 5, "member": [{"title": "Y"}]})
             self.km.store_raw_response("poc_lobid", "wasser", {"search_type": "kw"}, blob)
@@ -467,7 +467,7 @@ class AgentViewSurfacingTest(unittest.TestCase):
             cfg = AlimaConfig()
             cfg.plugins = [
                 PluginInstanceConfig("paged_src", "search_provider", "paged_src",
-                                     enabled=True, is_primary=True)
+                                     enabled=True)
             ]
             # Written by the seam under the source's real key (max_pages included).
             blob = json.dumps({"totalItems": 42})

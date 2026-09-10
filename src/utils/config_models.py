@@ -749,10 +749,12 @@ class PluginInstanceConfig:
     for a directory plugin it is the plugin's declared id.
 
     Multiple instances of one type may coexist (id-based), so ``instance_id`` is
-    the unique key. ``is_primary`` marks the instance used by the classic (single-
-    result) path + the compatibility mirrors; ``usage_hint`` is appended to the
-    generated tool/source description so an agent can steer between siblings.
-    ``settings`` holds the provider-specific values keyed by ``ConfigField.key``.
+    the unique key. Where a single instance has to stand for the type — the classic
+    single-result path, the compatibility mirrors, the canonical tool name — the
+    *first* enabled instance of that type is used (see
+    ``AlimaConfig.type_instance``). ``usage_hint`` is appended to the generated
+    tool/source description so an agent can steer between siblings. ``settings``
+    holds the provider-specific values keyed by ``ConfigField.key``.
     """
 
     instance_id: str
@@ -760,7 +762,6 @@ class PluginInstanceConfig:
     provider_id: str
     label: str = ""
     enabled: bool = True
-    is_primary: bool = False
     usage_hint: str = ""
     settings: Dict[str, Any] = field(default_factory=dict)
 
@@ -975,22 +976,25 @@ class AlimaConfig:
         """Return the *enabled* plugin instances of ``category``. - Claude Generated"""
         return [p for p in self.plugins if p.category == category and p.enabled]
 
-    def primary_instance(
+    def type_instance(
         self, category: str, provider_id: Optional[str] = None, *, include_disabled: bool = False
     ):
-        """Return the primary enabled instance for a category (optionally a type).
+        """The instance that stands for a category (optionally a type): the first enabled one.
 
-        Falls back to the first enabled instance when none is flagged primary.
-        ``include_disabled=True`` ignores the enable state — for *policy* settings
-        that are stored on an instance but are not gated by it (e.g. the DK step's
-        strict-GND flag on the catalog plugin), matching what the CatalogConfig
-        mirror did before WP P7. - Claude Generated
+        Config order decides. Used wherever exactly one instance has to represent
+        the type — the classic single-result path, the compatibility mirrors, the
+        canonical tool name. ``include_disabled=True`` ignores the enable state,
+        for *policy* settings that are stored on an instance but are not gated by
+        it (e.g. the DK step's strict-GND flag on the catalog plugin), matching
+        what the CatalogConfig mirror did before WP P7.
+
+        Replaced the ``is_primary`` flag (removed Sep 2026): every caller already
+        fell back to "the first" and no install ever had two instances of a type,
+        so the flag discriminated nothing while appearing on every plugin panel.
+        - Claude Generated
         """
         source = self.instances_for(category) if include_disabled else self.enabled_instances_for(category)
         pool = [p for p in source if provider_id is None or p.provider_id == provider_id]
-        for p in pool:
-            if p.is_primary:
-                return p
         return pool[0] if pool else None
 
 

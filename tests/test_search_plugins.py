@@ -97,39 +97,39 @@ class PrimarySettingsTest(unittest.TestCase):
     def test_settings_layered_over_configfield_defaults(self):
         # The mirror used to supply the dataclass default for an unset field; the
         # instance side must supply the ConfigField default instead.
-        from src.core.search.factory import primary_settings
+        from src.core.search.factory import plugin_settings
 
         cfg = self._cfg(PluginInstanceConfig(
-            "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+            "catalog", "search_provider", "catalog", enabled=True,
             settings={"token": "TOK"},
         ))
-        out = primary_settings(cfg, "catalog")
+        out = plugin_settings(cfg, "catalog")
         self.assertEqual(out["token"], "TOK")                            # instance wins
         self.assertEqual(out["catalog_type"], "libero_soap")             # declared default
         self.assertIs(out["strict_gnd_validation_for_dk_search"], True)  # declared default
 
     def test_enabled_only_gates_source_reads_but_not_policy_reads(self):
-        from src.core.search.factory import primary_settings
+        from src.core.search.factory import plugin_settings
 
         cfg = self._cfg(PluginInstanceConfig(
-            "finc", "search_provider", "finc", enabled=False, is_primary=True,
+            "finc", "search_provider", "finc", enabled=False,
             settings={"harvest_enabled": True},
         ))
         # source gate (default): disabled instance contributes nothing
-        self.assertEqual(primary_settings(cfg, "finc"), {})
+        self.assertEqual(plugin_settings(cfg, "finc"), {})
         # policy read: enable state ignored, mirroring derive_search_mirrors
-        self.assertIs(primary_settings(cfg, "finc", enabled_only=False)["harvest_enabled"], True)
+        self.assertIs(plugin_settings(cfg, "finc", enabled_only=False)["harvest_enabled"], True)
 
     def test_unknown_provider_and_unreadable_config_are_empty(self):
-        from src.core.search.factory import primary_settings
+        from src.core.search.factory import plugin_settings
 
-        self.assertEqual(primary_settings(self._cfg(), "catalog"), {})
+        self.assertEqual(plugin_settings(self._cfg(), "catalog"), {})
 
         class _Boom:
             def primary_instance(self, *a, **k):
                 raise RuntimeError("unreadable")
 
-        self.assertEqual(primary_settings(_Boom(), "catalog"), {})
+        self.assertEqual(plugin_settings(_Boom(), "catalog"), {})
 
 
 class SetPrimarySettingsTest(unittest.TestCase):
@@ -147,29 +147,29 @@ class SetPrimarySettingsTest(unittest.TestCase):
     def test_seeds_the_full_builtin_set_not_just_the_written_type(self):
         # The synthesis guard is per *category*: a lone hand-made catalog instance
         # would strand the other five built-ins forever.
-        from src.core.search.factory import set_primary_settings
+        from src.core.search.factory import set_plugin_settings
 
         cfg = self._fresh()
-        set_primary_settings(cfg, "catalog", {"token": "TOK"})
+        set_plugin_settings(cfg, "catalog", {"token": "TOK"})
         self.assertEqual(
             {p.instance_id for p in cfg.instances_for("search_provider")},
             {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"},
         )
 
     def test_writes_onto_the_primary_and_merges(self):
-        from src.core.search.factory import primary_settings, set_primary_settings
+        from src.core.search.factory import plugin_settings, set_plugin_settings
 
         cfg = self._fresh()
-        set_primary_settings(cfg, "catalog", {"token": "TOK"})
-        set_primary_settings(cfg, "catalog", {"catalog_search_url": "https://s"})
-        cat = primary_settings(cfg, "catalog", enabled_only=False)
+        set_plugin_settings(cfg, "catalog", {"token": "TOK"})
+        set_plugin_settings(cfg, "catalog", {"catalog_search_url": "https://s"})
+        cat = plugin_settings(cfg, "catalog", enabled_only=False)
         self.assertEqual(cat["token"], "TOK")            # first write survives
         self.assertEqual(cat["catalog_search_url"], "https://s")
 
     def test_equivalent_to_the_legacy_upgrade_path(self):
         # A/B: an operator who set these values in a pre-plugin config (upgraded on
         # load) must end up with the same instances as one who runs the wizard now.
-        from src.core.search.factory import set_primary_settings
+        from src.core.search.factory import set_plugin_settings
 
         legacy_section = {
             "catalog_token": "TOK", "catalog_search_url": "https://s",
@@ -180,10 +180,10 @@ class SetPrimarySettingsTest(unittest.TestCase):
                for p in pm.synthesize_search_instances(legacy_section)}
 
         cfg = self._fresh()
-        set_primary_settings(cfg, "catalog", {
+        set_plugin_settings(cfg, "catalog", {
             "token": "TOK", "catalog_search_url": "https://s", "catalog_details": "https://d",
         })
-        set_primary_settings(cfg, "finc", {
+        set_plugin_settings(cfg, "finc", {
             "base_url": "https://finc", "default_limit": 25, "dk_enabled": True,
         })
         new = {p.instance_id: dict(p.settings or {})
@@ -204,12 +204,12 @@ class CatalogWebBasesTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.plugins = [
             PluginInstanceConfig(
-                "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+                "catalog", "search_provider", "catalog", enabled=True,
                 settings={"catalog_web_record_url": cat_url,
                           "catalog_web_search_url": cat_search},
             ),
             PluginInstanceConfig(
-                "finc", "search_provider", "finc", enabled=True, is_primary=True,
+                "finc", "search_provider", "finc", enabled=True,
                 settings={"catalog_web_record_url": finc_url},
             ),
         ]
@@ -268,7 +268,6 @@ class MigrationTest(unittest.TestCase):
         self.assertEqual(insts["finc"].settings["default_limit"], 25)
         self.assertTrue(insts["finc"].settings["dk_enabled"])
         self.assertEqual(insts["sru"].settings["preset"], "dnb")
-        self.assertTrue(all(i.is_primary for i in insts.values()))
 
     def test_enabled_gate_respected(self):
         gate = {"providers": {"finc": False}}
@@ -297,12 +296,12 @@ class MigrationTest(unittest.TestCase):
         self.assertEqual(insts["sru"].settings, {})
 
         # …and the declared defaults are what the readers then see.
-        from src.core.search.factory import primary_settings
+        from src.core.search.factory import plugin_settings
         from src.utils.config_models import AlimaConfig
 
         cfg = AlimaConfig()
         cfg.plugins = list(insts.values())
-        eff = primary_settings(cfg, "catalog", enabled_only=False)
+        eff = plugin_settings(cfg, "catalog", enabled_only=False)
         self.assertEqual(eff["catalog_type"], "libero_soap")
         self.assertIs(eff["strict_gnd_validation_for_dk_search"], True)
 
@@ -329,7 +328,7 @@ class BackfillMissingSearchInstancesTest(unittest.TestCase):
         return [
             PluginInstanceConfig(
                 instance_id=pid, category=pm.SEARCH_CATEGORY, provider_id=pid,
-                enabled=enabled, is_primary=True, settings={},
+                enabled=enabled, settings={},
             )
             for pid in provider_ids
         ]
@@ -339,7 +338,6 @@ class BackfillMissingSearchInstancesTest(unittest.TestCase):
         added = pm.synthesize_missing_search_instances(existing)
         self.assertEqual([i.provider_id for i in added], ["kvk"])
         self.assertTrue(added[0].enabled)
-        self.assertTrue(added[0].is_primary)
         self.assertEqual(added[0].label, "KVK (Verbundkataloge)")
 
     def test_nothing_to_add_when_complete(self):
@@ -404,7 +402,7 @@ class ListPluginsToolTest(unittest.TestCase):
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True, is_primary=True),
+            PluginInstanceConfig("lobid", "search_provider", "lobid", enabled=True),
             PluginInstanceConfig("off", "search_provider", "swb", enabled=False),
             PluginInstanceConfig("doi_crossref", "input_source", "doi_crossref", enabled=True,
                                  settings={"contact_email": "a@b.c"}),

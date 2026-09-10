@@ -84,7 +84,7 @@ class ListPluginsSecretMaskTest(unittest.TestCase):
         cfg = AlimaConfig()
         cfg.plugins = [
             PluginInstanceConfig(
-                "catalog", "search_provider", "catalog", enabled=True, is_primary=True,
+                "catalog", "search_provider", "catalog", enabled=True,
                 settings={"token": "s3cret-value", "catalog_search_url": "https://soap.example/x"},
             ),
         ]
