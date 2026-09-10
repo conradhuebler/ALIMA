@@ -17,6 +17,7 @@
 - DOI lookup: via the DOI input-source plugins / `src/utils/doi_resolver.py` (the standalone Crossref tab + `crossref_worker.py` were removed)
 
 **Supporting Components:**
+- `step_config_widgets.SearchStepConfigWidget`: Quellen des klassischen Suchschritts als eine Checkbox je aktivierter GND-Quelle, live aus `factory.enabled_gnd_provider_ids` (Muster von `SearchTab`, WP-K5). ⚠️ keine festen Provider-Listen — vorher waren es drei hartverdrahtete Boxen und `gnd_local` sowie jedes eigene Plugin waren unerreichbar.
 - `PipelineConfigDialog` / `workflow_editor_dialog.py`: pipeline config + form editor for agentic v4 workflow YAML (ruamel round-trip, validates `load_workflow(strict=True)`, saves to `~/.config/alima/workflows/`; engine read-only)
 - `batch_processing_dialog.py`: batch file/directory processing (QThread, progress, continue-on-error)
 - `SettingsDialog` / `PromptEditorDialog`: configuration + prompt template editing
