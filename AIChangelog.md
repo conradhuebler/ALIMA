@@ -6,6 +6,84 @@
 
 ## 2026
 
+### Einstellungsdialog: Phase 1 aufgeräumt (September 10, 2026)
+
+Der Dialog war über 52 Commits auf 1624 Zeilen gewachsen. Die Analyse fand
+nicht nur „zu voll", sondern in großen Teilen **wirkungslos**.
+
+**Ganze Gruppen ohne Wirkung.** „🔄 Repetition Detection" (sechs Regler) war in
+beide Richtungen inert: `_parse_config` baute `AlimaConfig(...)` ohne
+`repetition_config` — die Zeichenkette kam in der Datei nicht vor — und
+`_init_repetition_detector` läuft nur in `AlimaManager.__init__`, das die GUI
+genau einmal aufruft. Die Erkennung selbst funktioniert, nur der
+Konfigurationspfad war unterbrochen; darum repariert statt entfernt, plus
+`reload_repetition_config()` nach jedem Speichern. „Save Configuration To"
+(Project/User/System) reichte an einen `scope`-Parameter, den `save_config` nie
+las — es gibt genau eine Datei. Dieselbe Fiktion an fünf CLI-Unterbefehlen, dort
+mit Ausgabe („saved to user scope") über etwas, das nicht stattfand. `alima db
+paths` las zusätzlich einen `legacy_config`-Schlüssel, den es nie gab, und starb
+nach drei Zeilen am `KeyError`.
+
+**Speichern verlor fünf Felder.** `_get_config_from_ui` baute die Dataclasses
+neu, also musste jedes Feld ohne Bedienelement von Hand durchgereicht werden.
+Fünf wurden es nicht: `url_fetch_allowlist` (SSRF-Ausnahmen),
+`url_fetch_max_bytes`, `ui_language`, `ptheta_banner_seen`, `gnd_local_path`.
+Keines hat ein Widget, zwei sind nur per Handedit erreichbar — der Verlust war
+weder sichtbar noch rückgängig. Der Dialog mutiert jetzt die vorhandene Kopie,
+womit die Fehlerklasse als solche verschwindet.
+
+**`is_primary` entfernt.** Das Flag markierte die Instanz, die einen Plugin-Typ
+vertritt. Jeder Konsument hatte bereits „sonst die erste" als Fallback, echte
+Konfigurationen trugen es auf allen 16 Instanzen, und kein Typ hatte je zwei —
+es belegte eine Checkbox auf jedem Panel, ohne zu unterscheiden. Ersatz ist die
+ausdrückliche Regel `AlimaConfig.type_instance` (erste aktivierte Instanz,
+Konfigurationsreihenfolge entscheidet). Der klassische Pfad legt seine Quellen
+jetzt explizit fest: `SearchStepConfigWidget` baut eine Checkbox je aktivierter
+GND-Quelle aus `enabled_gnd_provider_ids` statt drei hartverdrahteter Boxen —
+`gnd_local` und jedes eigene Plugin waren vorher unerreichbar.
+
+**„DK-Backend" (`catalog_type`) log.** `factory.py` sagte es wörtlich:
+vestigial. Entschieden haben `dk_enabled` auf finc/sru plus die Reihenfolge in
+`resolve_dk_extractor`. Auf der realen Installation stand die Combobox auf
+`libero_soap`, während finc das Backend war. `migrate_catalog_type` trägt die
+alte Wahl einmal beim Laden nach `sru.dk_enabled` und entfernt den Schlüssel.
+Das Formular zeigt stattdessen die **Capabilities** — worauf zur Laufzeit
+wirklich ausgewählt wird und was `type_meta` die ganze Zeit berechnet hat.
+
+**Weiter entfernt, weil ohne Leser:** `SystemConfig.debug`, `data_dir`,
+`temp_dir`; die ganze `PromptConfig`-Sektion; `ChatConfig.system_prompt_override`;
+`created_at`/`updated_at`; `auto_create_tables`. Der **Log-Level** wurde
+dagegen verdrahtet statt entfernt: „Protokoll auf Debug, Problem wiederholen,
+`alima.log` schicken" ist der Support-Pfad, den `--log-level` im Terminal nicht
+abdeckt. Dabei kam die Auswahl auf den Boden — sie bot fünf Werte an, wo
+`setup_logging` vier Verhalten kennt.
+
+**32 % toter Code gelöscht** (1620 → 1041 Zeilen): eine vollständige zweite
+Task-Preferences-Implementierung samt eigenem `ModelSelectionDialog`, ohne
+Aufrufer. Pikant und der Grund, warum so etwas liegen bleibt:
+`test_model_selection_dialog.py` testete die **tote** Kopie und beschrieb dabei
+einen echten Nutzerfehler, während die lebende `TaskModelSelectionDialog` gar
+keinen Test hatte.
+
+**Abbrechen wirkt wieder.** „Test Connection" wies den kompletten
+ungespeicherten Dialogzustand dem prozessweiten Singleton zu; Provider
+anlegen/bearbeiten/entfernen schrieb sofort auf Platte. Dazu: `save_config()`
+ohne Argument an zwei Stellen (der Knopf „Als Standardeinstellung speichern" hat
+nie funktioniert), `max_iterations=30` in der GUI fest verdrahtet gegen die
+Parity-Regel, und zwei `getattr` auf `ChatConfig`-Felder, die es nicht gibt.
+
+**Einrichtungsassistent ins Menü**, nachdem er nicht mehr löscht: `accept()`
+baute eine frische `AlimaConfig`, und `save_config` schreibt sie ganz — ein
+zweiter Lauf hätte Plugin-Einstellungen, Tier-2-Freigaben, Bundles,
+chat/ui/repetition und alle weiteren Provider verworfen. `_apply_onto_existing`
+ersetzt jetzt nur die abgefragten Bereiche.
+
+Verifikation durchgehend: Load-Save-Roundtrip einer Kopie der realen
+`config.json` (genau die beabsichtigten Entfernungen, sonst nichts), generierte
+MCP-Toolnamen vorher/nachher identisch, pyflakes ohne neue undefinierte Namen
+gegen `main`, und jeder neue Regel-Test per Mutation geprüft. Suite 2236 → 2290.
+Details: `docs/settings_cleanup_phase1.md`.
+
 ### Step-Abbruch wirkt jetzt im laufenden Stream (September 9, 2026)
 
 Der Knopf setzte ein Ereignis, das im agentischen Modus **niemand las**. Der

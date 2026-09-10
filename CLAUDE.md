@@ -124,6 +124,22 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Einstellungsdialog Phase 1 ✅ DONE (Sep 10, Suite 2290, Branch
+  `settings-cleanup-phase1`):** Der Dialog war nicht nur zu voll, sondern in
+  großen Teilen wirkungslos. Repariert bzw. entfernt: die Repetition-Gruppe (nie
+  geparst *und* nie neu initialisiert), die Scope-Auswahl (`save_config` las den
+  Parameter nie; dieselbe Fiktion an fünf CLI-Befehlen), vier Regler ohne Leser,
+  `PromptConfig`, `catalog_type` (mit Migration nach `sru.dk_enabled`), 32 %
+  toter Code. **`is_primary` entfernt** → `AlimaConfig.type_instance` (erste
+  aktivierte Instanz); der klassische Pfad legt seine Quellen jetzt explizit
+  fest (`SearchStepConfigWidget` live aus `enabled_gnd_provider_ids`, `gnd_local`
+  war vorher unerreichbar). **Fünf Felder gingen bei jedem Speichern verloren** —
+  Wurzel war Neubau statt Mutation der Dataclasses. Der Log-Level wurde
+  verdrahtet statt entfernt (Support-Pfad ohne Terminal). Der
+  Einrichtungsassistent hängt im Menü, nachdem `accept()` nicht mehr die ganze
+  Konfiguration ersetzt. **Offen = Phase 2:** fünf konkurrierende Modell-Defaults
+  ohne sichtbare Auflösung. Details:
+  [`docs/settings_cleanup_phase1.md`](docs/settings_cleanup_phase1.md).
 - **Persönliche Zusatzregeln ✅ ADDED (Sep 3, aufgeräumt Sep 8, Suite 2091):**
   Regeln, die im Chat formuliert werden, liegen in `~/.config/alima/rules.yaml`
   und gehen ab dem nächsten Lauf in die Prompts der agentischen Steps, des
