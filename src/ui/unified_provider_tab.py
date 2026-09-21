@@ -221,11 +221,9 @@ class UnifiedProviderTab(QWidget):
             "Default provider/model for agentic workflows and the chat agent. "
             "Leave empty to use the pipeline default.")
 
-        # What actually runs, and which of the settings above decided it. Six
-        # settings can determine the model (the three defaults, the task
-        # preferences, provider_priority as a seed, disabled_providers as a veto)
-        # and no surface showed which one applied — you could set a model here and
-        # get another one, with nothing saying why. - Claude Generated
+        # Which of the settings above decided the model. They used to compete
+        # invisibly — you could set a model here and get another one, with nothing
+        # saying why. - Claude Generated
         effective_group = QGroupBox("Aufgelöster Standard")
         effective_layout = QFormLayout(effective_group)
         scope_note = QLabel(

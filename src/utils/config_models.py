@@ -468,6 +468,11 @@ class UnifiedProviderConfig:
     # a baked-in cloud list). Empty = derive ordering from the configured
     # providers. Claude Generated.
     provider_priority: List[str] = field(default_factory=list)
+    # Migration input only. A second, invisible way to switch a provider off:
+    # a name in here overrode UnifiedProvider.enabled, no surface ever showed it,
+    # and no code path populated it — only the parser reading an older file.
+    # apply_disabled_providers folds it into `enabled` once at load, then clears
+    # it. Kept as a field so an old config.json still parses. - Claude Generated
     disabled_providers: List[str] = field(default_factory=list)
 
     # Pipeline default provider/model - single source of truth for pipeline execution
@@ -538,8 +543,13 @@ class UnifiedProviderConfig:
                 del self.model_chunking_thresholds[provider_name]
 
     def get_enabled_providers(self) -> List[UnifiedProvider]:
-        """Get list of enabled providers - Claude Generated"""
-        return [p for p in self.providers if p.enabled and p.name not in self.disabled_providers]
+        """Enabled providers. One switch: ``UnifiedProvider.enabled``.
+
+        ``disabled_providers`` used to veto here as well; it is folded into
+        ``enabled`` at load time now (:meth:`apply_disabled_providers`).
+        - Claude Generated
+        """
+        return [p for p in self.providers if p.enabled]
 
     def get_enabled_ollama_providers(self) -> List[UnifiedProvider]:
         """Get enabled Ollama providers - Claude Generated (BUGFIX: Restored from bridge layer)"""
@@ -703,6 +713,22 @@ class UnifiedProviderConfig:
                     return provider, model, "first_enabled"
 
         return "", "", "none"
+
+    def apply_disabled_providers(self) -> bool:
+        """Fold the legacy ``disabled_providers`` veto into ``enabled``.
+
+        Returns True when something was migrated. Runs at load, so a config
+        written before the merge keeps switching the same providers off — just
+        through the control that is actually on screen. - Claude Generated
+        """
+        names = {str(n) for n in (self.disabled_providers or [])}
+        if not names:
+            return False
+        for provider in self.providers:
+            if provider.name in names:
+                provider.enabled = False
+        self.disabled_providers = []
+        return True
 
     def fill_empty_default_models(self) -> None:
         """Persist resolved models for any default-provider with an empty model.

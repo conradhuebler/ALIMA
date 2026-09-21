@@ -602,6 +602,12 @@ class ConfigManager:
         # Auto-create UnifiedProvider objects from API keys - Claude Generated
         self._create_providers_from_api_keys(unified_config)
 
+        # Legacy veto -> the visible enable switch. - Claude Generated
+        if unified_config.apply_disabled_providers():
+            self.logger.info(
+                "disabled_providers in UnifiedProvider.enabled überführt"
+            )
+
         # Parse task preferences
         task_prefs_data = data.get("task_preferences", {})
         for task_name, task_data in task_prefs_data.items():
@@ -662,6 +668,9 @@ class ConfigManager:
 
         # Auto-create providers from API keys
         self._create_providers_from_api_keys(unified_config)
+
+        # Legacy veto -> the visible enable switch. - Claude Generated
+        unified_config.apply_disabled_providers()
 
         # Parse task preferences
         if 'task_preferences' in config_data:

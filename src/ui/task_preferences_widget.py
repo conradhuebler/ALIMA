@@ -860,9 +860,11 @@ class TaskPreferencesWidget(QWidget):
             # Start with provider_priority order
             model_priority = []
             
+            enabled_names = {p.name for p in self.unified_config.get_enabled_providers()}
             for provider in self.unified_config.provider_priority:
-                # Skip disabled providers
-                if provider in self.unified_config.disabled_providers:
+                # Skip switched-off providers. Was a disabled_providers check —
+                # a second veto, folded into `enabled` at load. - Claude Generated
+                if provider not in enabled_names:
                     continue
                 
                 # Get preferred model for this provider (if configured)

@@ -259,9 +259,15 @@ class SmartProviderSelector:
             if time.time() - timestamp < self._cache_timeout:
                 return is_available
 
-        # Check if provider is disabled
+        # Check if provider is switched off. One switch: UnifiedProvider.enabled.
+        # This used to test disabled_providers, a second veto that no surface
+        # showed and nothing populated; it is folded into `enabled` at load.
+        # - Claude Generated
         unified_config = self.config_manager.get_unified_config()
-        if provider in unified_config.disabled_providers:
+        match = next(
+            (p for p in unified_config.providers if p.name == provider), None
+        )
+        if match is not None and not match.enabled:
             self._availability_cache[provider] = (False, time.time())
             return False
 

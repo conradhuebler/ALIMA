@@ -44,6 +44,14 @@ Diese gelten über den Anlass hinaus.
 
 ## 3. Offen (Phase 2)
 
+**Schritt 1 ✅ erledigt (Sep 21):** `explain_default_provider_model` nennt die
+gewinnende Einstellung, `resolve_default_provider_model` delegiert daran (eine
+Implementierung, damit die Erklärung nicht abdriftet). Die Gruppe „Aufgelöster
+Standard" im Provider-Tab zeigt sie je Bereich. Dabei gefunden: die
+Task-Preferences-Auswahl zur Laufzeit (`_resolve_provider_smart`, PRIORITY 2)
+war durch ein `TaskType.TEXT` tot, das es nicht gibt — der breite `except`
+meldete den `AttributeError` als `warning`.
+
 **Der eigentliche DAU-Blocker:** fünf Ebenen entscheiden über das Modell, das
 läuft — General/Pipeline/Agentic Default, die Spalte „Preferred Model" je
 Provider, die Task Preferences, dazu `pipeline_tab.global_override_selector` und
@@ -53,9 +61,11 @@ die Standard-Combos im `PipelineConfigDialog`. Aufgelöst wird das in
 
 Dazu zwei unsichtbare Achsen:
 
-- `UnifiedProviderConfig.disabled_providers` (`config_models.py`, gelesen in
-  `smart_provider_selector`) überstimmt `UnifiedProvider.enabled`, hat aber kein
-  Bedienelement — nur per Handedit oder Legacy-Migration befüllbar.
+- ~~`disabled_providers`~~ ✅ **erledigt (Sep 21).** Die Liste überstimmte
+  `UnifiedProvider.enabled` an drei Stellen, hatte kein Bedienelement und wurde
+  von keinem Code-Pfad befüllt. `apply_disabled_providers` führt sie beim Laden
+  einmalig in `enabled` über und leert sie; das Feld bleibt als
+  Migrations-Eingabe. Ein Schalter statt zweier.
 - `provider_priority` wird von `resolve_default_provider_model` nicht gelesen,
   entscheidet aber trotzdem etwas: `task_preferences_widget:342` belegt damit die
   Modell-Reihenfolge eines Tasks vor, der noch keine eigenen Präferenzen hat
