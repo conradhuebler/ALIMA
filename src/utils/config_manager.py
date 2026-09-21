@@ -563,7 +563,6 @@ class ConfigManager:
         unified_config = UnifiedProviderConfig()
 
         # Parse global settings
-        unified_config.provider_priority = data.get("provider_priority", [])
         unified_config.disabled_providers = data.get("disabled_providers", [])
 
         # Parse pipeline default provider/model - Claude Generated
@@ -640,7 +639,6 @@ class ConfigManager:
         # Parse provider preferences
         if 'provider_preferences' in config_data:
             prefs = config_data['provider_preferences']
-            unified_config.provider_priority = prefs.get('provider_priority', [])
             unified_config.disabled_providers = prefs.get('disabled_providers', [])
 
         # Parse LLM section and create providers

@@ -7,18 +7,15 @@ Claude Generated
 
 from copy import deepcopy
 import logging
-from typing import Dict, List, Optional, Any
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox, QFormLayout,
-    QLineEdit, QPushButton, QLabel, QComboBox, QSpinBox, QCheckBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox, QProgressBar, QTextEdit,
-    QSplitter, QFrame, QScrollArea, QGridLayout, QDialog,
-    QListWidget, QListWidgetItem
+    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
+    QPushButton, QLabel, QTableWidget,
+    QTableWidgetItem, QHeaderView, QMessageBox, QDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QPalette
+from PyQt6.QtGui import QPalette
 
-from ..utils.config_manager import ConfigManager, OpenAICompatibleProvider, OllamaProvider, ProviderDetectionService
+from ..utils.config_manager import ConfigManager, ProviderDetectionService
 from ..utils.config_models import (
     UnifiedProviderConfig,
     UnifiedProvider,
@@ -26,8 +23,7 @@ from ..utils.config_models import (
 )
 from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
-from .provider_dialogs import TaskModelSelectionDialog, ProviderEditDialog  # F-5 split - Claude Generated
-from .task_preferences_widget import TaskPreferencesWidget  # F-5 split - Claude Generated
+from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
 
 
 class UnifiedProviderTab(QWidget):
@@ -50,7 +46,6 @@ class UnifiedProviderTab(QWidget):
         self.config = alima_config
         self.config_manager = config_manager  # ✅ ConfigManager for persistence operations
         self.alima_manager = alima_manager  # Access to ProviderStatusService - Claude Generated
-        # Task-preference editing state now lives in TaskPreferencesWidget (F-5).
 
         # Providers must reach disk as soon as they change: the model list comes
         # from LlmService, whose client map and provider lookup both read the
@@ -100,27 +95,13 @@ class UnifiedProviderTab(QWidget):
         """Setup the unified provider tab UI - Claude Generated"""
         layout = QVBoxLayout(self)
 
-        # Main content in tabs
-        self.main_tabs = QTabWidget()
-        layout.addWidget(self.main_tabs)
-        
-        # Provider Management Tab
+        # No tabs of its own: this widget is one page of the settings sidebar, and
+        # a tab bar in here would put a second navigation level back on the page.
+        # The "Task Preferences" tab that used to sit next to the providers is
+        # gone with the per-task model choice it edited. - Claude Generated
         self.providers_tab = self._create_providers_tab()
-        self.main_tabs.addTab(self.providers_tab, "🔧 Provider Management")
-        
-        # Task Preferences Tab  
-        self.preferences_widget = TaskPreferencesWidget(
-            self.unified_config, self.config, self.config_manager, self.alima_manager, self
-        )
-        self.preferences_widget.config_changed.connect(self.config_changed)
-        self.preferences_widget.task_preferences_changed.connect(self.task_preferences_changed)
-        self.preferences_widget.save_toast.connect(
-            lambda msg, err: self._show_save_toast(msg, error=err)
-        )
-        self.preferences_tab = self.preferences_widget
-        self.main_tabs.addTab(self.preferences_tab, "🎯 Task Preferences")
-        
-        
+        layout.addWidget(self.providers_tab)
+
         # Action buttons
         button_layout = QHBoxLayout()
         
@@ -293,9 +274,6 @@ class UnifiedProviderTab(QWidget):
             # Load model preferences
             self._populate_model_preferences()
             
-            # Load task preferences (delegated to TaskPreferencesWidget) - Claude Generated
-            self.preferences_widget.set_available_models(self._cached_providers, self._cached_models)
-            self.preferences_widget.load()
 
             self._refresh_effective_defaults()
 
@@ -337,7 +315,6 @@ class UnifiedProviderTab(QWidget):
         try:
             self._cached_models.update(models)
             self._populate_model_preferences()
-            self.preferences_widget.set_available_models(self._cached_providers, self._cached_models)
             self.logger.info(f"Background model fetch complete: {list(models.keys())}")
         except Exception as e:
             self.logger.error(f"Error applying fetched models: {e}")
@@ -761,8 +738,6 @@ class UnifiedProviderTab(QWidget):
         self.unified_config.agentic_default_provider = prov
         self.unified_config.agentic_default_model = model
 
-        # Task preferences save delegated to TaskPreferencesWidget (clean-state guarded) - Claude Generated
-        self.preferences_widget.save_if_clean()
 
         # NOTE: Task preferences are managed in self.config.unified_config.task_preferences
         # They are already updated by individual UI operations

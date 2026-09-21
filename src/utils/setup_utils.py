@@ -350,7 +350,6 @@ class ConfigurationBuilder:
         unified_config = UnifiedProviderConfig(
             providers=[provider],
             task_preferences=task_preferences,
-            provider_priority=[provider.name]
         )
 
         # Assemble final config

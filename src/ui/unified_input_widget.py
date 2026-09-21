@@ -473,7 +473,6 @@ class TextExtractionWorker(StoppableWorker):
             if unified_config:
                 self.logger.debug(f"🔍 UNIFIED_CONFIG_PROVIDERS: {len(unified_config.providers)} providers configured")
                 self.logger.debug(f"🔍 UNIFIED_CONFIG_TASK_PREFS: {len(unified_config.task_preferences)} task preferences: {list(unified_config.task_preferences.keys())}")
-                self.logger.debug(f"🔍 UNIFIED_CONFIG_PROVIDER_PRIORITY: {unified_config.provider_priority}")
 
             # Get model priority for image_text_extraction task
             model_priority = unified_config.get_model_priority_for_task("image_text_extraction") if unified_config else []

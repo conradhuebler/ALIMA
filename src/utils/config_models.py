@@ -468,7 +468,6 @@ class UnifiedProviderConfig:
     # No hardcoded provider list (per CLAUDE.md: read providers from config, not
     # a baked-in cloud list). Empty = derive ordering from the configured
     # providers. Claude Generated.
-    provider_priority: List[str] = field(default_factory=list)
     # Migration input only. A second, invisible way to switch a provider off:
     # a name in here overrode UnifiedProvider.enabled, no surface ever showed it,
     # and no code path populated it — only the parser reading an older file.
@@ -504,7 +503,7 @@ class UnifiedProviderConfig:
     anthropic_preferred_model: str = ""
 
     # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
-    preferred_provider: str = ""  # Explicit user choice, independent of provider_priority
+    preferred_provider: str = ""  # the general default
     preferred_model: str = ""     # Model for preferred_provider — central general default
                                   # (baseline for pipeline + chat when no pipeline_default set)
 
@@ -681,11 +680,13 @@ class UnifiedProviderConfig:
     ) -> tuple[str, str, str]:
         """Like :meth:`resolve_default_provider_model`, plus *which* setting won.
 
-        Six settings can decide which model runs (the three scope defaults, the
-        task preferences, ``provider_priority`` as a seed, and
-        ``disabled_providers`` as an invisible veto), and no surface used to show
-        which one applied. The resolution itself lives here so the explanation
-        cannot drift from it: ``resolve_default_provider_model`` delegates to this.
+        Four settings can decide which model runs: the general default, the
+        pipeline default, the agentic default and the vision default. Which one
+        applied used to be invisible, and there were six — per-task preferences,
+        ``provider_priority`` and ``disabled_providers`` were removed in Sep 2026
+        because none of them had a control that matched what they did. The
+        resolution lives here so the explanation cannot drift from it:
+        ``resolve_default_provider_model`` delegates to this.
 
         Returns ``(provider, model, source)`` where ``source`` is a key of
         :attr:`DEFAULT_SOURCES`. - Claude Generated
@@ -822,8 +823,6 @@ class UnifiedProviderConfig:
             config.auto_fallback = legacy_data['auto_fallback']
         if 'prefer_faster_models' in legacy_data:
             config.prefer_faster_models = legacy_data['prefer_faster_models']
-        if 'provider_priority' in legacy_data:
-            config.provider_priority = legacy_data['provider_priority']
         if 'disabled_providers' in legacy_data:
             config.disabled_providers = legacy_data['disabled_providers']
 

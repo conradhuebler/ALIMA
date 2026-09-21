@@ -273,22 +273,15 @@ class PipelineConfig:
                 ),
             }
 
-            # Apply step overrides from task_preferences if any - Claude Generated
-            for task_name, task_pref in unified_config.task_preferences.items():
-                step_id = task_name.lower()  # e.g., "KEYWORDS" -> "keywords"
-                if step_id in step_configs and task_pref.model_priority:
-                    first_pref = task_pref.model_priority[0]
-                    override_provider = first_pref.get("provider_name")
-                    override_model = first_pref.get("model_name")
-                    if override_provider and override_provider != "auto":
-                        step_configs[step_id].provider = override_provider
-                        step_configs[step_id].model = override_model or default_model
-                        logger.debug(f"Step override for {step_id}: {override_provider}/{override_model}")
-                    # Apply think setting if explicitly set (None = default, not inherited) - Claude Generated
-                    think_val = first_pref.get("think")
-                    if think_val is not None:
-                        step_configs[step_id].think = think_val
-                        logger.debug(f"Think override for {step_id}: think={think_val}")
+            # Per-task model overrides used to be applied here from
+            # ``task_preferences``. They were a per-step model choice for the
+            # classic pipeline, and only ever the *first* entry of a list that
+            # read like a fallback chain and was not one: nothing consulted
+            # entries 2..n, and a dead first entry failed the step instead of
+            # moving on. Three of six configured tasks even had no step to land
+            # on at all. The classic pipeline now runs on the pipeline default;
+            # an agentic workflow names its model per step in its own YAML
+            # (``llm.provider``/``llm.model``). - Claude Generated
 
             # Resolve default workflow from system config; keep fallback for tests.
             default_workflow = "alima_v51"

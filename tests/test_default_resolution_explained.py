@@ -2,9 +2,9 @@
 
 Six settings can determine it: the three scope defaults
 (``agentic_default_*`` → ``pipeline_default_*`` → ``preferred_*``), the per-step
-task preferences, ``provider_priority`` as the seed for a task without its own
-preferences, and ``disabled_providers`` as a veto that overrides
-``UnifiedProvider.enabled`` with no control anywhere. Resolution lives in
+the vision default, and — until Sep 2026 — per-task preferences,
+``provider_priority`` and ``disabled_providers``, none of which had a visible
+control that matched what they did. Resolution lives in
 ``resolve_default_provider_model``; no surface used to show which setting applied,
 so a model set in the dialog could be replaced by another with nothing saying why.
 
@@ -119,10 +119,6 @@ class SwitchedOffProvidersAreSkippedByTheFallbackTest(unittest.TestCase):
         cfg.apply_disabled_providers()
         p, _m, src = cfg.explain_default_provider_model()
         self.assertEqual((p, src), ("B", "first_enabled"))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TaskPreferencesActuallyReachExecutionTest(unittest.TestCase):
@@ -258,45 +254,5 @@ class DisabledProvidersIsFoldedIntoEnabledTest(unittest.TestCase):
             ConfigManager.reset()
 
 
-class TaskSeedingFallsBackToEnabledProvidersTest(unittest.TestCase):
-    """A task without its own preferences must get a usable suggestion.
-
-    ``provider_priority`` holds provider *names*. A real config carried a provider
-    *type* there (``openai_compatible``) from a legacy migration, matching none of
-    the configured providers, so the seed was filtered down to nothing and the
-    priority list for such a task came up empty. - Claude Generated
-    """
-
-    def _widget(self, priority, provider_names=("A", "B")):
-        from src.ui.task_preferences_widget import TaskPreferencesWidget
-
-        cfg = UnifiedProviderConfig(providers=[
-            UnifiedProvider(name=n, provider_type="ollama", enabled=True)
-            for n in provider_names
-        ])
-        cfg.provider_priority = list(priority)
-        w = TaskPreferencesWidget.__new__(TaskPreferencesWidget)
-        w.unified_config = cfg
-        w.logger = __import__("logging").getLogger("test")
-        return w
-
-    def _names(self, widget):
-        return [e["provider_name"]
-                for e in widget._create_task_defaults_from_global_preferences()]
-
-    def test_a_stale_provider_type_no_longer_empties_the_seed(self):
-        w = self._widget(["openai_compatible"])
-        self.assertEqual(self._names(w), ["A", "B"])
-
-    def test_a_valid_priority_is_honoured_in_order(self):
-        w = self._widget(["B", "A"])
-        self.assertEqual(self._names(w), ["B", "A"])
-
-    def test_an_empty_priority_uses_the_enabled_providers(self):
-        w = self._widget([])
-        self.assertEqual(self._names(w), ["A", "B"])
-
-    def test_a_switched_off_provider_is_not_suggested(self):
-        w = self._widget(["A", "B"])
-        w.unified_config.providers[0].enabled = False
-        self.assertEqual(self._names(w), ["B"])
+if __name__ == "__main__":
+    unittest.main()
