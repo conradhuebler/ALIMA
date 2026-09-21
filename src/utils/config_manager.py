@@ -622,6 +622,15 @@ class ConfigManager:
             except Exception as e:
                 self.logger.warning(f"Error parsing task preference '{task_name}': {e}")
 
+        # A vision task preference never reached a run; adopting it as the vision
+        # default is what finally makes it take effect. - Claude Generated
+        if unified_config.adopt_vision_task_preference():
+            self.logger.info(
+                "Vision-Voreinstellung als Vision-Standard übernommen: "
+                f"{unified_config.vision_default_provider}/"
+                f"{unified_config.vision_default_model} — sie war bisher wirkungslos"
+            )
+
         return unified_config
 
     def _parse_modern_config(self, config_data: Dict[str, Any]) -> UnifiedProviderConfig:

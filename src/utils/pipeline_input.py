@@ -262,25 +262,27 @@ def _extract_from_image_pipeline(
         # Check if a vision-capable model is configured for OCR.
         # The PyQt settings UI stores this under "vision", while some older/manual configs
         # may use the prompt-specific key "image_text_extraction".
-        # Only the two vision task keys count. "initialisation" and "keywords"
-        # used to be accepted here as well, so a configured *text* model made the
-        # check pass and the failure surfaced later, inside the model call.
-        # - Claude Generated
-        has_providers = False
-        configured_task = None
-        for task_name in ["image_text_extraction", "vision"]:
-            task_prefs = config.unified_config.task_preferences.get(task_name)
-            if task_prefs and bool(task_prefs.model_priority):
-                has_providers = True
-                configured_task = task_name
-                break
+        # Check the very thing that will then be used. This used to demand a
+        # task_preferences["vision"] entry and then ignore it: the vision path
+        # asked SmartProviderSelector, which does not read task preferences at
+        # all. A gate that requires a setting it does not consult is worse than
+        # no gate. - Claude Generated
+        from .config_models import ProviderScope
+
+        vision_provider, vision_model, _source = (
+            config.unified_config.explain_default_provider_model(
+                scope=ProviderScope.VISION
+            )
+        )
+        has_providers = bool(vision_provider)
+        configured_task = "vision"
 
         if not has_providers:
             error_msg = (
-                "❌ Kein Vision-Modell für die Bilderkennung konfiguriert.\n"
-                "Einstellungen ▸ Providers & Models ▸ Task Preferences ▸ "
-                "'Vision' öffnen und dort ein bildfähiges Modell hinzufügen "
-                "(z. B. ein Modell mit Vision-Unterstützung des eigenen Anbieters)."
+                "❌ Kein Modell für die Bilderkennung verfügbar.\n"
+                "Einstellungen ▸ Sprachmodelle öffnen und einen Anbieter mit "
+                "einem bildfähigen Modell einrichten; unter „Vision-Standard\u201c "
+                "lässt sich eigens eines dafür wählen."
             )
             if logger:
                 logger.error(error_msg)
@@ -420,16 +422,28 @@ def _get_best_vision_provider_pipeline(llm_service, logger=None) -> Tuple[Option
 
         # Initialize ConfigManager for task_preferences access - Claude Generated
         config_manager = ConfigManager()
+        # The vision default, resolved through the same chain as every other
+        # default (vision -> general -> first usable provider). Used to go
+        # through SmartProviderSelector with task_name="image_text_extraction"
+        # and a comment claiming "task preferences define explicit provider" —
+        # select_provider does not read task preferences, so what actually ran
+        # was the pipeline default. - Claude Generated
+        from .config_models import ProviderScope
+
+        unified = config_manager.load_config().unified_config
+        provider, model, source = unified.explain_default_provider_model(
+            scope=ProviderScope.VISION
+        )
+        if logger:
+            logger.info(f"Vision-Modell: {provider}/{model} (aus: {source})")
+        if provider:
+            return provider, model
+
+        # Nothing configured at all — keep the old selector as the last resort.
         selector = SmartProviderSelector(config_manager)
         selection = selector.select_provider(
-            task_type=TaskType.VISION,
-            prefer_fast=False,
-            task_name="image_text_extraction"  # Task preferences define explicit provider - no capability filtering needed - Claude Generated
+            task_type=TaskType.VISION, prefer_fast=False, task_name="vision"
         )
-
-        if logger:
-            logger.info(f"SmartProviderSelector chose {selection.provider} with {selection.model} for vision task (fallback_used: {selection.fallback_used})")
-        
         return selection.provider, selection.model
         
     except Exception as e:

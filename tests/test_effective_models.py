@@ -137,3 +137,102 @@ class WithoutAnyPreferenceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VisionHasItsOwnDefaultTest(unittest.TestCase):
+    """Image/OCR analysis is a capability question, not a pipeline step.
+
+    It used to sit in ``task_preferences["vision"]`` and never reached a run:
+    ``_get_best_vision_provider_pipeline`` asked ``SmartProviderSelector``, which
+    does not read task preferences, so image analysis quietly used the pipeline
+    default — while the gate in front of it *demanded* a vision preference and
+    refused to start without one. A gate requiring a setting it does not consult
+    is worse than no gate. - Claude Generated
+    """
+
+    def _cfg(self):
+        from src.utils.config_models import ProviderScope
+
+        cfg = _config()
+        return cfg, ProviderScope
+
+    def test_the_vision_default_wins_for_the_vision_scope(self):
+        cfg, scope = self._cfg()
+        cfg.preferred_provider, cfg.preferred_model = "A", "a1"
+        cfg.vision_default_provider, cfg.vision_default_model = "B", "b-vision"
+        self.assertEqual(
+            cfg.explain_default_provider_model(scope=scope.VISION),
+            ("B", "b-vision", "vision_default"),
+        )
+
+    def test_without_one_it_falls_through_to_the_general_default(self):
+        """Vision skips the pipeline stage: it is not a pipeline step."""
+        cfg, scope = self._cfg()
+        cfg.preferred_provider, cfg.preferred_model = "A", "a1"
+        cfg.pipeline_default_provider, cfg.pipeline_default_model = "B", "b1"
+        self.assertEqual(
+            cfg.explain_default_provider_model(scope=scope.VISION),
+            ("A", "a1", "preferred"),
+        )
+
+    def test_it_does_not_leak_into_the_pipeline_scope(self):
+        cfg, scope = self._cfg()
+        cfg.preferred_provider, cfg.preferred_model = "A", "a1"
+        cfg.vision_default_provider, cfg.vision_default_model = "B", "b-vision"
+        provider, _m, source = cfg.explain_default_provider_model(scope=scope.PIPELINE)
+        self.assertEqual((provider, source), ("A", "pipeline_default"))
+        self.assertNotEqual(source, "vision_default")
+
+
+class TheLegacyVisionPreferenceIsAdoptedTest(unittest.TestCase):
+    def test_it_is_carried_over(self):
+        cfg = _config(vision=[("B", "b-vision")])
+        self.assertTrue(cfg.adopt_vision_task_preference())
+        self.assertEqual(
+            (cfg.vision_default_provider, cfg.vision_default_model), ("B", "b-vision")
+        )
+
+    def test_an_explicit_vision_default_is_not_overwritten(self):
+        cfg = _config(vision=[("B", "b-vision")])
+        cfg.vision_default_provider = "A"
+        self.assertFalse(cfg.adopt_vision_task_preference())
+        self.assertEqual(cfg.vision_default_provider, "A")
+
+    def test_it_is_idempotent(self):
+        cfg = _config(vision=[("B", "b-vision")])
+        self.assertTrue(cfg.adopt_vision_task_preference())
+        self.assertFalse(cfg.adopt_vision_task_preference())
+
+    def test_nothing_to_adopt_changes_nothing(self):
+        cfg = _config()
+        self.assertFalse(cfg.adopt_vision_task_preference())
+        self.assertEqual(cfg.vision_default_provider, "")
+
+    def test_an_auto_entry_is_skipped(self):
+        cfg = _config(vision=[("auto", ""), ("B", "b-vision")])
+        cfg.adopt_vision_task_preference()
+        self.assertEqual(cfg.vision_default_provider, "B")
+
+
+class TheVisionGateChecksWhatItUsesTest(unittest.TestCase):
+    """The gate and the pick must read the same setting."""
+
+    def test_both_go_through_the_vision_scope(self):
+        import inspect
+
+        from src.utils import pipeline_input
+
+        lines = [
+            ln.strip()
+            for ln in inspect.getsource(pipeline_input).splitlines()
+            if ("task_preferences" in ln or "ProviderScope.VISION" in ln)
+            and not ln.lstrip().startswith("#")
+        ]
+        self.assertTrue(
+            any("ProviderScope.VISION" in ln for ln in lines),
+            f"Vision-Scope wird nicht benutzt: {lines}",
+        )
+        leftovers = [ln for ln in lines if "task_preferences" in ln]
+        self.assertEqual(
+            leftovers, [], f"liest noch Task Preferences: {leftovers}"
+        )

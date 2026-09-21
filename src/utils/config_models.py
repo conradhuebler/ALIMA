@@ -37,6 +37,7 @@ class ProviderScope(str, Enum):
     """
     GENERAL = "general"    # preferred -> first enabled
     PIPELINE = "pipeline"  # pipeline_default -> preferred -> first enabled
+    VISION = "vision"      # vision_default -> preferred -> first enabled
     AGENTIC = "agentic"    # agentic_default -> pipeline_default -> preferred -> first enabled
 
 
@@ -482,6 +483,14 @@ class UnifiedProviderConfig:
 
     # Agentic / workflow default provider/model (WP-ι cleanup)
     # Falls back to pipeline_default, then preferred_provider if unset.
+    # Image/OCR analysis. A capability question, not a pipeline step: it applies
+    # to image and PDF input whatever the operating mode. Used to live in
+    # task_preferences["vision"], which nothing consulted — the vision path asked
+    # SmartProviderSelector, and that never reads task preferences.
+    # - Claude Generated
+    vision_default_provider: str = ""
+    vision_default_model: str = ""
+
     agentic_default_provider: str = ""
     agentic_default_model: str = ""
 
@@ -657,6 +666,7 @@ class UnifiedProviderConfig:
     #: labels, so a rename here is a visible break rather than a silent one.
     DEFAULT_SOURCES = {
         "agentic_default": "Agentic Default",
+        "vision_default": "Vision-Standard",
         "pipeline_default": "Pipeline Default",
         "preferred": "General Default",
         "first_enabled": "erster nutzbarer Provider (kein Default gesetzt)",
@@ -682,11 +692,15 @@ class UnifiedProviderConfig:
         """
         # Determine the ordered list of candidate (source, provider, model) settings.
         candidate_fields: list[tuple[str, str, str]] = []
+        if scope == "vision":
+            candidate_fields.append(
+                ("vision_default", self.vision_default_provider, self.vision_default_model)
+            )
         if scope == "agentic":
             candidate_fields.append(
                 ("agentic_default", self.agentic_default_provider, self.agentic_default_model)
             )
-        if scope in ("agentic", "pipeline"):
+        if scope in ("agentic", "pipeline"):  # vision falls straight through
             candidate_fields.append(
                 ("pipeline_default", self.pipeline_default_provider, self.pipeline_default_model)
             )
@@ -713,6 +727,28 @@ class UnifiedProviderConfig:
                     return provider, model, "first_enabled"
 
         return "", "", "none"
+
+    def adopt_vision_task_preference(self) -> bool:
+        """Carry a legacy ``task_preferences["vision"]`` into the vision default.
+
+        The entry never reached a run: the vision path asked SmartProviderSelector,
+        which does not read task preferences, so image analysis quietly used the
+        pipeline default. Migrating it makes the configured choice take effect for
+        the first time — which is the point, but it *is* a behaviour change and
+        the caller logs it. Returns True when something was adopted.
+        - Claude Generated
+        """
+        if self.vision_default_provider:
+            return False
+        for key in ("vision", "image_text_extraction"):
+            pref = (self.task_preferences or {}).get(key)
+            for entry in getattr(pref, "model_priority", None) or []:
+                provider = str(entry.get("provider_name") or "").strip()
+                if provider and provider != "auto":
+                    self.vision_default_provider = provider
+                    self.vision_default_model = str(entry.get("model_name") or "").strip()
+                    return True
+        return False
 
     def apply_disabled_providers(self) -> bool:
         """Fold the legacy ``disabled_providers`` veto into ``enabled``.
@@ -742,6 +778,7 @@ class UnifiedProviderConfig:
         pairs = (
             ("pipeline_default_provider", "pipeline_default_model"),
             ("agentic_default_provider", "agentic_default_model"),
+            ("vision_default_provider", "vision_default_model"),
             ("preferred_provider", "preferred_model"),
         )
         for provider_attr, model_attr in pairs:
