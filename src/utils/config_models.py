@@ -638,24 +638,58 @@ class UnifiedProviderConfig:
         Returns:
             Tuple of (provider, model). May be ("", "") if no provider is configured.
         """
-        # Determine the ordered list of candidate (provider, model) settings.
-        candidate_fields: list[tuple[str, str]] = []
+        provider, model, _source = self.explain_default_provider_model(
+            scope=scope, fallback_to_first_enabled=fallback_to_first_enabled
+        )
+        return provider, model
+
+    #: Why a default resolved the way it did. Stable keys — the UI maps them to
+    #: labels, so a rename here is a visible break rather than a silent one.
+    DEFAULT_SOURCES = {
+        "agentic_default": "Agentic Default",
+        "pipeline_default": "Pipeline Default",
+        "preferred": "General Default",
+        "first_enabled": "erster nutzbarer Provider (kein Default gesetzt)",
+        "none": "kein Provider konfiguriert",
+    }
+
+    def explain_default_provider_model(
+        self,
+        *,
+        scope: "ProviderScope | str" = ProviderScope.GENERAL,
+        fallback_to_first_enabled: bool = True,
+    ) -> tuple[str, str, str]:
+        """Like :meth:`resolve_default_provider_model`, plus *which* setting won.
+
+        Six settings can decide which model runs (the three scope defaults, the
+        task preferences, ``provider_priority`` as a seed, and
+        ``disabled_providers`` as an invisible veto), and no surface used to show
+        which one applied. The resolution itself lives here so the explanation
+        cannot drift from it: ``resolve_default_provider_model`` delegates to this.
+
+        Returns ``(provider, model, source)`` where ``source`` is a key of
+        :attr:`DEFAULT_SOURCES`. - Claude Generated
+        """
+        # Determine the ordered list of candidate (source, provider, model) settings.
+        candidate_fields: list[tuple[str, str, str]] = []
         if scope == "agentic":
             candidate_fields.append(
-                (self.agentic_default_provider, self.agentic_default_model)
+                ("agentic_default", self.agentic_default_provider, self.agentic_default_model)
             )
         if scope in ("agentic", "pipeline"):
             candidate_fields.append(
-                (self.pipeline_default_provider, self.pipeline_default_model)
+                ("pipeline_default", self.pipeline_default_provider, self.pipeline_default_model)
             )
         # General fallback is always last.
-        candidate_fields.append((self.preferred_provider, self.preferred_model))
+        candidate_fields.append(
+            ("preferred", self.preferred_provider, self.preferred_model)
+        )
 
-        for provider, model in candidate_fields:
+        for source, provider, model in candidate_fields:
             if provider:
                 if not model:
                     _, model = self.resolve_provider_model(provider)
-                return provider, model
+                return provider, model, source
 
         if fallback_to_first_enabled:
             # Pick the first enabled *usable* provider, not just the first enabled
@@ -666,9 +700,9 @@ class UnifiedProviderConfig:
                     continue
                 provider, model = self.resolve_provider_model(candidate.name)
                 if provider:
-                    return provider, model
+                    return provider, model, "first_enabled"
 
-        return "", ""
+        return "", "", "none"
 
     def fill_empty_default_models(self) -> None:
         """Persist resolved models for any default-provider with an empty model.

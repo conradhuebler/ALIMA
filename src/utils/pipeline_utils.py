@@ -214,14 +214,19 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
         # Only use if no explicit UI selection provided
         if self.smart_selector:
             try:
-                # Map string to TaskType enum
+                # Map string to TaskType enum. ``TaskType.TEXT`` does not exist —
+                # this dict literal raised AttributeError on every evaluation, the
+                # broad except below logged it as a warning, and PRIORITY 2 never
+                # ran: select_provider was not even reached. The generic member is
+                # GENERAL. The value only reaches select_provider's logging
+                # (task_name/step_id drive the actual choice). - Claude Generated
                 task_type_mapping = {
-                    "text": TaskType.TEXT,
+                    "text": TaskType.GENERAL,
                     "classification": TaskType.CLASSIFICATION,
-                    "vision": TaskType.VISION
+                    "vision": TaskType.VISION,
                 }
 
-                task_type_enum = task_type_mapping.get(task_type.lower(), TaskType.TEXT)
+                task_type_enum = task_type_mapping.get(task_type.lower(), TaskType.GENERAL)
 
                 selection = self.smart_selector.select_provider(
                     task_type=task_type_enum,
@@ -244,8 +249,11 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
                 return final_provider, final_model
 
             except Exception as e:
+                # log_caught keeps defect shapes (AttributeError, NameError, …) at
+                # ERROR: an AttributeError hid in here as a warning and disabled
+                # this whole branch. - Claude Generated
                 if self.logger:
-                    self.logger.warning(f"SmartProvider selection failed: {e}")
+                    log_caught(self.logger, e, "SmartProvider selection")
 
         # 3. Config-manager fallbacks (when SmartProvider unavailable)
         if self.config_manager:

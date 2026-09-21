@@ -221,7 +221,55 @@ class UnifiedProviderTab(QWidget):
             "Default provider/model for agentic workflows and the chat agent. "
             "Leave empty to use the pipeline default.")
 
+        # What actually runs, and which of the settings above decided it. Six
+        # settings can determine the model (the three defaults, the task
+        # preferences, provider_priority as a seed, disabled_providers as a veto)
+        # and no surface showed which one applied — you could set a model here and
+        # get another one, with nothing saying why. - Claude Generated
+        effective_group = QGroupBox("Aufgelöster Standard")
+        effective_layout = QFormLayout(effective_group)
+        scope_note = QLabel(
+            "Welche der Einstellungen oben je Bereich gewinnt. Ein im "
+            "Pipeline-Dialog gesetztes Modell und die Task Preferences gehen "
+            "einem Schritt weiterhin vor."
+        )
+        scope_note.setWordWrap(True)
+        scope_note.setStyleSheet("color: gray; font-size: 10px;")
+        effective_layout.addRow(scope_note)
+        self.effective_labels = {}
+        for scope_key, caption in (
+            ("general", "Allgemein:"),
+            ("pipeline", "Klassische Pipeline:"),
+            ("agentic", "Agentisch / Chat:"),
+        ):
+            lbl = QLabel("—")
+            lbl.setWordWrap(True)
+            lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.effective_labels[scope_key] = lbl
+            effective_layout.addRow(caption, lbl)
+        layout.addWidget(effective_group)
+
         return widget
+
+    def _refresh_effective_defaults(self) -> None:
+        """Show the resolved provider/model per scope and the reason - Claude Generated."""
+        labels = getattr(self, "effective_labels", None)
+        if not labels:
+            return
+        for scope_key, lbl in labels.items():
+            try:
+                provider, model, source = self.unified_config.explain_default_provider_model(
+                    scope=scope_key
+                )
+            except Exception as e:
+                self.logger.debug(f"Auflösung für {scope_key} fehlgeschlagen: {e}")
+                lbl.setText("—")
+                continue
+            reason = self.unified_config.DEFAULT_SOURCES.get(source, source)
+            if not provider:
+                lbl.setText(f"— ({reason})")
+            else:
+                lbl.setText(f"{provider} | {model or '(kein Modell)'}   ← {reason}")
 
     
     def _load_configuration(self):
@@ -250,6 +298,8 @@ class UnifiedProviderTab(QWidget):
             # Load task preferences (delegated to TaskPreferencesWidget) - Claude Generated
             self.preferences_widget.set_available_models(self._cached_providers, self._cached_models)
             self.preferences_widget.load()
+
+            self._refresh_effective_defaults()
 
         except Exception as e:
             self.logger.error(f"Error loading unified provider configuration: {e}")
@@ -468,6 +518,7 @@ class UnifiedProviderTab(QWidget):
         config and mark dirty. Programmatic population is silent (the selector only
         emits on user edits), so this never fires during load. Claude Generated."""
         self._update_config_from_ui()
+        self._refresh_effective_defaults()
         self.config_changed.emit()
 
     def _populate_model_preferences(self):
