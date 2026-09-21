@@ -22,7 +22,7 @@ from ..utils.config_models import (
 from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
-from .settings import ProviderAccordion, ResolutionView
+from .settings import ProviderList, ResolutionView
 
 
 class UnifiedProviderTab(QWidget):
@@ -122,24 +122,25 @@ class UnifiedProviderTab(QWidget):
         self.resolution_view.selection_changed.connect(self._on_scope_selection)
         layout.addWidget(self.resolution_view)
 
-        # Providers as an accordion. Three to six entries with six fields each is
-        # a list, not a table: a table has to squeeze the endpoint and the key
-        # state into columns and then needs a dialog for whatever did not fit.
-        # - Claude Generated
-        self.provider_accordion = ProviderAccordion()
-        self.provider_accordion.edit_requested.connect(self._edit_provider_by_name)
-        self.provider_accordion.remove_requested.connect(self._remove_provider_by_name)
-        self.provider_accordion.models_requested.connect(self._refresh_models_for)
-        self.provider_accordion.chunking_changed.connect(self._set_chunking)
-        self.provider_accordion.chunking_removed.connect(self._drop_chunking)
-        layout.addWidget(self.provider_accordion)
+        # A plain list: five entries that one wants to see at once gain nothing
+        # from folding. An accordion was tried here first and hid mostly static
+        # text behind an interaction. - Claude Generated
+        self.provider_list = ProviderList()
+        self.provider_list.add_requested.connect(self._add_provider)
+        self.provider_list.edit_requested.connect(self._edit_provider_by_name)
+        self.provider_list.remove_requested.connect(self._remove_provider_by_name)
+        self.provider_list.models_requested.connect(self._refresh_models_for)
+        self.provider_list.chunking_changed.connect(self._set_chunking)
+        self.provider_list.chunking_removed.connect(self._drop_chunking)
+        layout.addWidget(self.provider_list)
 
         provider_button_layout = QHBoxLayout()
-        self.add_provider_button = QPushButton("➕ Anbieter hinzufügen…")
-        self.add_provider_button.clicked.connect(self._add_provider)
         self.refresh_models_button = QPushButton("🔄 Alle Anbieter prüfen")
+        self.refresh_models_button.setToolTip(
+            "Prüft alle Anbieter im Hintergrund auf Erreichbarkeit und holt dabei "
+            "ihre Modelllisten. Für einen einzelnen genügt der Knopf oben."
+        )
         self.refresh_models_button.clicked.connect(self._refresh_models)
-        provider_button_layout.addWidget(self.add_provider_button)
         provider_button_layout.addWidget(self.refresh_models_button)
         provider_button_layout.addStretch()
         layout.addLayout(provider_button_layout)
@@ -267,8 +268,8 @@ class UnifiedProviderTab(QWidget):
         return all_providers
 
     def _populate_provider_table(self):
-        """Render the provider accordion. Name kept: several call sites use it."""
-        self.provider_accordion.refresh(
+        """Render the provider list. Name kept: several call sites use it."""
+        self.provider_list.refresh(
             list(self.unified_config.providers),
             models=dict(self._cached_models or {}),
             thresholds=dict(getattr(self.unified_config, "model_chunking_thresholds", {}) or {}),
