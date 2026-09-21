@@ -168,3 +168,34 @@ class CollapsibleSectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheModelSwitchOnlyBindsTheChatAgentTest(unittest.TestCase):
+    """``allow_model_switch`` governs self-initiated switching, nothing else.
+
+    A workflow that names ``llm.provider``/``llm.model`` per step is a choice its
+    author made, not the agent deciding for itself, and it must keep working with
+    the switch off. The agentic core does not read the flag at all — this test
+    keeps it that way, because the label now promises it. - Claude Generated
+    """
+
+    def test_the_agentic_core_does_not_read_the_flag(self):
+        from pathlib import Path
+
+        offenders = [
+            str(path)
+            for path in Path("src/core").rglob("*.py")
+            if "allow_model_switch" in path.read_text()
+        ]
+        self.assertEqual(
+            offenders, [],
+            f"Ein Workflow-Pfad liest den Chat-Schalter: {offenders}",
+        )
+
+    def test_the_tool_is_the_only_gate(self):
+        import inspect
+
+        from src.ui import chat_tools
+
+        src = inspect.getsource(chat_tools)
+        self.assertIn("allow_model_switch", src)

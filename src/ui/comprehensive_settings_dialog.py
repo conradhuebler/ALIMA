@@ -372,16 +372,20 @@ class ComprehensiveSettingsDialog(QDialog):
         form = QFormLayout()
 
         self.chat_allow_model_switch = QCheckBox(
-            "Agent darf Provider/Modell selbst wechseln"
+            "Der Chat-Agent darf sein Modell selbst wechseln"
         )
         self.chat_allow_model_switch.setToolTip(
-            "Gibt dem Chat-Agenten das Werkzeug, sein eigenes Modell für den Rest "
-            "der Sitzung zu wechseln — z.B. auf ein stärkeres für eine schwierige "
-            "Klassifikation. Aus: das Werkzeug wird gar nicht erst angeboten.\n"
-            "Der Wechsel gilt ab der nächsten Antwort, wird nie gespeichert und "
+            "Betrifft nur den Wechsel aus eigenem Antrieb: der Agent bekommt das "
+            "Werkzeug, für den Rest der Sitzung auf ein anderes Modell zu gehen — "
+            "etwa auf ein stärkeres für eine schwierige Klassifikation. "
+            "Abgeschaltet wird das Werkzeug gar nicht erst angeboten.\n\n"
+            "Ein Workflow, der in seiner YAML ein Modell je Schritt vorgibt "
+            "(llm.provider / llm.model), ist davon nicht betroffen und läuft "
+            "unabhängig von diesem Schalter.\n\n"
+            "Ein Wechsel gilt ab der nächsten Antwort, wird nie gespeichert und "
             "endet, sobald Du die LLM-Auswahl in der Werkzeugleiste anfasst."
         )
-        form.addRow("Chat-Agent:", self.chat_allow_model_switch)
+        form.addRow("Selbstständig:", self.chat_allow_model_switch)
 
         group.setLayout(form)
         return group
