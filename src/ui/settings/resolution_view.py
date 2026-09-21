@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QGroupBox,
     QHeaderView,
-    QLabel,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -71,10 +71,10 @@ class ResolutionView(QGroupBox):
         self.table.setShowGrid(False)
         box.addWidget(self.table)
 
-        self.note = QLabel("")
-        self.note.setWordWrap(True)
-        self.note.setStyleSheet("color: gray; font-size: 10px;")
-        box.addWidget(self.note)
+        # Nothing else goes in here. A wrapping note label below the table was
+        # the one element that grew when the dialog was resized, and it grew
+        # into empty space on a page whose content is fixed-height. - Claude Generated
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
     # -- content ---------------------------------------------------------
 
@@ -99,7 +99,6 @@ class ResolutionView(QGroupBox):
             self._provider_names = []
 
         self.table.setRowCount(len(rows))
-        notes = []
         muted = self.palette().color(QPalette.ColorRole.PlaceholderText)
 
         self._loading = True
@@ -118,14 +117,9 @@ class ResolutionView(QGroupBox):
                 self.table.setItem(r, c, item)
 
             self.table.setCellWidget(r, 4, self._selector_for(row, unified_config))
-
-            if row.note:
-                notes.append(row.note)
         self._loading = False
 
         self._fit_height()
-        self.note.setText("  ".join(notes))
-        self.note.setVisible(bool(notes))
 
     def _fit_height(self) -> None:
         """Uniform rows that fit their picker, and no scrollbar - Claude Generated.

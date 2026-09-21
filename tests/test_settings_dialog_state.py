@@ -519,5 +519,43 @@ class NoConfigScopeFictionTest(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class NoWorkflowStepNamesItsOwnModelTest(unittest.TestCase):
+    """Der Dialog behauptete das Gegenteil, und die Behauptung war falsch.
+
+    Die Modelltabelle trug den Hinweis, ein agentischer Schritt könne in seiner
+    YAML ein eigenes Modell nennen. Weder ``LLMAgentStep._llm_params`` noch
+    ``ReflectionStep`` lesen ``provider``/``model`` aus dem ``llm:``-Block; beide
+    nehmen sie aus dem Lauf-Kontext. Dieser Test hält fest, dass der Hinweis erst
+    zurückkommt, wenn der Code ihn einlöst. - Claude Generated
+    """
+
+    def test_llm_agent_step_takes_provider_and_model_from_the_context(self):
+        from src.core.agents.steps.llm_agent_step import LLMAgentStep
+
+        class _Ctx:
+            provider = "aus-dem-kontext"
+            model = "m-kontext"
+
+        params = LLMAgentStep._llm_params(
+            None,
+            {"llm": {"provider": "aus-der-yaml", "model": "m-yaml"}},
+            _Ctx(),
+        )
+        self.assertEqual(params["provider"], "aus-dem-kontext")
+        self.assertEqual(params["model"], "m-kontext")
+
+    def test_no_settings_surface_promises_a_per_step_model(self):
+        """Die Behauptung darf auch nicht an anderer Stelle wieder auftauchen."""
+        import pathlib
+
+        surfaces = sorted(pathlib.Path("src/ui/settings").glob("*.py"))
+        surfaces.append(pathlib.Path("src/ui/comprehensive_settings_dialog.py"))
+        for module in surfaces:
+            text = module.read_text(encoding="utf-8")
+            for claim in ("llm.provider", "llm.model", "Modell je Schritt",
+                          "eigenes Modell nennen", "WORKFLOW_NOTE"):
+                self.assertNotIn(claim, text, f"{module.name}: {claim}")
+
+
 if __name__ == "__main__":
     unittest.main()

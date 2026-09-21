@@ -173,10 +173,11 @@ if __name__ == "__main__":
 class TheModelSwitchOnlyBindsTheChatAgentTest(unittest.TestCase):
     """``allow_model_switch`` governs self-initiated switching, nothing else.
 
-    A workflow that names ``llm.provider``/``llm.model`` per step is a choice its
-    author made, not the agent deciding for itself, and it must keep working with
-    the switch off. The agentic core does not read the flag at all — this test
-    keeps it that way, because the label now promises it. - Claude Generated
+    A workflow run picks its model from the run context (pipeline tab, else the
+    configured defaults), which is the operator's choice rather than the agent
+    deciding for itself, and it must keep working with the switch off. The
+    agentic core does not read the flag at all — this test keeps it that way,
+    because the label now promises it. - Claude Generated
     """
 
     def test_the_agentic_core_does_not_read_the_flag(self):

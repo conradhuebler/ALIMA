@@ -29,7 +29,7 @@ prompts:                                       # OPTIONAL per-step prompt overri
 meta_agent:                                    # OPTIONAL planning loop config
   enabled: false                               # default false
   max_cycles: 10
-  reflection_model: ""                         # provider model id; empty = default
+  reflection_model: ""                         # parsed and passed on, but see below
   reflection_provider: ""
   quality_rules:
     - "dk_depth: at_least_4_digits"
@@ -117,8 +117,6 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
     top_p: 0.9
     max_tokens: 32768
     max_iterations: 1                          # AgentLoop iteration cap (tool-use rounds)
-    provider: ""                               # optional override (default: pipeline config)
-    model: ""
 
   tools:                                       # OPTIONAL tool exposure to LLM
     explicit: [search_swb, get_gnd_batch]      # exact tool names from MCP registry
@@ -141,6 +139,13 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
     ...
     {abstract}                                 # f-string-style substitution from inputs
 ```
+
+**Which model a step runs on is not set here.** `LLMAgentStep` and
+`ReflectionStep` take provider and model from the run context — the pick in the
+pipeline tab, else the configured defaults (Einstellungen ▸ Sprachmodelle). The
+`llm:` block sets temperature, top_p, token budget, iteration cap, thinking and
+seed only. `meta_agent.reflection_model` / `reflection_provider` are parsed and
+handed to `MetaAgent`, but `ReflectionStep` does not read them either.
 
 **Output shape** (what `outputs:` paths see):
 

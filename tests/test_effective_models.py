@@ -1,21 +1,26 @@
 """Which model runs where, and where that comes from.
 
-Three axes are left after the Sep-2026 rework: the general default, the pipeline
-default, and the vision default. Each is one row.
+Four axes are left after the Sep-2026 rework: the general default, the pipeline
+default, the agentic default, and the vision default. Each is one row.
 
 Per-task model choices are gone. They were a per-step choice for the classic
 pipeline and only ever the *first* entry of a list that read like a fallback
 chain and was not one: nothing consulted entries 2..n, a dead first entry failed
 the step instead of moving on, and three of six configured tasks had no step to
-land on at all. An agentic workflow names its model per step in its own YAML,
-which is unaffected. - Claude Generated
+land on at all. A workflow step does not name its own model either: the step
+classes read provider and model from the run context, never from the step's
+``llm:`` block. - Claude Generated
 """
 
 from __future__ import annotations
 
 import unittest
 
-from src.ui.settings.effective_models import SOURCE_LABELS, effective_rows
+from src.ui.settings.effective_models import (
+    SOURCE_LABELS,
+    EffectiveRow,
+    effective_rows,
+)
 from src.utils.config_models import (
     ProviderScope,
     TaskPreference,
@@ -58,10 +63,18 @@ class OneRowPerAxisTest(unittest.TestCase):
         for row in effective_rows(cfg):
             self.assertIn(row.source, SOURCE_LABELS, row.task)
 
-    def test_the_agentic_row_names_the_workflow_override(self):
-        """A workflow step may still carry its own model; the table must say so."""
-        row = _row(effective_rows(_config()), "agentisch")
-        self.assertIn("YAML", row.note)
+    def test_a_row_carries_no_free_text(self):
+        """Die Tabelle behauptet nichts, was ihre fünf Spalten nicht tragen.
+
+        Sie trug einen Hinweis, ein agentischer Schritt könne in seiner YAML ein
+        eigenes Modell nennen. Er stimmte nicht (``LLMAgentStep._llm_params``
+        nimmt Anbieter und Modell aus dem Lauf-Kontext), und das Feld war das
+        einzige Element der Seite, das beim Vergrößern mitwuchs.
+        """
+        import dataclasses
+
+        names = {f.name for f in dataclasses.fields(EffectiveRow)}
+        self.assertEqual(names, {"scope", "task", "provider", "model", "source"})
 
     def test_an_inherited_row_is_marked_as_such(self):
         cfg = _config()

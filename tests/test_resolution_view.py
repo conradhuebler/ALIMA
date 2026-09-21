@@ -91,10 +91,6 @@ class ResolutionViewTest(unittest.TestCase):
             self.assertEqual(row[1], "—")
             self.assertEqual(row[2], "")
 
-    def test_the_workflow_override_is_stated(self):
-        view = self._view(_config())
-        self.assertIn("YAML", view.note.text())
-
     def test_refresh_replaces_instead_of_appending(self):
         view = self._view(_config())
         view.refresh(_config())
@@ -259,6 +255,58 @@ class ItDoesNotTouchTheNetworkTest(unittest.TestCase):
         for forbidden in ("is_provider_reachable", "get_available_models",
                           "ProviderDetectionService"):
             self.assertNotIn(forbidden, src)
+
+
+class NothingOnThisViewStretchesTest(unittest.TestCase):
+    """Die Notizzeile unter der Tabelle war das einzige Element, das beim
+    Vergrößern des Dialogs mitwuchs — in leeren Raum, auf einer Seite, deren
+    Inhalt feste Höhe hat. Sie ist weg, und nichts tritt an ihre Stelle.
+    - Claude Generated
+    """
+
+    _kept: list = []
+
+    def _view(self):
+        from src.ui.settings import ResolutionView
+
+        _qapp(self._kept)
+        view = ResolutionView()
+        view.refresh(_config())
+        self._kept.append(view)
+        return view
+
+    def test_the_table_is_the_only_widget_in_the_box(self):
+        view = self._view()
+        layout = view.layout()
+        widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
+        self.assertEqual(widgets, [view.table])
+
+    def test_the_view_does_not_claim_height_it_cannot_fill(self):
+        from PyQt6.QtWidgets import QSizePolicy
+
+        self.assertEqual(
+            self._view().sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum
+        )
+
+    def test_extra_space_in_the_parent_does_not_reach_the_view(self):
+        """Der eigentliche Befund, gemessen statt behauptet.
+
+        Die Tabelle allein sagt nichts: sie hat feste Höhe und wächst auch dann
+        nicht, wenn die Gruppe darum herum wächst. Gemessen wird deshalb die
+        Gruppe in einem Layout mit 300 px übrigem Platz.
+        """
+        from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+        view = self._view()
+        host = QWidget()
+        box = QVBoxLayout(host)
+        box.addWidget(view)
+        self._kept.append(host)
+
+        wanted = view.sizeHint().height()
+        host.resize(700, wanted + 300)
+        box.activate()
+        self.assertLessEqual(view.height(), wanted)
 
 
 if __name__ == "__main__":

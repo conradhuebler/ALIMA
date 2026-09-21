@@ -1,10 +1,11 @@
 """Which model a task really runs on, and where that comes from.
 
 Six settings could once decide it, most of them invisibly. What is left after the
-Sep-2026 rework is three, and each is a row here:
+Sep-2026 rework is four, and each is a row here:
 
 * the **general default** — the fallback for everything;
 * the **pipeline default** — the classic pipeline, if it deviates;
+* the **agentic default** — agentic workflows and the chat;
 * the **vision default** — image and OCR analysis, a capability question rather
   than a pipeline step.
 
@@ -12,9 +13,13 @@ Per-task model choices (``task_preferences``) are gone. They were a per-step
 choice for the classic pipeline and only ever the first entry of a list that read
 like a fallback chain and was not one: nothing consulted entries 2..n, a dead
 first entry failed the step instead of moving on, and three of six configured
-tasks had no step to land on at all. An agentic workflow names its model per step
-in its own YAML (``llm.provider``/``llm.model``), which is a choice its author
-made and is unaffected by any of this. - Claude Generated
+tasks had no step to land on at all.
+
+A workflow step does **not** name its own model: ``LLMAgentStep._llm_params``
+and ``ReflectionStep.run`` take provider and model from the run context and read
+neither from the step's ``llm:`` block (which they do read for temperature,
+budget and thinking). These four rows are therefore the whole answer; the claim
+is held by ``tests/test_settings_dialog_state.py``. - Claude Generated
 """
 
 from __future__ import annotations
@@ -32,12 +37,6 @@ SOURCE_LABELS = {
     "none": "kein Anbieter konfiguriert",
 }
 
-#: Said next to the agentic row: a workflow may still override per step.
-WORKFLOW_NOTE = (
-    "Einzelne Schritte eines agentischen Workflows können in ihrer YAML ein "
-    "eigenes Modell nennen; dann gilt dieses."
-)
-
 
 @dataclass
 class EffectiveRow:
@@ -48,7 +47,6 @@ class EffectiveRow:
     provider: str
     model: str
     source: str
-    note: str = ""
 
     @property
     def source_label(self) -> str:
@@ -69,18 +67,17 @@ def effective_rows(unified_config: Any) -> List[EffectiveRow]:
     from src.utils.config_models import ProviderScope
 
     plan = [
-        (ProviderScope.GENERAL, "general", "Allgemein", ""),
-        (ProviderScope.PIPELINE, "pipeline", "Klassische Pipeline", ""),
-        (ProviderScope.AGENTIC, "agentic", "Agentisch und Chat", WORKFLOW_NOTE),
-        (ProviderScope.VISION, "vision", "Bild- und OCR-Analyse", ""),
+        (ProviderScope.GENERAL, "general", "Allgemein"),
+        (ProviderScope.PIPELINE, "pipeline", "Klassische Pipeline"),
+        (ProviderScope.AGENTIC, "agentic", "Agentisch und Chat"),
+        (ProviderScope.VISION, "vision", "Bild- und OCR-Analyse"),
     ]
     rows: List[EffectiveRow] = []
-    for scope, key, label, note in plan:
+    for scope, key, label in plan:
         provider, model, source = unified_config.explain_default_provider_model(
             scope=scope
         )
         rows.append(EffectiveRow(
-            scope=key, task=label, provider=provider, model=model,
-            source=source, note=note,
+            scope=key, task=label, provider=provider, model=model, source=source,
         ))
     return rows

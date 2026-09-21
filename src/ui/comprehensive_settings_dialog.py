@@ -379,9 +379,8 @@ class ComprehensiveSettingsDialog(QDialog):
             "Werkzeug, für den Rest der Sitzung auf ein anderes Modell zu gehen — "
             "etwa auf ein stärkeres für eine schwierige Klassifikation. "
             "Abgeschaltet wird das Werkzeug gar nicht erst angeboten.\n\n"
-            "Ein Workflow, der in seiner YAML ein Modell je Schritt vorgibt "
-            "(llm.provider / llm.model), ist davon nicht betroffen und läuft "
-            "unabhängig von diesem Schalter.\n\n"
+            "Ein Pipeline-Lauf ist davon nicht betroffen: er nimmt sein Modell "
+            "aus der Auswahl im Pipeline-Tab, sonst aus den Standards oben.\n\n"
             "Ein Wechsel gilt ab der nächsten Antwort, wird nie gespeichert und "
             "endet, sobald Du die LLM-Auswahl in der Werkzeugleiste anfasst."
         )
