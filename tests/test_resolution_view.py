@@ -110,6 +110,60 @@ class ResolutionViewTest(unittest.TestCase):
         self.assertEqual(view.row_texts(), [])
 
 
+class TheTableIsAlsoTheControlTest(unittest.TestCase):
+    """Showing the four values and offering the same four as pickers below would
+    double them. Each row carries its own picker instead. - Claude Generated"""
+
+    _kept: list = []
+
+    def _view(self, cfg):
+        from src.ui.settings import ResolutionView
+
+        _qapp(self._kept)
+        view = ResolutionView()
+        view.refresh(cfg)
+        self._kept.append(view)
+        return view
+
+    def test_every_axis_has_a_picker(self):
+        view = self._view(_config())
+        self.assertEqual(
+            sorted(view._selectors), ["agentic", "general", "pipeline", "vision"]
+        )
+
+    def test_vision_is_reachable(self):
+        """It was introduced as a setting without any control at all."""
+        self.assertIn("vision", self._view(_config())._selectors)
+
+    def test_the_general_default_has_no_empty_option(self):
+        """Everything falls back to it, so it must stay concrete.
+
+        An empty option here would let the operator unset the one value that has
+        nothing behind it.
+        """
+        from src.ui.settings.resolution_view import ResolutionView
+
+        self.assertIsNone(ResolutionView.EMPTY_LABELS["general"])
+        for scope in ("pipeline", "agentic", "vision"):
+            self.assertIsNotNone(ResolutionView.EMPTY_LABELS[scope], scope)
+
+    def test_a_pick_reports_its_scope(self):
+        view = self._view(_config())
+        seen = []
+        view.selection_changed.connect(lambda s, p, m: seen.append((s, p, m)))
+        view._on_pick("vision", "B", "b-vision")
+        self.assertEqual(seen, [("vision", "B", "b-vision")])
+
+    def test_programmatic_population_does_not_report_a_pick(self):
+        """Otherwise loading the dialog would look like an edit and mark it dirty."""
+        view = self._view(_config())
+        seen = []
+        view.selection_changed.connect(lambda *a: seen.append(a))
+        view._loading = True
+        view._on_pick("vision", "B", "b-vision")
+        self.assertEqual(seen, [])
+
+
 class ItDoesNotTouchTheNetworkTest(unittest.TestCase):
     """Four probes before the dialog is usable, and a dead endpoint hangs it."""
 

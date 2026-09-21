@@ -8,14 +8,12 @@ Claude Generated
 from copy import deepcopy
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QTableWidget,
-    QTableWidgetItem, QHeaderView, QMessageBox, QDialog,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QDialog,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPalette
+from PyQt6.QtCore import pyqtSignal
 
 from ..utils.config_manager import ConfigManager, ProviderDetectionService
+from ..utils.error_visibility import log_caught
 from ..utils.config_models import (
     UnifiedProviderConfig,
     UnifiedProvider,
@@ -24,7 +22,7 @@ from ..utils.config_models import (
 from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
-from .settings import ResolutionView
+from .settings import ProviderAccordion, ResolutionView
 
 
 class UnifiedProviderTab(QWidget):
@@ -123,92 +121,30 @@ class UnifiedProviderTab(QWidget):
         # of the ones below it. Which of the four defaults applies used to be
         # invisible. - Claude Generated
         self.resolution_view = ResolutionView()
+        self.resolution_view.selection_changed.connect(self._on_scope_selection)
         layout.addWidget(self.resolution_view)
 
-        # Unified provider table - Cols: Name | Type | Status | Preferred Model | API Key
-        self.provider_table = QTableWidget()
-        self.provider_table.setColumnCount(5)
-        self.provider_table.setHorizontalHeaderLabels([
-            "Name", "Type", "Status", "Preferred Model", "API Key"
-        ])
-        self.provider_table.verticalHeader().setVisible(False)
-        self.provider_table.verticalHeader().setDefaultSectionSize(40)
+        # Providers as an accordion. Three to six entries with six fields each is
+        # a list, not a table: a table has to squeeze the endpoint and the key
+        # state into columns and then needs a dialog for whatever did not fit.
+        # - Claude Generated
+        self.provider_accordion = ProviderAccordion()
+        self.provider_accordion.edit_requested.connect(self._edit_provider_by_name)
+        self.provider_accordion.remove_requested.connect(self._remove_provider_by_name)
+        self.provider_accordion.models_requested.connect(self._refresh_models_for)
+        self.provider_accordion.chunking_changed.connect(self._set_chunking)
+        self.provider_accordion.chunking_removed.connect(self._drop_chunking)
+        layout.addWidget(self.provider_accordion)
 
-        header = self.provider_table.horizontalHeader()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Name
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Type
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Preferred Model
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)  # API Key
-
-        layout.addWidget(self.provider_table)
-
-        # Provider control buttons
         provider_button_layout = QHBoxLayout()
-
-        self.add_provider_button = QPushButton("➕ Add Provider")
+        self.add_provider_button = QPushButton("➕ Anbieter hinzufügen…")
         self.add_provider_button.clicked.connect(self._add_provider)
-
-        self.edit_provider_button = QPushButton("✏️ Edit Provider")
-        self.edit_provider_button.clicked.connect(self._edit_provider)
-
-        self.remove_provider_button = QPushButton("🗑️ Remove Provider")
-        self.remove_provider_button.clicked.connect(self._remove_provider)
-
-        self.refresh_models_button = QPushButton("🔄 Refresh Models")
+        self.refresh_models_button = QPushButton("🔄 Alle Modelle abfragen")
         self.refresh_models_button.clicked.connect(self._refresh_models)
-
         provider_button_layout.addWidget(self.add_provider_button)
-        provider_button_layout.addWidget(self.edit_provider_button)
-        provider_button_layout.addWidget(self.remove_provider_button)
         provider_button_layout.addWidget(self.refresh_models_button)
         provider_button_layout.addStretch()
         layout.addLayout(provider_button_layout)
-
-        # Default provider/model rows — shared ProviderModelSelector widgets.
-        from .provider_model_selector import ProviderModelSelector
-
-        provider_label_width = 120
-
-        def _make_selector_row(label_text: str, selector: "ProviderModelSelector", tooltip: str):
-            row = QHBoxLayout()
-            lbl = QLabel(label_text)
-            lbl.setMinimumWidth(provider_label_width)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            row.addWidget(lbl)
-            selector.setToolTip(tooltip)
-            row.addWidget(selector, 1)
-            # Live writeback on USER changes only. The selector stays silent during
-            # programmatic population (set_selection/set_providers), so the immediate-
-            # save architecture persists the user's pick without a late async
-            # selectionChanged clobbering it. Save-time harvest is the safety net.
-            selector.selectionChanged.connect(lambda *_: self._on_default_selection_changed())
-            layout.addLayout(row)
-
-        # General default — central fallback for pipeline & chat (always concrete).
-        self.preferred_selector = ProviderModelSelector()
-        _make_selector_row(
-            "General Default:", self.preferred_selector,
-            "Central default provider/model. Used as fallback when no "
-            "pipeline-specific or agentic-specific default is set.")
-
-        # Pipeline default — overrides the general default (may be left unset).
-        self.pipeline_default_selector = ProviderModelSelector(
-            allow_empty=True, empty_provider_label="(Use general default)")
-        _make_selector_row(
-            "Pipeline Default:", self.pipeline_default_selector,
-            "Default provider/model for the classic pipeline. "
-            "Leave empty to use the general default.")
-
-        # Agentic default — overrides the pipeline default (may be left unset).
-        self.agentic_default_selector = ProviderModelSelector(
-            allow_empty=True, empty_provider_label="(Use pipeline default)")
-        _make_selector_row(
-            "Agentic Default:", self.agentic_default_selector,
-            "Default provider/model for agentic workflows and the chat agent. "
-            "Leave empty to use the pipeline default.")
-
 
         return widget
 
@@ -333,69 +269,74 @@ class UnifiedProviderTab(QWidget):
         return all_providers
 
     def _populate_provider_table(self):
-        """Populate the unified provider table (status + preferred model) - Claude Generated"""
-        providers = self._get_all_providers()
-        self.provider_table.setRowCount(len(providers))
+        """Render the provider accordion. Name kept: several call sites use it."""
+        self.provider_accordion.refresh(
+            list(self.unified_config.providers),
+            models=dict(self._cached_models or {}),
+            thresholds=dict(getattr(self.unified_config, "model_chunking_thresholds", {}) or {}),
+        )
 
-        # Get cached provider status from service (non-blocking)
-        provider_status_cache = {}
-        if (self.alima_manager and
-            hasattr(self.alima_manager, 'provider_status_service') and
-            self.alima_manager.provider_status_service):
-            provider_status_cache = self.alima_manager.provider_status_service.get_all_provider_info()
-            self.logger.debug(f"Using cached status for {len(provider_status_cache)} providers")
-        else:
-            self.logger.warning("ProviderStatusService not available, using fallback display")
+    # ---- accordion callbacks, addressed by provider name ----------------
 
-        for row, provider in enumerate(providers):
-            # Col 0: Name
-            name_item = QTableWidgetItem(provider.name)
-            if not provider.enabled:
-                name_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
-            self.provider_table.setItem(row, 0, name_item)
+    def _provider_index(self, name: str) -> int:
+        for i, provider in enumerate(self.unified_config.providers):
+            if provider.name == name:
+                return i
+        return -1
 
-            # Col 1: Type
-            self.provider_table.setItem(row, 1, QTableWidgetItem(provider.provider_type.title()))
+    def _edit_provider_by_name(self, name: str) -> None:
+        index = self._provider_index(name)
+        if index < 0:
+            return
+        dialog = ProviderEditDialog(self.unified_config.providers[index], parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.unified_config.providers[index] = dialog.get_provider_data()
+            self._persist_providers()
+            self._load_configuration()
+            self.config_changed.emit()
 
-            # Col 2: Status – derive from cache
-            status_text = "Unknown"
-            available_models: list = self._cached_models.get(provider.name, list(provider.available_models))
+    def _remove_provider_by_name(self, name: str) -> None:
+        index = self._provider_index(name)
+        if index < 0:
+            return
+        reply = QMessageBox.question(
+            self, "Anbieter entfernen",
+            f"Anbieter '{name}' entfernen?\n\n"
+            "'Cancel' macht die Änderung rückgängig.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        del self.unified_config.providers[index]
+        self._persist_providers()
+        self._load_configuration()
+        self.config_changed.emit()
 
-            cached_status = provider_status_cache.get(provider.name)
-            if cached_status:
-                is_reachable = cached_status.get('reachable', False)
-                cached_models = cached_status.get('models', [])
-                error_message = cached_status.get('error_message')
-                if is_reachable:
-                    status_text = "✅ Available"
-                    if cached_models:
-                        available_models = cached_models
-                        provider.available_models = cached_models
-                else:
-                    status_text = "❌ Offline"
-                    if error_message:
-                        status_text = f"❌ {error_message[:25]}"
-            elif provider_status_cache:
-                status_text = "⏳ Testing..."
-            else:
-                status_text = "📝 Configured" if available_models else "⚠️ Unknown"
+    def _refresh_models_for(self, name: str) -> None:
+        """Fetch one provider's model list on demand - Claude Generated.
 
-            self.provider_table.setItem(row, 2, QTableWidgetItem(status_text))
+        Per provider rather than for all of them: the dialog must not spend four
+        network calls before it is usable, and a dead endpoint must not hang it.
+        """
+        try:
+            models = self._detection_service.get_available_models(name, force_check=True)
+            self._cached_models[name] = list(models or [])
+            self._populate_provider_table()
+            self._show_save_toast(f"{name}: {len(models or [])} Modelle")
+        except Exception as e:
+            log_caught(self.logger, e, f"Modell-Abfrage für {name}")
+            self._show_save_toast(f"{name}: Abfrage fehlgeschlagen", error=True)
 
-            # Col 3: Preferred Model – plain text (edit via provider dialog)
-            preferred_model = self._get_preferred_model_from_config(provider.name, self.config)
-            self.provider_table.setItem(row, 3, QTableWidgetItem(preferred_model or "(Auto)"))
+    def _set_chunking(self, provider: str, model: str, value: int) -> None:
+        if not model:
+            return
+        self.unified_config.set_chunking_threshold(provider, model, int(value))
+        self.config_changed.emit()
 
-            # Col 4: API Key Status
-            api_key_status = self._get_api_key_status(provider)
-            api_key_item = QTableWidgetItem(api_key_status)
-            if "✅" in api_key_status:
-                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Text))
-            elif "❌" in api_key_status:
-                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.PlaceholderText))
-            else:
-                api_key_item.setForeground(QPalette().color(QPalette.ColorRole.Mid))
-            self.provider_table.setItem(row, 4, api_key_item)
+    def _drop_chunking(self, provider: str, model: str) -> None:
+        self.unified_config.remove_chunking_threshold(provider, model)
+        self._populate_provider_table()
+        self.config_changed.emit()
 
     def _get_api_key_status(self, provider) -> str:
         """Get API key status for a provider - Claude Generated"""
@@ -439,22 +380,36 @@ class UnifiedProviderTab(QWidget):
             self.logger.warning(f"Error checking API key status for {provider.name}: {e}")
             return "❓ Error"
 
+    #: Which config fields a scope owns. - Claude Generated
+    SCOPE_FIELDS = {
+        "general": ("preferred_provider", "preferred_model"),
+        "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
+        "agentic": ("agentic_default_provider", "agentic_default_model"),
+        "vision": ("vision_default_provider", "vision_default_model"),
+    }
+
     def _populate_global_preferences(self):
-        """Populate the default-provider/model selectors from config - Claude Generated"""
-        provider_names = [p.name for p in self.unified_config.providers if p.enabled]
-        uc = self.unified_config
-        for selector in (self.preferred_selector,
-                         self.pipeline_default_selector,
-                         self.agentic_default_selector):
-            selector.set_providers(provider_names, refresh=False)
-        # set_selection triggers the single model load per selector (no throwaway
-        # load for the index-0 provider first). The shared selector loads models
-        # live (cached); pipeline/agentic keep the "(Use … default)" placeholder.
-        self.preferred_selector.set_selection(uc.preferred_provider, uc.preferred_model)
-        self.pipeline_default_selector.set_selection(
-            uc.pipeline_default_provider, uc.pipeline_default_model)
-        self.agentic_default_selector.set_selection(
-            uc.agentic_default_provider, uc.agentic_default_model)
+        """Hand the enabled providers to the pickers inside the table.
+
+        The three separate "General / Pipeline / Agentic Default" rows that used
+        to sit below the provider list are gone: they offered the same four values
+        the table already shows, once as input and once as result. The table is
+        now both. - Claude Generated
+        """
+        names = [p.name for p in self.unified_config.providers if p.enabled]
+        for selector in self.resolution_view._selectors.values():
+            selector.set_providers(names, refresh=False)
+        self._refresh_effective_defaults()
+
+    def _on_scope_selection(self, scope: str, provider: str, model: str) -> None:
+        """A row's picker changed → write that scope's own default. - Claude Generated"""
+        fields = self.SCOPE_FIELDS.get(scope)
+        if not fields:
+            return
+        setattr(self.unified_config, fields[0], provider or "")
+        setattr(self.unified_config, fields[1], model or "")
+        self._refresh_effective_defaults()
+        self.config_changed.emit()
 
     def _on_default_selection_changed(self):
         """A default provider/model selector was changed by the user → write it to
@@ -532,49 +487,6 @@ class UnifiedProviderTab(QWidget):
             self.config_changed.emit()
             
             self.logger.info(f"Added new provider: {new_provider.name} ({new_provider.provider_type})")
-    
-    def _edit_provider(self):
-        """Edit selected provider - Claude Generated"""
-        current_row = self.provider_table.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "No Selection", "Please select a provider to edit.")
-            return
-        
-        provider = self.unified_config.providers[current_row]
-        dialog = ProviderEditDialog(provider, parent=self)
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            updated_provider = dialog.get_provider_data()
-            self.unified_config.providers[current_row] = updated_provider
-            self._persist_providers()
-            self._load_configuration()
-            self.config_changed.emit()
-
-            self.logger.info(f"Updated provider: {updated_provider.name}")
-    
-    def _remove_provider(self):
-        """Remove selected provider - Claude Generated"""
-        current_row = self.provider_table.currentRow()
-        if current_row < 0:
-            QMessageBox.information(self, "No Selection", "Please select a provider to remove.")
-            return
-        
-        provider = self.unified_config.providers[current_row]
-        
-        reply = QMessageBox.question(
-            self, "Confirm Removal",
-            f"Provider '{provider.name}' entfernen?\n\n"
-            "'Cancel' macht die Änderung rückgängig.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            del self.unified_config.providers[current_row]
-            self._persist_providers()
-            self._load_configuration()
-            self.config_changed.emit()
-
-            self.logger.info(f"Removed provider: {provider.name}")
     
     def _refresh_models(self):
         """Trigger background provider refresh via ProviderStatusService - Claude Generated"""
@@ -686,25 +598,22 @@ class UnifiedProviderTab(QWidget):
     
     def _update_config_from_ui(self):
         """Update configuration object from UI state - Claude Generated"""
-        # Update global preferences from the shared selectors. The pipeline/agentic
-        # selectors return ("", "") when their "(Use … default)" placeholder is
-        # chosen, i.e. unset = fall back to the wider default.
-        prov, model = self.preferred_selector.get_selection()
-        # General default is always a concrete provider (no placeholder). Never
-        # clobber it with a transient empty read (e.g. mid-repopulation triggered
-        # by another selector's change) — that silently wiped preferred_provider
-        # while pipeline/agentic (where "" is a valid "unset") survived.
-        if prov:
-            self.unified_config.preferred_provider = prov
-            self.unified_config.preferred_model = model
-
-        prov, model = self.pipeline_default_selector.get_selection()
-        self.unified_config.pipeline_default_provider = prov
-        self.unified_config.pipeline_default_model = model
-
-        prov, model = self.agentic_default_selector.get_selection()
-        self.unified_config.agentic_default_provider = prov
-        self.unified_config.agentic_default_model = model
+        # Harvest the pickers inside the resolution table. Each row writes its own
+        # scope live via _on_scope_selection; this is the safety net for a pick
+        # that never emitted. The general default must stay concrete — everything
+        # else falls back to it — so an empty read is never written there. A
+        # transient empty read used to wipe preferred_provider while the other
+        # scopes (where "" legitimately means "inherit") survived.
+        # - Claude Generated
+        for scope, (prov_field, model_field) in self.SCOPE_FIELDS.items():
+            selector = self.resolution_view._selectors.get(scope)
+            if selector is None:
+                continue
+            prov, model = selector.get_selection()
+            if scope == "general" and not prov:
+                continue
+            setattr(self.unified_config, prov_field, prov or "")
+            setattr(self.unified_config, model_field, model or "")
 
 
         # NOTE: Task preferences are managed in self.config.unified_config.task_preferences

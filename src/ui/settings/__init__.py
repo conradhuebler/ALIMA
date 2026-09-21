@@ -15,5 +15,6 @@ from .collapsible import CollapsibleSection
 from .search import SettingsIndex, SettingsEntry
 from .shell import SettingsShell
 from .resolution_view import ResolutionView
+from .provider_accordion import ProviderAccordion, ProviderCard
 
-__all__ = ["CollapsibleSection", "SettingsIndex", "SettingsEntry", "SettingsShell", "ResolutionView"]
+__all__ = ["CollapsibleSection", "SettingsIndex", "SettingsEntry", "SettingsShell", "ResolutionView", "ProviderAccordion", "ProviderCard"]

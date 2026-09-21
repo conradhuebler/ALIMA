@@ -1,9 +1,11 @@
 """The table that says which model runs where, and why.
 
-It is the first thing on the "Sprachmodelle" page on purpose: it is not an input
-but a *consequence*. Four settings can decide the model, and which one applied
-used to be invisible — "ich stelle X ein und bekomme Y" had no single cause and
-no surface that could answer it.
+It is the first thing on the "Sprachmodelle" page, and it is both the answer and
+the control: each row shows what is in effect, where that comes from, and lets
+you change it. Four settings can decide the model, and which one applied used to
+be invisible — "ich stelle X ein und bekomme Y" had no single cause and no
+surface that could answer it. Showing the resolution in a table *and* offering
+the same four values again as separate pickers below would just double it.
 
 Deliberately no reachability probe on open: four providers is four network calls
 before the dialog is usable, and a dead endpoint hangs it. The table shows the
@@ -34,14 +36,24 @@ from .effective_models import effective_rows
 class ResolutionView(QGroupBox):
     """Four rows: general, pipeline, agentic, vision."""
 
-    HEADERS = ("Wofür", "Wirksames Modell", "Woher")
+    HEADERS = ("Wofür", "Wirksames Modell", "Woher", "Ändern")
 
-    #: Emitted when the user asks for a reachability check.
-    check_requested = pyqtSignal()
+    #: (scope, provider, model) — the host persists it.
+    selection_changed = pyqtSignal(str, str, str)
+
+    #: Scopes in the order they are shown, with the caption of their picker.
+    EMPTY_LABELS = {
+        "general": None,  # always concrete: everything else falls back to it
+        "pipeline": "(erbt den allgemeinen)",
+        "agentic": "(erbt den allgemeinen)",
+        "vision": "(erbt den allgemeinen)",
+    }
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Was wofür benutzt wird", parent)
         box = QVBoxLayout(self)
+        self._selectors: dict = {}
+        self._loading = False
 
         self.table = QTableWidget(0, len(self.HEADERS))
         self.table.setHorizontalHeaderLabels(list(self.HEADERS))
@@ -53,6 +65,8 @@ class ResolutionView(QGroupBox):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(34)
         box.addWidget(self.table)
 
         self.note = QLabel("")
@@ -73,6 +87,7 @@ class ResolutionView(QGroupBox):
         notes = []
         muted = self.palette().color(QPalette.ColorRole.PlaceholderText)
 
+        self._loading = True
         for r, row in enumerate(rows):
             model = f"{row.provider} | {row.model}" if row.configured else "—"
             if row.configured and not row.model:
@@ -88,12 +103,59 @@ class ResolutionView(QGroupBox):
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.table.setItem(r, c, item)
 
+            self.table.setCellWidget(r, 3, self._selector_for(row, unified_config))
+
             if row.note:
                 notes.append(row.note)
+        self._loading = False
 
         self.table.resizeRowsToContents()
         self.note.setText("  ".join(notes))
         self.note.setVisible(bool(notes))
+
+    def _selector_for(self, row, unified_config):
+        """The picker that sets this row's own default - Claude Generated.
+
+        ``general`` has no empty option: everything else falls back to it, so it
+        must stay concrete. The others may be left empty and then inherit, which
+        the "Woher" column reports as such.
+        """
+        from ..provider_model_selector import ProviderModelSelector
+
+        empty_label = self.EMPTY_LABELS.get(row.scope)
+        selector = self._selectors.get(row.scope)
+        if selector is None:
+            selector = ProviderModelSelector(
+                allow_empty=empty_label is not None,
+                empty_provider_label=empty_label or "",
+            )
+            selector.selectionChanged.connect(
+                lambda p, m, scope=row.scope: self._on_pick(scope, p, m)
+            )
+            self._selectors[row.scope] = selector
+
+        own_provider, own_model = self._own_choice(row.scope, unified_config)
+        selector.set_selection(own_provider, own_model)
+        return selector
+
+    @staticmethod
+    def _own_choice(scope: str, unified_config):
+        """What this scope has set *itself*, not what it inherits."""
+        attr = {
+            "general": ("preferred_provider", "preferred_model"),
+            "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
+            "agentic": ("agentic_default_provider", "agentic_default_model"),
+            "vision": ("vision_default_provider", "vision_default_model"),
+        }[scope]
+        return (
+            getattr(unified_config, attr[0], "") or "",
+            getattr(unified_config, attr[1], "") or "",
+        )
+
+    def _on_pick(self, scope: str, provider: str, model: str) -> None:
+        if self._loading:
+            return
+        self.selection_changed.emit(scope, provider or "", model or "")
 
     def row_texts(self) -> list:
         """The rendered rows, for tests and for a quick eyeball. - Claude Generated"""
