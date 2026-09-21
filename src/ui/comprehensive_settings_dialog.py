@@ -933,6 +933,21 @@ class ComprehensiveSettingsDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Fehler", f"Konnte Preset nicht speichern:\n{e}")
 
+    def reject(self):
+        """Cancel: undo the provider edits that were written on the way.
+
+        Provider add/edit/remove persists immediately, because the model list is
+        fetched through LlmService from the *saved* config — a provider held only
+        in this dialog's copy can never load its models. So Cancel has to roll
+        that back rather than simply drop the copy. - Claude Generated
+        """
+        try:
+            if self.unified_provider_tab.restore_providers_at_open():
+                self.config_changed.emit()
+        except Exception as e:
+            self.logger.error(f"Provider-Änderungen konnten nicht zurückgenommen werden: {e}")
+        super().reject()
+
     def _save_and_close(self):
         """Save configuration and close dialog - Claude Generated
 

@@ -26,6 +26,52 @@ from ..utils.config_models import UnifiedProvider
 from .workers import ModelLoadWorker
 
 
+def _endpoint_warnings(base_url: str, api_key: str) -> list:
+    """Sanity warnings for a provider's endpoint pair. Never blocks - Claude Generated.
+
+    Two checks, both cheap and both from real mishaps:
+
+    * the base URL is not an http(s) URL — the model list then fails at
+      ``LlmService.is_provider_reachable`` and the combo simply stays empty, with
+      nothing on screen saying why;
+    * the *API key* field parses as a URL while the base URL does not — the two
+      were swapped. That is easy to do and hard to see, because the key field is
+      masked: a pasted URL shows up as dots.
+
+    Neither message ever echoes the key. Intranet hosts are not flagged (see
+    ``net_guard.check_operator_url``).
+    """
+    from urllib.parse import urlparse
+
+    from src.utils.net_guard import check_operator_url
+
+    base_url = (base_url or "").strip()
+    api_key = (api_key or "").strip()
+
+    def _is_url(value: str) -> bool:
+        try:
+            return urlparse(value).scheme in ("http", "https")
+        except ValueError:
+            return False
+
+    if base_url and not _is_url(base_url) and _is_url(api_key):
+        return [
+            "Base URL und API Key sehen vertauscht aus: im Schlüsselfeld steht "
+            "ein http(s)-URL, im URL-Feld nicht.\n\nDas Schlüsselfeld ist "
+            "maskiert, ein hineinkopierter URL erscheint dort nur als Punkte."
+        ]
+
+    # Only what actually leaves the model list empty. Plain http is a legitimate
+    # intranet setup, so the unencrypted note from check_operator_url is dropped
+    # here — it would fire on every save of a working provider.
+    warnings = [w for w in check_operator_url(base_url) if "unverschlüsselt" not in w]
+    if base_url and not _is_url(base_url):
+        # A value that is not a URL is quite often the key pasted into the wrong
+        # field — do not echo it into a dialog.
+        warnings = [w.replace(base_url, "(Feldinhalt)") for w in warnings]
+    return warnings
+
+
 class TaskModelSelectionDialog(QDialog):
     """Dialog for selecting provider and model for task-specific preferences - Claude Generated"""
 
@@ -500,6 +546,34 @@ class ProviderEditDialog(QDialog):
             if hasattr(self, 'api_key_edit'):
                 self.api_key_edit.setText(self.provider.api_key or "")
     
+    def accept(self) -> None:
+        """Warn about an implausible endpoint before closing - Claude Generated.
+
+        A wrong base URL produces no error anywhere: the provider is stored, the
+        model list comes back empty, and nothing on screen connects the two. The
+        warning offers a way back to the form and never blocks.
+        """
+        warnings = _endpoint_warnings(
+            getattr(self, "base_url_edit", QLineEdit()).text(),
+            getattr(self, "api_key_edit", QLineEdit()).text(),
+        )
+        if warnings:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("Endpunkt prüfen")
+            box.setText("\n\n".join(warnings))
+            box.setInformativeText(
+                "Mit einem ungültigen Endpunkt bleibt die Modell-Liste dieses "
+                "Providers leer."
+            )
+            back = box.addButton("Zurück zum Formular", QMessageBox.ButtonRole.RejectRole)
+            box.addButton("Trotzdem übernehmen", QMessageBox.ButtonRole.AcceptRole)
+            box.setDefaultButton(back)
+            box.exec()
+            if box.clickedButton() is back:
+                return
+        super().accept()
+
     def get_provider_data(self) -> UnifiedProvider:
         """Extract provider data from form fields - Claude Generated"""
         # Build connection config based on type

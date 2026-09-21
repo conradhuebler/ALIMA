@@ -137,8 +137,10 @@ When documenting implemented features, the AI must apply these rules:
   Wurzel war Neubau statt Mutation der Dataclasses. Der Log-Level wurde
   verdrahtet statt entfernt (Support-Pfad ohne Terminal). Der
   Einrichtungsassistent hängt im Menü, nachdem `accept()` nicht mehr die ganze
-  Konfiguration ersetzt. **Offen = Phase 2:** fünf konkurrierende Modell-Defaults
-  ohne sichtbare Auflösung. Details:
+  Konfiguration ersetzt. **Offen = Phase 2:** konkurrierende Modell-Defaults ohne
+  sichtbare Auflösung (drei Scope-Ebenen in
+  `resolve_default_provider_model`, dazu Task Preferences, `provider_priority`
+  als Vorbelegung und `disabled_providers` ohne Bedienelement). Details:
   [`docs/settings_cleanup_phase1.md`](docs/settings_cleanup_phase1.md).
 - **Persönliche Zusatzregeln ✅ ADDED (Sep 3, aufgeräumt Sep 8, Suite 2091):**
   Regeln, die im Chat formuliert werden, liegen in `~/.config/alima/rules.yaml`

@@ -56,8 +56,13 @@ Dazu zwei unsichtbare Achsen:
 - `UnifiedProviderConfig.disabled_providers` (`config_models.py`, gelesen in
   `smart_provider_selector`) überstimmt `UnifiedProvider.enabled`, hat aber kein
   Bedienelement — nur per Handedit oder Legacy-Migration befüllbar.
-- `provider_priority` wird von `pipeline_config_dialog` und `pipeline_cmd`
-  gepflegt, obwohl `resolve_default_provider_model` es nie liest.
+- `provider_priority` wird von `resolve_default_provider_model` nicht gelesen,
+  entscheidet aber trotzdem etwas: `task_preferences_widget:342` belegt damit die
+  Modell-Reihenfolge eines Tasks vor, der noch keine eigenen Präferenzen hat
+  (`_create_task_defaults_from_global_preferences`, filtert dabei
+  `disabled_providers` heraus). Es ist also eine **sechste**, an anderer Stelle
+  wirksame Achse, keine tote. Gepflegt wird sie von `pipeline_config_dialog:567`
+  und `pipeline_cmd`.
 
 Erst wenn das auf **eine** sichtbare Achse zusammengeführt ist, lohnt die
 Gliederung der Tabs nach Aufgaben („Modelle", „Datenquellen", „Erschließung",

@@ -197,18 +197,166 @@ class CancelActuallyCancelsTest(_DialogHarness, unittest.TestCase):
             dlg._test_database_connection()
         harvest.assert_not_called()
 
-    def test_provider_edits_are_not_written_to_disk(self):
-        """Add/edit/remove buffer into the editing copy; only Save writes."""
-        import inspect
 
-        from src.ui import unified_provider_tab as upt
 
-        for name in ("_add_provider", "_edit_provider", "_remove_provider"):
-            src = inspect.getsource(getattr(upt.UnifiedProviderTab, name))
-            self.assertNotIn(
-                "save_config(", src,
-                f"{name} darf nicht direkt speichern — Cancel würde wirkungslos",
-            )
+class ProviderEditsReachDiskAndCancelRollsThemBackTest(unittest.TestCase):
+    """Providers persist on change; Cancel undoes it.
+
+    Both halves are load-bearing and pull in opposite directions:
+
+    * **Persist on change**, because the model list is fetched through
+      ``LlmService``, whose client map (``llm_service.py:945``) and provider
+      lookup (``:960``) both read the *saved* config. A provider that exists only
+      in the dialog's editing copy has no client and no config entry, so its model
+      combo stays empty — which is exactly what buffering it caused.
+    * **Roll back on Cancel**, because otherwise a provider added and then
+      cancelled stays on disk.
+
+    Writing the whole editing copy would also publish unsaved plugin/chat edits
+    into the ConfigManager singleton, so only ``providers`` is written.
+    - Claude Generated
+    """
+
+    def setUp(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from src.utils.config_manager import ConfigManager
+
+        ConfigManager.reset()
+        self.tmp = Path(tempfile.mkdtemp()) / "config.json"
+        self.tmp.write_text(json.dumps({
+            "unified_config": {"providers": [
+                {"name": "ollama", "provider_type": "ollama", "enabled": True}
+            ]},
+            "system_config": {"autosave_dir": "/vorher/results"},
+        }))
+        self.cm = ConfigManager()
+        self.cm.config_file = self.tmp
+
+    def tearDown(self):
+        from src.utils.config_manager import ConfigManager
+
+        ConfigManager.reset()
+
+    def _tab(self):
+        from unittest.mock import patch
+
+        from src.ui.unified_provider_tab import UnifiedProviderTab
+
+        from copy import deepcopy
+
+        # Wired like ComprehensiveSettingsDialog does it: the tab edits a DEEPCOPY,
+        # never the object ConfigManager caches. Handing it the cached object
+        # instead makes the isolation in _persist_providers untestable — both
+        # paths then mutate the same instance. - Claude Generated
+        editing = deepcopy(self.cm.load_config())
+        tab = UnifiedProviderTab.__new__(UnifiedProviderTab)
+        tab.logger = __import__("logging").getLogger("test")
+        tab.unified_config = editing.unified_config
+        tab.config = editing
+        tab.config_manager = self.cm
+        tab._providers_at_open = deepcopy(list(editing.unified_config.providers))
+        return tab
+
+    def _on_disk(self):
+        import json
+
+        return [p["name"] for p in
+                json.loads(self.tmp.read_text())["unified_config"]["providers"]]
+
+    def test_a_new_provider_reaches_disk_immediately(self):
+        from src.utils.config_models import UnifiedProvider
+
+        tab = self._tab()
+        tab.unified_config.providers.append(
+            UnifiedProvider(name="Mistral", provider_type="openai_compatible",
+                            enabled=True, base_url="https://api.mistral.ai/v1")
+        )
+        tab._persist_providers()
+        self.assertIn("Mistral", self._on_disk())
+
+    def test_the_saved_config_is_what_the_model_lookup_reads(self):
+        """llm_service:960 resolves the provider from load_config()."""
+        from src.utils.config_models import UnifiedProvider
+
+        tab = self._tab()
+        tab.unified_config.providers.append(
+            UnifiedProvider(name="Mistral", provider_type="openai_compatible",
+                            enabled=True, base_url="https://api.mistral.ai/v1")
+        )
+        tab._persist_providers()
+        names = [p.name for p in self.cm.load_config().unified_config.providers]
+        self.assertIn("Mistral", names)
+
+    def test_add_provider_persists_without_a_separate_save(self):
+        """The mutation site itself, not just the helper it should call."""
+        from unittest.mock import MagicMock, patch
+
+        from PyQt6.QtWidgets import QDialog
+
+        from src.utils.config_models import UnifiedProvider
+
+        tab = self._tab()
+        tab.provider_table = MagicMock()
+        tab._load_configuration = lambda: None
+        tab.config_changed = MagicMock()
+
+        dlg = MagicMock()
+        dlg.exec.return_value = QDialog.DialogCode.Accepted
+        dlg.get_provider_data.return_value = UnifiedProvider(
+            name="Mistral", provider_type="openai_compatible", enabled=True,
+            base_url="https://api.mistral.ai/v1",
+        )
+        with patch("src.ui.unified_provider_tab.ProviderEditDialog", return_value=dlg):
+            tab._add_provider()
+
+        self.assertIn("Mistral", self._on_disk())
+
+    def test_cancel_restores_the_provider_list(self):
+        from src.utils.config_models import UnifiedProvider
+
+        tab = self._tab()
+        tab.unified_config.providers.append(
+            UnifiedProvider(name="Weg-damit", provider_type="ollama", enabled=True)
+        )
+        tab._persist_providers()
+        self.assertIn("Weg-damit", self._on_disk())
+
+        self.assertTrue(tab.restore_providers_at_open())
+        self.assertNotIn("Weg-damit", self._on_disk())
+        self.assertEqual(self._on_disk(), ["ollama"])
+
+    def test_cancel_without_changes_writes_nothing(self):
+        tab = self._tab()
+        before = self.tmp.read_text()
+        self.assertFalse(tab.restore_providers_at_open())
+        self.assertEqual(self.tmp.read_text(), before)
+
+    def test_only_providers_are_written(self):
+        """Not the whole editing copy: unsaved edits elsewhere must not leak.
+
+        ``autosave_dir`` on purpose. ``contact_email`` looks like the obvious
+        probe and is useless here: ``save_config`` runs ``derive_input_mirrors``,
+        which recomputes it from the DOI plugin instances, so it reads back
+        unchanged whatever the caller passed. - Claude Generated
+        """
+        from src.utils.config_models import UnifiedProvider
+
+        tab = self._tab()
+        tab.config.system_config.autosave_dir = "/ungespeichert/results"
+        tab.unified_config.providers.append(
+            UnifiedProvider(name="Neu", provider_type="ollama", enabled=True)
+        )
+        tab._persist_providers()
+        import json
+
+        on_disk = json.loads(self.tmp.read_text())
+        self.assertEqual(
+            on_disk["system_config"]["autosave_dir"], "/vorher/results"
+        )
+        self.assertIn("Neu", self._on_disk())
 
 
 class SaveConfigIsCalledWithAConfigTest(unittest.TestCase):

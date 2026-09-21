@@ -5,6 +5,7 @@ Replaces fragmented LLM + Provider Preferences tabs with a single, coherent inte
 Claude Generated
 """
 
+from copy import deepcopy
 import logging
 from typing import Dict, List, Optional, Any
 from PyQt6.QtWidgets import (
@@ -51,12 +52,50 @@ class UnifiedProviderTab(QWidget):
         self.alima_manager = alima_manager  # Access to ProviderStatusService - Claude Generated
         # Task-preference editing state now lives in TaskPreferencesWidget (F-5).
 
+        # Providers must reach disk as soon as they change: the model list comes
+        # from LlmService, whose client map and provider lookup both read the
+        # *saved* config (llm_service.py:945 and :960). A provider that lives
+        # only in this dialog's editing copy can therefore never load its models.
+        # The snapshot is what "Cancel" restores. - Claude Generated
+        self._providers_at_open = deepcopy(list(self.unified_config.providers))
+
         self._setup_ui()
         self._load_configuration()
 
         # Setup reactive provider status connections - Claude Generated
         self._setup_provider_status_connections()
     
+    def _persist_providers(self) -> None:
+        """Write the provider list to disk, and nothing else - Claude Generated.
+
+        Deliberately not ``save_config(self.config)``: that object is the whole
+        dialog's editing copy, so saving it would publish unsaved plugin, chat and
+        system edits too — and ``save_config`` caches what it wrote in the
+        ConfigManager singleton, putting them in front of the running application.
+        Loading the saved config and replacing only ``providers`` keeps the write
+        and the singleton limited to what actually changed.
+        """
+        try:
+            saved = self.config_manager.load_config()
+            saved.unified_config.providers = list(self.unified_config.providers)
+            self.config_manager.save_config(saved)
+        except Exception as e:
+            self.logger.error(f"Provider konnten nicht gespeichert werden: {e}")
+
+    def restore_providers_at_open(self) -> bool:
+        """Undo provider add/edit/remove. Returns True if anything was written.
+
+        Called by the settings dialog on Cancel. - Claude Generated
+        """
+        current = list(self.unified_config.providers)
+        if [p.name for p in current] == [p.name for p in self._providers_at_open] and all(
+            a == b for a, b in zip(current, self._providers_at_open)
+        ):
+            return False
+        self.unified_config.providers = deepcopy(self._providers_at_open)
+        self._persist_providers()
+        return True
+
     def _setup_ui(self):
         """Setup the unified provider tab UI - Claude Generated"""
         layout = QVBoxLayout(self)
@@ -493,11 +532,8 @@ class UnifiedProviderTab(QWidget):
                                   f"A provider with name '{new_provider.name}' already exists.")
                 return
             
-            # Into the dialog's editing copy; written by "Save & Close". Used to
-            # call save_config here, so a provider added and then cancelled was on
-            # disk anyway. _load_configuration repopulates from unified_config in
-            # memory, not from the file. - Claude Generated
             self.unified_config.providers.append(new_provider)
+            self._persist_providers()
             self._load_configuration()
             self.config_changed.emit()
             
@@ -516,6 +552,7 @@ class UnifiedProviderTab(QWidget):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             updated_provider = dialog.get_provider_data()
             self.unified_config.providers[current_row] = updated_provider
+            self._persist_providers()
             self._load_configuration()
             self.config_changed.emit()
 
@@ -533,12 +570,13 @@ class UnifiedProviderTab(QWidget):
         reply = QMessageBox.question(
             self, "Confirm Removal",
             f"Provider '{provider.name}' entfernen?\n\n"
-            "Wirksam mit 'Save & Close'; 'Cancel' verwirft die Änderung.",
+            "'Cancel' macht die Änderung rückgängig.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             del self.unified_config.providers[current_row]
+            self._persist_providers()
             self._load_configuration()
             self.config_changed.emit()
 
