@@ -245,12 +245,6 @@ class PipelineConfigDialog(QDialog):
         save_preset_button.clicked.connect(self.save_preset)
         button_layout.addWidget(save_preset_button)
         
-        # Save as provider preferences button - Claude Generated
-        save_as_preferences_button = QPushButton("🎯 Als Standardeinstellung speichern")
-        save_as_preferences_button.setToolTip("Speichert die aktuellen Provider-Einstellungen als universelle Standardwerte für alle ALIMA-Funktionen")
-        save_as_preferences_button.clicked.connect(self.save_as_provider_preferences)
-        button_layout.addWidget(save_as_preferences_button)
-
         button_layout.addStretch()
 
         # Standard dialog buttons
@@ -525,105 +519,6 @@ class PipelineConfigDialog(QDialog):
             self, "Preset speichern", "Preset-Speichern wird implementiert..."
         )
     
-    def save_as_provider_preferences(self):
-        """Save current pipeline configuration as universal provider preferences - Claude Generated"""
-        if not self.config_manager:
-            QMessageBox.warning(
-                self, "Konfiguration nicht verfügbar", 
-                "ConfigManager ist nicht verfügbar. Provider-Einstellungen können nicht gespeichert werden."
-            )
-            return
-            
-        try:
-            # Get current configuration from UI
-            current_config = self.get_config()
-            
-            # Extract provider preferences from pipeline config
-            unified_config = self.config_manager.get_unified_config()
-            
-            # Update provider preferences based on pipeline step configurations
-            step_configs = current_config.step_configs
-            
-            # Determine the most frequently used provider as preferred
-            provider_counts = {}
-            for step_config in step_configs.values():
-                if step_config.provider and step_config.enabled:
-                    provider = step_config.provider
-                    provider_counts[provider] = provider_counts.get(provider, 0) + 1
-            
-            if provider_counts:
-                # Set most used provider as preferred
-                most_used_provider = max(provider_counts, key=provider_counts.get)
-                unified_config.preferred_provider = most_used_provider
-
-                # Update provider priority based on usage
-                sorted_providers = sorted(provider_counts.keys(), key=provider_counts.get, reverse=True)
-                # Keep existing priority for unused providers, append at end
-                existing_priority = unified_config.provider_priority[:]
-                new_priority = sorted_providers[:]
-                for provider in existing_priority:
-                    if provider not in new_priority:
-                        new_priority.append(provider)
-                unified_config.provider_priority = new_priority
-            
-            # Update task-specific overrides based on pipeline config
-            if 'initialisation' in step_configs and step_configs['initialisation'].enabled:
-                # Fast text provider for initialization
-                init_provider = step_configs['initialisation'].provider
-                if init_provider:
-                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-                    pass  # Disabled until proper implementation
-                    
-            if 'keywords' in step_configs and step_configs['keywords'].enabled:
-                # Quality text provider for final analysis
-                keywords_provider = step_configs['keywords'].provider
-                if keywords_provider:
-                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-                    pass  # Disabled until proper implementation
-                    
-            if 'dk_classification' in step_configs and step_configs['dk_classification'].enabled:
-                # Classification-specific provider
-                classification_provider = step_configs['dk_classification'].provider
-                if classification_provider:
-                    # TODO: Implement task-specific provider overrides in UnifiedProviderConfig
-                    pass  # Disabled until proper implementation
-            
-            # Update preferred models per provider
-            for step_config in step_configs.values():
-                if step_config.provider and step_config.model and step_config.enabled:
-                    provider = step_config.provider
-                    model = step_config.model
-                    if provider and model:
-                        # TODO: Implement preferred_models in UnifiedProviderConfig
-                        pass  # Disabled until proper implementation
-            
-            # TODO: Implement validation in UnifiedProviderConfig if needed
-            # if self.smart_selector:
-            #     validation_issues = unified_config.validate_preferences(self.smart_selector.provider_detection_service)
-
-            # Save updated config directly. Was save_config() with no argument:
-            # a TypeError that the except below reported as "Fehler beim
-            # Speichern", so this button never worked. - Claude Generated
-            self.config_manager.save_config(self.config_manager.load_config())
-            
-            # Success message with summary
-            success_message = "✅ Provider-Einstellungen erfolgreich gespeichert!\n\n"
-            success_message += f"📋 Bevorzugter Provider: {unified_config.preferred_provider}\n"
-            success_message += f"🎯 Provider-Priorität: {', '.join(unified_config.provider_priority[:3])}"
-            if len(unified_config.provider_priority) > 3:
-                success_message += f" (+{len(unified_config.provider_priority) - 3} weitere)"
-            success_message += f"\n🚀 Konfiguration erfolgreich gespeichert\n\n"
-            success_message += "Diese Einstellungen werden jetzt als Standardwerte für alle ALIMA-Funktionen verwendet."
-            
-            QMessageBox.information(self, "Erfolgreich gespeichert", success_message)
-            
-        except Exception as e:
-            self.logger.error(f"Error saving provider preferences: {e}")
-            QMessageBox.critical(
-                self, "Fehler beim Speichern",
-                f"Fehler beim Speichern der Provider-Einstellungen:\n\n{str(e)}"
-            )
-
     def _open_workflow_editor(self) -> None:
         """Open the workflow YAML editor and refresh the combo afterwards - Claude Generated."""
         try:

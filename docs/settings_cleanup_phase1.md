@@ -66,13 +66,21 @@ Dazu zwei unsichtbare Achsen:
   von keinem Code-Pfad befüllt. `apply_disabled_providers` führt sie beim Laden
   einmalig in `enabled` über und leert sie; das Feld bleibt als
   Migrations-Eingabe. Ein Schalter statt zweier.
-- `provider_priority` wird von `resolve_default_provider_model` nicht gelesen,
-  entscheidet aber trotzdem etwas: `task_preferences_widget:342` belegt damit die
-  Modell-Reihenfolge eines Tasks vor, der noch keine eigenen Präferenzen hat
-  (`_create_task_defaults_from_global_preferences`, filtert dabei
-  `disabled_providers` heraus). Es ist also eine **sechste**, an anderer Stelle
-  wirksame Achse, keine tote. Gepflegt wird sie von `pipeline_config_dialog:567`
-  und `pipeline_cmd`.
+- ~~Auto-Lerner~~ ✅ **erledigt (Sep 21).** Zwei Stellen leiteten
+  `preferred_provider` aus Häufigkeitszählungen ab, statt ihn setzen zu lassen.
+  Beide entfernt. Befund bei der Prüfung: der CLI-Block hing an
+  `args.save_preferences`, einer Flagge, die `cli/main.py` nie definiert —
+  unerreichbar, mit einer Statuszeile, die dauerhaft „❌ No" druckte. Der
+  GUI-Knopf lief nur auf Klick und war zu drei Vierteln Gerüst (vier Blöcke mit
+  `pass  # Disabled until proper implementation`). `preferred_provider` schreibt
+  jetzt nur noch der sichtbare Selektor, `provider_priority` nur noch der
+  Einrichtungsassistent.
+- `provider_priority` hält Provider-*Namen* und belegt über
+  `task_preferences_widget:342` die Modell-Reihenfolge eines Tasks ohne eigene
+  Präferenzen vor. Ältere Konfigurationen tragen dort einen Provider-*Typ*
+  (`openai_compatible`), der auf keinen Provider passt — der Seed lief leer und
+  ein solcher Task bekam gar keinen Vorschlag. Fällt jetzt auf die aktivierten
+  Provider in Konfigurationsreihenfolge zurück.
 
 Erst wenn das auf **eine** sichtbare Achse zusammengeführt ist, lohnt die
 Gliederung der Tabs nach Aufgaben („Modelle", „Datenquellen", „Erschließung",

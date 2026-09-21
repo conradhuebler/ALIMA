@@ -124,7 +124,6 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                     model = step_config.model
                     print(f"    {step_id}: {provider}/{model}")
 
-        print(f"  Save preferences: {'✅ Yes' if getattr(args, 'save_preferences', False) else '❌ No'}")
         print()
 
     try:
@@ -287,54 +286,6 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
             print_result(f"GND Classes: {analysis_state.final_llm_analysis.extracted_gnd_classes}")
 
             # Save preferences if requested
-            if getattr(args, 'save_preferences', False):
-                try:
-                    unified_config = config_manager.get_unified_config()
-                    preferences_updated = False
-
-                    cli_overrides_used = bool(args.step or args.step_task or args.step_temperature or args.step_top_p or args.step_seed)
-
-                    if not cli_overrides_used:
-                        print(f"\n📋 Smart mode baseline used - no preference updates needed")
-                    else:
-                        # Extract used providers/models from step configurations
-                        used_providers = set()
-                        used_models = set()
-
-                        for step, config in updated_pipeline_config.step_configs.items():
-                            if config.provider:
-                                used_providers.add(config.provider)
-                            if config.model:
-                                used_models.add(config.model)
-
-                        # Set most used provider as preferred
-                        if used_providers:
-                            most_used_provider = list(used_providers)[0]
-                            if not unified_config.preferred_provider or unified_config.preferred_provider == "ollama":
-                                unified_config.preferred_provider = most_used_provider
-                                preferences_updated = True
-
-                            # Ensure all used providers are in priority list
-                            for provider_used in used_providers:
-                                if provider_used not in unified_config.provider_priority:
-                                    unified_config.provider_priority.insert(0, provider_used)
-                                    preferences_updated = True
-
-                    if preferences_updated:
-                        # Was save_config() with no argument — a TypeError that
-                        # the surrounding except logged as "Failed to save
-                        # provider preferences". - Claude Generated
-                        config_manager.save_config(config_manager.load_config())
-                        print(f"\n✅ Provider preferences updated and saved:")
-                        print(f"   Configuration: baseline + CLI overrides")
-                        print(f"   Preferred provider: {unified_config.preferred_provider}")
-                    else:
-                        print(f"\n📋 No preference changes needed - current settings already optimal")
-
-                except Exception as e:
-                    logger.warning(f"Failed to save provider preferences: {e}")
-                    print(f"\n⚠️ Failed to save preferences: {e}")
-
         # Save results if requested
         output_file = args.output_json
         if not output_file and analysis_state.working_title:

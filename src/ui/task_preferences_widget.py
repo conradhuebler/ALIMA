@@ -860,12 +860,15 @@ class TaskPreferencesWidget(QWidget):
             # Start with provider_priority order
             model_priority = []
             
-            enabled_names = {p.name for p in self.unified_config.get_enabled_providers()}
-            for provider in self.unified_config.provider_priority:
-                # Skip switched-off providers. Was a disabled_providers check —
-                # a second veto, folded into `enabled` at load. - Claude Generated
-                if provider not in enabled_names:
-                    continue
+            enabled = [p.name for p in self.unified_config.get_enabled_providers()]
+            # provider_priority holds provider *names*. Older configs carry a
+            # provider *type* there (e.g. "openai_compatible"), which matches no
+            # provider, so the seed came out empty and a task without its own
+            # preferences got no suggestion at all. Fall back to the enabled
+            # providers in config order. - Claude Generated
+            order = [name for name in self.unified_config.provider_priority
+                     if name in enabled] or enabled
+            for provider in order:
                 
                 # Get preferred model for this provider (if configured)
                 # TODO: Implement preferred_models in UnifiedProviderConfig
@@ -881,9 +884,12 @@ class TaskPreferencesWidget(QWidget):
             return model_priority
             
         except Exception as e:
-            self.logger.warning(f"Failed to create task defaults from global preferences: {e}")
-            # Fallback to basic provider priority
-            return [{"provider_name": p, "model_name": "auto"} for p in self.unified_config.provider_priority]
+            # log_caught keeps defect shapes at ERROR instead of letting them pass
+            # as a warning. - Claude Generated
+            from src.utils.error_visibility import log_caught
+
+            log_caught(self.logger, e, "task defaults from global preferences")
+            return []
     
     def _validate_and_filter_model_priority(self, model_priority: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """Validate model_priority entries against available models and filter invalid ones - Claude Generated"""
