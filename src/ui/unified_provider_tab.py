@@ -24,6 +24,7 @@ from ..utils.config_models import (
 from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
+from .settings import ResolutionView
 
 
 class UnifiedProviderTab(QWidget):
@@ -118,6 +119,12 @@ class UnifiedProviderTab(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        # First on the page on purpose: this is not an input but the consequence
+        # of the ones below it. Which of the four defaults applies used to be
+        # invisible. - Claude Generated
+        self.resolution_view = ResolutionView()
+        layout.addWidget(self.resolution_view)
+
         # Unified provider table - Cols: Name | Type | Status | Preferred Model | API Key
         self.provider_table = QTableWidget()
         self.provider_table.setColumnCount(5)
@@ -202,53 +209,14 @@ class UnifiedProviderTab(QWidget):
             "Default provider/model for agentic workflows and the chat agent. "
             "Leave empty to use the pipeline default.")
 
-        # Which of the settings above decided the model. They used to compete
-        # invisibly — you could set a model here and get another one, with nothing
-        # saying why. - Claude Generated
-        effective_group = QGroupBox("Aufgelöster Standard")
-        effective_layout = QFormLayout(effective_group)
-        scope_note = QLabel(
-            "Welche der Einstellungen oben je Bereich gewinnt. Ein im "
-            "Pipeline-Dialog gesetztes Modell und die Task Preferences gehen "
-            "einem Schritt weiterhin vor."
-        )
-        scope_note.setWordWrap(True)
-        scope_note.setStyleSheet("color: gray; font-size: 10px;")
-        effective_layout.addRow(scope_note)
-        self.effective_labels = {}
-        for scope_key, caption in (
-            ("general", "Allgemein:"),
-            ("pipeline", "Klassische Pipeline:"),
-            ("agentic", "Agentisch / Chat:"),
-        ):
-            lbl = QLabel("—")
-            lbl.setWordWrap(True)
-            lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            self.effective_labels[scope_key] = lbl
-            effective_layout.addRow(caption, lbl)
-        layout.addWidget(effective_group)
 
         return widget
 
     def _refresh_effective_defaults(self) -> None:
-        """Show the resolved provider/model per scope and the reason - Claude Generated."""
-        labels = getattr(self, "effective_labels", None)
-        if not labels:
-            return
-        for scope_key, lbl in labels.items():
-            try:
-                provider, model, source = self.unified_config.explain_default_provider_model(
-                    scope=scope_key
-                )
-            except Exception as e:
-                self.logger.debug(f"Auflösung für {scope_key} fehlgeschlagen: {e}")
-                lbl.setText("—")
-                continue
-            reason = self.unified_config.DEFAULT_SOURCES.get(source, source)
-            if not provider:
-                lbl.setText(f"— ({reason})")
-            else:
-                lbl.setText(f"{provider} | {model or '(kein Modell)'}   ← {reason}")
+        """Re-render the resolution table from the current config - Claude Generated."""
+        view = getattr(self, "resolution_view", None)
+        if view is not None:
+            view.refresh(self.unified_config)
 
     
     def _load_configuration(self):

@@ -14,5 +14,6 @@ make that possible without hiding anything:
 from .collapsible import CollapsibleSection
 from .search import SettingsIndex, SettingsEntry
 from .shell import SettingsShell
+from .resolution_view import ResolutionView
 
-__all__ = ["CollapsibleSection", "SettingsIndex", "SettingsEntry", "SettingsShell"]
+__all__ = ["CollapsibleSection", "SettingsIndex", "SettingsEntry", "SettingsShell", "ResolutionView"]
