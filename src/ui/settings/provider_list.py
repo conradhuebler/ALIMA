@@ -1,14 +1,17 @@
-"""Providers as a plain list, and model limits as one deviation list.
+"""The configured providers as a plain list.
 
 An accordion was tried first and was wrong: five entries that one wants to see at
 once do not benefit from folding, and the fold hid mostly static text behind an
 interaction. A list shows every provider at a glance; double-click edits, the
 same as everywhere else.
 
-The model limits moved out of the per-provider card for the same reason. They are
-rare — typically none at all — so one section listing every deviation beats five
-sections that are empty. The threshold belongs to the *model* (it follows the
-context window), not to the task that triggers chunking. - Claude Generated
+Per-model chunking thresholds used to be edited here. They are still read —
+``model_capabilities.get_chunking_threshold`` consults them between an explicit
+call argument and the pattern match on the model name — but they are an escape
+hatch for a model the automatic detection gets wrong, and no installation has
+ever needed one. The escape hatch stays reachable by hand in ``config.json``
+(the dialog footer names the path); it no longer costs a section here.
+- Claude Generated
 """
 
 from __future__ import annotations
@@ -18,21 +21,16 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QComboBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
-
-from .collapsible import CollapsibleSection
-
 
 def _endpoint(provider: Any) -> str:
     url = getattr(provider, "base_url", "") or ""
@@ -59,8 +57,6 @@ class ProviderList(QWidget):
     remove_requested = pyqtSignal(str)
     models_requested = pyqtSignal(str)
     add_requested = pyqtSignal()
-    chunking_changed = pyqtSignal(str, str, int)
-    chunking_removed = pyqtSignal(str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -110,19 +106,13 @@ class ProviderList(QWidget):
         row.addStretch()
         box.addLayout(row)
 
-        self.limits = CollapsibleSection("Modellgrenzen", subtitle="keine Abweichung")
-        self._limits_box = QVBoxLayout(self.limits.body())
-        self._limits_box.setContentsMargins(12, 2, 0, 4)
-        self._limits_box.setSpacing(3)
-        box.addWidget(self.limits)
-
         self.list.currentItemChanged.connect(lambda *_: self._update_buttons())
         self._update_buttons()
 
     # -- content ---------------------------------------------------------
 
-    def refresh(self, providers: List[Any], *, models: Dict[str, List[str]],
-                thresholds: Dict[str, Dict[str, int]]) -> None:
+    def refresh(self, providers: List[Any], *,
+                models: Dict[str, List[str]]) -> None:
         selected = self.selected_name()
         self.list.clear()
         self._models = dict(models or {})
@@ -158,7 +148,6 @@ class ProviderList(QWidget):
             self.list.addTopLevelItem(empty)
 
         self._fit_height()
-        self._rebuild_limits(providers, thresholds or {})
         if selected:
             self.select(selected)
 
@@ -222,77 +211,3 @@ class ProviderList(QWidget):
 
     # -- model limits ----------------------------------------------------
 
-    def _rebuild_limits(self, providers: List[Any],
-                        thresholds: Dict[str, Dict[str, int]]) -> None:
-        while self._limits_box.count():
-            item = self._limits_box.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-            elif item.layout():
-                while item.layout().count():
-                    sub = item.layout().takeAt(0)
-                    if sub.widget():
-                        sub.widget().deleteLater()
-
-        note = QLabel(
-            "Ab wie vielen Zeichen ein Text für ein bestimmtes Modell gestückelt "
-            "wird. Ohne Eintrag entscheidet die automatische Erkennung. Hängt am "
-            "Kontextfenster des Modells, nicht an der Aufgabe."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("color: gray; font-size: 10px;")
-        self._limits_box.addWidget(note)
-
-        flat = [
-            (prov, model, value)
-            for prov, per_model in sorted(thresholds.items())
-            for model, value in sorted((per_model or {}).items())
-        ]
-        for prov, model, value in flat:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(f"{prov} · {model}"), 1)
-            spin = QSpinBox()
-            spin.setRange(0, 1_000_000)
-            spin.setSingleStep(1000)
-            spin.setValue(int(value))
-            spin.setSuffix(" Zeichen")
-            spin.valueChanged.connect(
-                lambda v, p=prov, m=model: self.chunking_changed.emit(p, m, v)
-            )
-            row.addWidget(spin)
-            drop = QPushButton("✕")
-            drop.setMaximumWidth(30)
-            drop.setToolTip("Abweichung entfernen; es gilt wieder die Automatik")
-            drop.clicked.connect(
-                lambda _c, p=prov, m=model: self.chunking_removed.emit(p, m)
-            )
-            row.addWidget(drop)
-            self._limits_box.addLayout(row)
-
-        add_row = QHBoxLayout()
-        self.limit_provider = QComboBox()
-        self.limit_provider.addItems([getattr(p, "name", "?") for p in providers])
-        self.limit_model = QComboBox()
-        self.limit_provider.currentTextChanged.connect(self._refill_limit_models)
-        add_row.addWidget(self.limit_provider)
-        add_row.addWidget(self.limit_model, 1)
-        add = QPushButton("Grenze setzen")
-        add.clicked.connect(self._add_limit)
-        add_row.addWidget(add)
-        self._limits_box.addLayout(add_row)
-        self._refill_limit_models(self.limit_provider.currentText())
-
-        self.limits.set_subtitle(
-            "keine Abweichung" if not flat
-            else ("1 Abweichung" if len(flat) == 1 else f"{len(flat)} Abweichungen")
-        )
-
-    def _refill_limit_models(self, provider_name: str) -> None:
-        self.limit_model.clear()
-        self.limit_model.addItems(list(self._models.get(provider_name) or []))
-
-    def _add_limit(self) -> None:
-        provider = self.limit_provider.currentText()
-        model = self.limit_model.currentText()
-        if provider and model:
-            self.chunking_changed.emit(provider, model, 24000)

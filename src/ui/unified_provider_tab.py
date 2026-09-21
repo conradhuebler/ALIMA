@@ -19,7 +19,6 @@ from ..utils.config_models import (
     UnifiedProvider,
     AlimaConfig
 )
-from ..utils.model_capabilities import get_chunking_threshold  # For per-model chunking UI - Claude Generated
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
 from .settings import ProviderList, ResolutionView
@@ -130,8 +129,6 @@ class UnifiedProviderTab(QWidget):
         self.provider_list.edit_requested.connect(self._edit_provider_by_name)
         self.provider_list.remove_requested.connect(self._remove_provider_by_name)
         self.provider_list.models_requested.connect(self._refresh_models_for)
-        self.provider_list.chunking_changed.connect(self._set_chunking)
-        self.provider_list.chunking_removed.connect(self._drop_chunking)
         layout.addWidget(self.provider_list)
 
         provider_button_layout = QHBoxLayout()
@@ -272,7 +269,6 @@ class UnifiedProviderTab(QWidget):
         self.provider_list.refresh(
             list(self.unified_config.providers),
             models=dict(self._cached_models or {}),
-            thresholds=dict(getattr(self.unified_config, "model_chunking_thresholds", {}) or {}),
         )
 
     # ---- accordion callbacks, addressed by provider name ----------------
@@ -325,17 +321,6 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             log_caught(self.logger, e, f"Modell-Abfrage für {name}")
             self._show_save_toast(f"{name}: Abfrage fehlgeschlagen", error=True)
-
-    def _set_chunking(self, provider: str, model: str, value: int) -> None:
-        if not model:
-            return
-        self.unified_config.set_chunking_threshold(provider, model, int(value))
-        self.config_changed.emit()
-
-    def _drop_chunking(self, provider: str, model: str) -> None:
-        self.unified_config.remove_chunking_threshold(provider, model)
-        self._populate_provider_table()
-        self.config_changed.emit()
 
     def _get_api_key_status(self, provider) -> str:
         """Get API key status for a provider - Claude Generated"""
@@ -421,32 +406,6 @@ class UnifiedProviderTab(QWidget):
         """Delegates to _populate_provider_table (tables are now merged) - Claude Generated"""
         self._populate_provider_table()
     
-    def _on_model_chunking_changed(self, provider: str, model: str, value: int):
-        """Handle per-model chunking threshold change - Claude Generated"""
-        try:
-            if not model:
-                # No specific model selected, can't save per-model setting
-                self.logger.debug(f"No model selected for {provider}, skipping chunking threshold save")
-                return
-
-            if value > 0:
-                # Set specific threshold
-                self.unified_config.set_chunking_threshold(provider, model, value)
-                self.logger.info(f"Set chunking threshold for {provider}/{model}: {value}")
-                self._show_save_toast(f"📊 {provider}/{model}: {value} Keywords")
-            else:
-                # Remove threshold (revert to auto-detect)
-                self.unified_config.remove_chunking_threshold(provider, model)
-                auto_value = get_chunking_threshold(provider, model, config_manager=self.config_manager)
-                self.logger.info(f"Removed chunking threshold for {provider}/{model} (auto: {auto_value})")
-                self._show_save_toast(f"📊 {provider}/{model}: Auto ({auto_value})")
-
-            # Emit config changed signal
-            self.config_changed.emit()
-
-        except Exception as e:
-            self.logger.error(f"Error updating model chunking threshold: {e}")
-
     def _get_preferred_model_from_config(self, provider: str, config) -> str:
         """Get preferred model from direct provider configuration - Claude Generated"""
         try:

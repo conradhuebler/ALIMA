@@ -27,12 +27,12 @@ def _qapp(keep: list):
 class ProviderListTest(unittest.TestCase):
     _kept: list = []
 
-    def _list(self, providers, models=None, thresholds=None):
+    def _list(self, providers, models=None):
         from src.ui.settings import ProviderList
 
         _qapp(self._kept)
         widget = ProviderList()
-        widget.refresh(providers, models=models or {}, thresholds=thresholds or {})
+        widget.refresh(providers, models=models or {})
         self._kept.append(widget)
         return widget
 
@@ -99,7 +99,7 @@ class ProviderListTest(unittest.TestCase):
         """Fetching one provider's models must not throw away what is selected."""
         widget = self._list([self._p("A"), self._p("B")])
         widget.select("B")
-        widget.refresh([self._p("A"), self._p("B")], models={}, thresholds={})
+        widget.refresh([self._p("A"), self._p("B")], models={})
         self.assertEqual(widget.selected_name(), "B")
 
     def test_the_list_shows_all_rows_without_scrolling(self):
@@ -111,48 +111,49 @@ class ProviderListTest(unittest.TestCase):
         self.assertLess(widget.list.minimumHeight(), 250)
 
 
-class ModelLimitsAreOneDeviationListTest(unittest.TestCase):
-    _kept: list = []
+class ModelLimitsAreNoLongerEditedHereTest(unittest.TestCase):
+    """The control is gone; the setting is not.
 
-    def _list(self, thresholds, providers=("A", "B"), models=None):
+    ``model_capabilities.get_chunking_threshold`` still consults
+    ``model_chunking_thresholds`` between an explicit call argument and the
+    pattern match, and both the classic keyword step and every agentic step go
+    through it. It is an escape hatch for a model the automatic detection gets
+    wrong — no installation has ever needed one, so it stays reachable by hand in
+    config.json instead of costing a section in the dialog. - Claude Generated
+    """
+
+    def test_the_provider_list_has_no_limits_section(self):
         from src.ui.settings import ProviderList
 
-        _qapp(self._kept)
-        widget = ProviderList()
-        widget.refresh(
-            [UnifiedProvider(name=n, provider_type="ollama") for n in providers],
-            models=models or {n: ["m1", "m2"] for n in providers},
-            thresholds=thresholds,
+        _qapp([])
+        self.assertFalse(hasattr(ProviderList, "limits"))
+
+    def test_the_setting_is_still_read_at_runtime(self):
+        from unittest.mock import MagicMock
+
+        from src.utils.config_models import UnifiedProviderConfig
+        from src.utils.model_capabilities import get_chunking_threshold
+
+        cfg = UnifiedProviderConfig(providers=[])
+        cfg.set_chunking_threshold("A", "m1", 4242)
+        cm = MagicMock()
+        cm.get_unified_config.return_value = cfg
+        self.assertEqual(get_chunking_threshold("A", "m1", config_manager=cm), 4242)
+
+    def test_an_explicit_argument_still_wins(self):
+        from unittest.mock import MagicMock
+
+        from src.utils.config_models import UnifiedProviderConfig
+        from src.utils.model_capabilities import get_chunking_threshold
+
+        cfg = UnifiedProviderConfig(providers=[])
+        cfg.set_chunking_threshold("A", "m1", 4242)
+        cm = MagicMock()
+        cm.get_unified_config.return_value = cfg
+        self.assertEqual(
+            get_chunking_threshold("A", "m1", config_manager=cm, explicit_override=99),
+            99,
         )
-        self._kept.append(widget)
-        return widget
-
-    def test_no_deviation_costs_one_folded_line(self):
-        widget = self._list({})
-        self.assertIn("keine Abweichung", widget.limits._button.text())
-        self.assertFalse(widget.limits.is_expanded())
-
-    def test_deviations_across_providers_are_counted_together(self):
-        widget = self._list({"A": {"m1": 24000}, "B": {"m2": 8000}})
-        self.assertIn("2 Abweichungen", widget.limits._button.text())
-
-    def test_one_deviation_is_singular(self):
-        self.assertIn("1 Abweichung", self._list({"A": {"m1": 24000}}).limits._button.text())
-
-    def test_setting_a_limit_reports_provider_model_and_value(self):
-        widget = self._list({})
-        seen = []
-        widget.chunking_changed.connect(lambda p, m, v: seen.append((p, m, v)))
-        widget.limit_provider.setCurrentText("B")
-        widget.limit_model.setCurrentText("m2")
-        widget._add_limit()
-        self.assertEqual(seen, [("B", "m2", 24000)])
-
-    def test_the_model_choices_follow_the_chosen_provider(self):
-        widget = self._list({}, models={"A": ["a1"], "B": ["b1", "b2"]})
-        widget._refill_limit_models("B")
-        offered = [widget.limit_model.itemText(i) for i in range(widget.limit_model.count())]
-        self.assertEqual(offered, ["b1", "b2"])
 
 
 if __name__ == "__main__":
