@@ -16,12 +16,20 @@ from PyQt6.QtGui import QGuiApplication
 import logging
 import time
 from copy import deepcopy
+from typing import Optional
 
 from ..utils.config_manager import ConfigManager, AlimaConfig
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
-from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
-from .settings import CollapsibleSection, SettingsIndex, SettingsShell
+from ..utils.error_visibility import log_caught
+from .settings import (
+    CollapsibleSection,
+    SettingsIndex,
+    SettingsShell,
+    WorkflowList,
+    workflow_entries,
+)
+from .settings.workflow_list import CLASSIC_STEM
 from ..utils.logging_utils import LOG_LEVEL_CHOICES
 
 
@@ -274,21 +282,123 @@ class ComprehensiveSettingsDialog(QDialog):
         return group
 
     def _build_workflow_group(self) -> QGroupBox:
-        """Welcher Workflow eine Erschließung fährt - Claude Generated"""
-        group = QGroupBox("Workflow")
-        form = QFormLayout()
+        """Die Workflows einer Erschließung: sichtbar, wählbar, editierbar
 
-        self.default_workflow_combo = QComboBox()
-        self.default_workflow_combo.setToolTip(
-            "Standard-Workflow für agentische Pipeline-Läufe. Gilt, wenn im "
-            "Pipeline-Tab oder per CLI kein Workflow gewählt wird (dasselbe "
-            "Feld wie der ⭐ im Pipeline-Tab)."
-        )
-        self._populate_default_workflow_combo()
-        form.addRow("Standard-Workflow:", self.default_workflow_combo)
+        Vorher stand hier eine Auswahlliste von Dateinamen. Die Workflows sind
+        aber der Gegenstand der Erschließung, nicht ein Implementierungsdetail:
+        sie werden mit ihrem eigenen Namen und ihrer eigenen Beschreibung
+        aufgelistet, und ein Doppelklick öffnet denselben Workflow-Editor, den
+        auch das Menü öffnet. - Claude Generated
+        """
+        group = QGroupBox("Workflows")
+        box = QVBoxLayout()
 
-        group.setLayout(form)
+        self.workflow_list = WorkflowList()
+        self.workflow_list.default_changed.connect(self._on_default_workflow_changed)
+        self.workflow_list.edit_requested.connect(self._edit_workflow)
+        self.workflow_list.new_requested.connect(lambda: self._edit_workflow(""))
+        self._refresh_workflow_list()
+        box.addWidget(self.workflow_list)
+
+        group.setLayout(box)
         return group
+
+    def _refresh_workflow_list(self, *, default_stem: Optional[str] = None) -> None:
+        """Read the workflow directory again and redraw the list. - Claude Generated"""
+        if default_stem is None:
+            default_stem = (
+                self.workflow_list.default_stem()
+                or getattr(self.config_to_edit.system_config, "default_workflow", "")
+                or "alima_v51"
+            )
+        self.workflow_list.refresh(
+            workflow_entries(logger=self.logger), default_stem=default_stem
+        )
+
+    def _on_default_workflow_changed(self, stem: str) -> None:
+        """The star moved. Written on Save like every other setting."""
+        self.logger.debug("Standard-Workflow gewählt: %s", stem)
+
+    def _edit_workflow(self, stem: str) -> None:
+        """Open the editor that fits the row; refresh the list afterwards.
+
+        Both editors write immediately and have no part in this dialog's unit of
+        work — "Abbrechen" here does not undo a saved workflow. They are separate
+        modal dialogs with their own Save, which is how the menu entry and the
+        pipeline tab use them too. - Claude Generated
+        """
+        if stem == CLASSIC_STEM:
+            self._edit_classic_pipeline()
+            return
+
+        from .workflow_editor_dialog import WorkflowEditorDialog
+
+        editor = WorkflowEditorDialog(self, initial_workflow=stem or None)
+        editor.saved.connect(lambda saved_stem: self._refresh_workflow_list())
+        editor.exec()
+        self._refresh_workflow_list()
+
+    def _edit_classic_pipeline(self) -> None:
+        """Provider und Modell der klassischen Pipeline - Claude Generated
+
+        Der klassische Pfad hat keine YAML, aber dieselbe Frage: welches Modell
+        macht welchen Schritt. Das beantwortet der vorhandene
+        ``PipelineConfigDialog``, derselbe, den das Pipeline-Tab öffnet.
+
+        Er braucht einen ``LlmService``, den nur der ``AlimaManager`` hat — ohne
+        ihn (Dialog außerhalb des Hauptfensters) bleibt der Knopf sprechend
+        stehen statt halb zu funktionieren. Seine Schritt-Einstellungen gehen an
+        das Pipeline-Tab, seine Pipeline-Vorgabe schreibt er selbst auf die
+        Platte; letztere wird danach in die hier bearbeitete Kopie übernommen,
+        sonst überschriebe "Speichern" sie wieder.
+        """
+        llm_service = getattr(self.alima_manager, "llm_service", None)
+        if llm_service is None:
+            QMessageBox.information(
+                self,
+                "Nicht verfügbar",
+                "Die Schritt- und Modellwahl der klassischen Pipeline braucht "
+                "die laufende Anwendung. Öffne sie über das Pipeline-Tab "
+                "(⚙️ Pipeline-Konfiguration).",
+            )
+            return
+
+        from .pipeline_config_dialog import PipelineConfigDialog
+
+        pipeline_tab = getattr(self.parent(), "pipeline_tab", None)
+        manager = getattr(pipeline_tab, "pipeline_manager", None)
+        dialog = PipelineConfigDialog(
+            llm_service=llm_service,
+            prompt_service=getattr(self.alima_manager, "prompt_service", None),
+            current_config=getattr(manager, "config", None),
+            config_manager=self.config_manager,
+            parent=self,
+        )
+        if pipeline_tab is not None and hasattr(pipeline_tab, "on_config_saved"):
+            dialog.config_saved.connect(pipeline_tab.on_config_saved)
+        dialog.exec()
+        self._adopt_pipeline_defaults()
+
+    def _adopt_pipeline_defaults(self) -> None:
+        """Take over what the pipeline dialog wrote to disk. - Claude Generated
+
+        It edits the ConfigManager's own unified config; this dialog edits a
+        deepcopy. Without this the copy still holds the previous pipeline
+        default and "💾 Speichern" would put it back.
+        """
+        try:
+            saved = self.config_manager.load_config().unified_config
+        except Exception as exc:
+            log_caught(self.logger, exc, "Pipeline-Vorgabe nicht nachgelesen")
+            return
+        mine = self.config_to_edit.unified_config
+        mine.pipeline_default_provider = (
+            getattr(saved, "pipeline_default_provider", "") or ""
+        )
+        mine.pipeline_default_model = (
+            getattr(saved, "pipeline_default_model", "") or ""
+        )
+        self.unified_provider_tab._refresh_effective_defaults()
 
     def _build_program_group(self) -> QGroupBox:
         """Die Anwendung selbst: Darstellung, Protokoll, Ablage - Claude Generated"""
@@ -468,7 +578,7 @@ class ComprehensiveSettingsDialog(QDialog):
     # its controls with the search index. - Claude Generated
 
     PAGE_MODELS = "Sprachmodelle"
-    PAGE_INDEXING = "Erschließung"
+    PAGE_INDEXING = "Erschließung und Workflows"
     PAGE_SOURCES = "Datenquellen"
     PAGE_STORAGE = "Daten und Speicher"
     PAGE_APPLICATION = "Anwendung"
@@ -505,9 +615,10 @@ class ComprehensiveSettingsDialog(QDialog):
                 self._build_indexing_context_group(),
             ),
         )
-        self.index.add(self.PAGE_INDEXING, "Standard-Workflow",
-                       section="Workflow", widget=self.default_workflow_combo,
-                       synonyms=["ablauf", "yaml", "workflow"])
+        self.index.add(self.PAGE_INDEXING, "Workflows",
+                       section="Workflows", widget=self.workflow_list,
+                       synonyms=["ablauf", "yaml", "workflow", "standard",
+                                 "agentisch", "editor", "bearbeiten"])
         self.index.add(self.PAGE_INDEXING, "Institutionskontext",
                        section="Haus und Regeln",
                        widget=self.chat_institution_context,
@@ -694,9 +805,7 @@ class ComprehensiveSettingsDialog(QDialog):
         lvl_idx = self.log_level.findData(config.system_config.log_level)
         self.log_level.setCurrentIndex(lvl_idx if lvl_idx >= 0 else 1)
         default_workflow = getattr(config.system_config, "default_workflow", "alima_v51") or "alima_v51"
-        idx = self.default_workflow_combo.findData(default_workflow)
-        if idx >= 0:
-            self.default_workflow_combo.setCurrentIndex(idx)
+        self._refresh_workflow_list(default_stem=default_workflow)
         self.cache_dir.setText(config.system_config.cache_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
 
@@ -757,48 +866,6 @@ class ComprehensiveSettingsDialog(QDialog):
         )
         if directory:
             self.autosave_dir.setText(directory)
-
-    def _populate_default_workflow_combo(self):
-        """Fill default workflow combo with discovered v4 workflows + classic. - Claude Generated"""
-        import yaml
-
-        self.default_workflow_combo.clear()
-        # No ⭐ here — this combo *is* the setting; its current entry is the default.
-        self.default_workflow_combo.addItem("Klassische Pipeline (nicht agentisch)", "__classic__")
-
-        seen: set = set()
-        workflows: list[tuple[str, str]] = []
-        for path in discover_workflow_files():
-            if path.stem in seen:
-                continue
-            seen.add(path.stem)
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    data = yaml.safe_load(fh) or {}
-                if not is_v4_yaml(data):
-                    continue
-                version = str(data.get("version", "?"))
-                label = f"{path.stem} (v{version})"
-                workflows.append((label, path.stem))
-            except Exception:
-                continue
-
-        # Prefer a sensible order; unknown stems are appended alphabetically.
-        preferred_order = ["alima_v51", "alima_v51_105", "alima", "alima_classic_v51", "alima_classic"]
-        ordered = []
-        added = set()
-        for stem in preferred_order:
-            for label, value in workflows:
-                if value == stem and value not in added:
-                    ordered.append((label, value))
-                    added.add(value)
-        for label, value in sorted(workflows):
-            if value not in added:
-                ordered.append((label, value))
-                added.add(value)
-
-        for label, value in ordered:
-            self.default_workflow_combo.addItem(label, value)
 
     def _browse_cache_dir(self):
         """Browse for cache directory - Claude Generated"""
@@ -933,7 +1000,7 @@ class ComprehensiveSettingsDialog(QDialog):
         sys_cfg.log_level = self.log_level.currentData()
         sys_cfg.cache_dir = self.cache_dir.text()
         sys_cfg.autosave_dir = self.autosave_dir.text()
-        sys_cfg.default_workflow = self.default_workflow_combo.currentData()
+        sys_cfg.default_workflow = self.workflow_list.default_stem()
         sys_cfg.enable_response_cache = self.enable_response_cache.isChecked()
         sys_cfg.aggregate_from_raw = self.aggregate_from_raw.isChecked()
 

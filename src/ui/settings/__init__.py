@@ -16,5 +16,16 @@ from .search import SettingsIndex, SettingsEntry
 from .shell import SettingsShell
 from .resolution_view import ResolutionView
 from .provider_list import ProviderList
+from .workflow_list import WorkflowList, WorkflowEntry, workflow_entries
 
-__all__ = ["CollapsibleSection", "SettingsIndex", "SettingsEntry", "SettingsShell", "ResolutionView", "ProviderList"]
+__all__ = [
+    "CollapsibleSection",
+    "SettingsIndex",
+    "SettingsEntry",
+    "SettingsShell",
+    "ResolutionView",
+    "ProviderList",
+    "WorkflowList",
+    "WorkflowEntry",
+    "workflow_entries",
+]
