@@ -8,7 +8,7 @@ Claude Generated
 from copy import deepcopy
 import logging
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QDialog,
 )
