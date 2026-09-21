@@ -58,15 +58,14 @@ class ResolutionViewTest(unittest.TestCase):
     def test_it_names_the_model_and_the_source(self):
         view = self._view(_config(preferred_provider="A", preferred_model="a1"))
         general = view.row_texts()[0]
-        self.assertIn("A", general[1])
-        self.assertIn("a1", general[1])
-        self.assertIn("Allgemeiner Standard", general[2])
+        self.assertEqual(general[1], "A")
+        self.assertEqual(general[2], "a1")
+        self.assertIn("Allgemeiner Standard", general[3])
 
     def test_an_inherited_row_says_so(self):
         """The point: you can see that this scope did not choose for itself."""
         view = self._view(_config(preferred_provider="A", preferred_model="a1"))
-        pipeline = view.row_texts()[1]
-        self.assertIn("geerbt", pipeline[2])
+        self.assertIn("geerbt", view.row_texts()[1][3])
 
     def test_an_own_choice_is_not_marked_inherited(self):
         view = self._view(_config(
@@ -74,8 +73,8 @@ class ResolutionViewTest(unittest.TestCase):
             pipeline_default_provider="B", pipeline_default_model="b1",
         ))
         pipeline = view.row_texts()[1]
-        self.assertIn("B", pipeline[1])
-        self.assertNotIn("geerbt", pipeline[2])
+        self.assertEqual(pipeline[1], "B")
+        self.assertNotIn("geerbt", pipeline[3])
 
     def test_the_vision_row_follows_the_vision_default(self):
         view = self._view(_config(
@@ -83,13 +82,14 @@ class ResolutionViewTest(unittest.TestCase):
             vision_default_provider="B", vision_default_model="b-vision",
         ))
         vision = view.row_texts()[3]
-        self.assertIn("b-vision", vision[1])
-        self.assertIn("Vision", vision[2])
+        self.assertEqual(vision[2], "b-vision")
+        self.assertIn("Vision", vision[3])
 
     def test_nothing_configured_shows_a_dash_not_a_guess(self):
         view = self._view(UnifiedProviderConfig(providers=[]))
         for row in view.row_texts():
             self.assertEqual(row[1], "—")
+            self.assertEqual(row[2], "")
 
     def test_the_workflow_override_is_stated(self):
         view = self._view(_config())
@@ -216,13 +216,35 @@ class ItFitsAndItsPickersAreUsableTest(unittest.TestCase):
         heights = [view.table.rowHeight(r) for r in range(view.table.rowCount())]
         self.assertEqual(len(set(heights)), 1, f"ungleiche Zeilen: {heights}")
         for r in range(view.table.rowCount()):
-            widget = view.table.cellWidget(r, 3)
+            widget = view.table.cellWidget(r, 4)
             self.assertGreaterEqual(heights[r], widget.sizeHint().height())
 
-    def test_the_table_shows_all_rows_without_scrolling(self):
+    def test_the_table_is_tall_enough_for_its_pickers(self):
+        """Its maximum was a little *below* what the pickers needed, so the last
+        one was clipped.
+
+        Asserted as the margin the calculation guarantees, not as a pixel count:
+        the real clipping depends on the widget style, which is not loaded in a
+        headless run — a number measured here would pass while the styled dialog
+        still clips. What is checkable is that every row leaves room around its
+        picker and that the table covers all rows plus its header.
+        """
         view = self._view(_config())
         self.assertEqual(view.table.minimumHeight(), view.table.maximumHeight())
-        self.assertGreater(view.table.minimumHeight(), 0)
+
+        for r in range(view.table.rowCount()):
+            widget = view.table.cellWidget(r, 4)
+            self.assertGreaterEqual(
+                view.table.rowHeight(r), widget.sizeHint().height() + 6,
+                f"Zeile {r} lässt dem Auswahlfeld keinen Rand",
+            )
+
+        rows = sum(view.table.rowHeight(r) for r in range(view.table.rowCount()))
+        header = view.table.horizontalHeader()
+        self.assertGreaterEqual(
+            view.table.maximumHeight(),
+            rows + max(header.height(), header.sizeHint().height()),
+        )
 
 
 class ItDoesNotTouchTheNetworkTest(unittest.TestCase):

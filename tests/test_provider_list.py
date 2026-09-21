@@ -43,34 +43,40 @@ class ProviderListTest(unittest.TestCase):
         widget = self._list([self._p(f"P{i}") for i in range(5)])
         self.assertEqual(widget.names(), [f"P{i}" for i in range(5)])
 
-    def test_a_row_identifies_without_any_interaction(self):
+    def test_each_field_has_its_own_column(self):
+        """Joining the fields with separators looked like formatting and was not:
+        nothing lined up. Real columns, one value each."""
         widget = self._list(
             [self._p("GWDG", t="openai_compatible", base_url="https://x/v1")],
             models={"GWDG": ["m1", "m2"]},
         )
-        row = widget.row_texts()[0]
-        for expected in ("GWDG", "openai_compatible", "https://x/v1", "2 Modelle"):
-            self.assertIn(expected, row)
+        self.assertEqual(
+            widget.row_texts()[0], ("GWDG", "openai_compatible", "https://x/v1", "2", "")
+        )
 
     def test_a_switched_off_provider_says_so(self):
         widget = self._list([self._p("A", enabled=False)])
-        self.assertIn("aus", widget.row_texts()[0])
+        self.assertIn("aus", widget.row_texts()[0][4])
 
     def test_a_cloud_provider_without_a_key_says_so(self):
         """It is configured but cannot work; the row must not look healthy."""
         widget = self._list([self._p("G", t="gemini")])
-        self.assertIn("kein Schlüssel", widget.row_texts()[0])
+        self.assertIn("kein Schlüssel", widget.row_texts()[0][4])
+
+    def test_a_healthy_provider_has_an_empty_state_column(self):
+        widget = self._list([self._p("A")])
+        self.assertEqual(widget.row_texts()[0][4], "")
 
     def test_no_providers_says_what_that_means(self):
         widget = self._list([])
-        self.assertIn("kein Anbieter", widget.row_texts()[0])
+        self.assertIn("kein Anbieter", widget.row_texts()[0][0])
         self.assertEqual(widget.names(), [])
 
     def test_double_click_edits(self):
         widget = self._list([self._p("A")])
         seen = []
         widget.edit_requested.connect(seen.append)
-        widget._on_double_click(widget.list.item(0))
+        widget._on_double_click(widget.list.topLevelItem(0))
         self.assertEqual(seen, ["A"])
 
     def test_the_buttons_act_on_the_selection(self):
@@ -83,8 +89,8 @@ class ProviderListTest(unittest.TestCase):
 
     def test_buttons_needing_a_selection_are_disabled_without_one(self):
         widget = self._list([self._p("A")])
-        widget.list.setCurrentRow(-1)
-        widget._update_buttons(-1)
+        widget.list.setCurrentItem(None)
+        widget._update_buttons()
         for button in (widget.edit_button, widget.remove_button, widget.models_button):
             self.assertFalse(button.isEnabled())
         self.assertTrue(widget.add_button.isEnabled())
@@ -97,9 +103,12 @@ class ProviderListTest(unittest.TestCase):
         self.assertEqual(widget.selected_name(), "B")
 
     def test_the_list_shows_all_rows_without_scrolling(self):
+        """Its height must cover the rows plus the header, not fall just short."""
         widget = self._list([self._p(f"P{i}") for i in range(5)])
         self.assertEqual(widget.list.minimumHeight(), widget.list.maximumHeight())
-        self.assertLess(widget.list.minimumHeight(), 200)
+        needed = 5 * widget.list.sizeHintForRow(0)
+        self.assertGreaterEqual(widget.list.maximumHeight(), needed)
+        self.assertLess(widget.list.minimumHeight(), 250)
 
 
 class ModelLimitsAreOneDeviationListTest(unittest.TestCase):

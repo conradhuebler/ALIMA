@@ -36,7 +36,7 @@ from .effective_models import effective_rows
 class ResolutionView(QGroupBox):
     """Four rows: general, pipeline, agentic, vision."""
 
-    HEADERS = ("Wofür", "Wirksames Modell", "Woher", "Ändern")
+    HEADERS = ("Wofür", "Anbieter", "Modell", "Woher", "Ändern")
 
     #: (scope, provider, model) — the host persists it.
     selection_changed = pyqtSignal(str, str, str)
@@ -64,10 +64,11 @@ class ResolutionView(QGroupBox):
         self.table.setAlternatingRowColors(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.table.setShowGrid(False)
         box.addWidget(self.table)
 
         self.note = QLabel("")
@@ -103,21 +104,20 @@ class ResolutionView(QGroupBox):
 
         self._loading = True
         for r, row in enumerate(rows):
-            model = f"{row.provider} | {row.model}" if row.configured else "—"
-            if row.configured and not row.model:
-                model = f"{row.provider} | (kein Modell)"
+            provider = row.provider if row.configured else "—"
+            model = (row.model or "(kein Modell)") if row.configured else ""
             source = row.source_label
             if row.is_fallback:
                 source = f"{source} (geerbt)"
 
-            for c, text in enumerate((row.task, model, source)):
+            for c, text in enumerate((row.task, provider, model, source)):
                 item = QTableWidgetItem(text)
-                if not row.configured or (c == 2 and row.is_fallback):
+                if not row.configured or (c == 3 and row.is_fallback):
                     item.setForeground(QBrush(muted))
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.table.setItem(r, c, item)
 
-            self.table.setCellWidget(r, 3, self._selector_for(row, unified_config))
+            self.table.setCellWidget(r, 4, self._selector_for(row, unified_config))
 
             if row.note:
                 notes.append(row.note)
@@ -138,17 +138,24 @@ class ResolutionView(QGroupBox):
         """
         needed = 0
         for r in range(self.table.rowCount()):
-            widget = self.table.cellWidget(r, 3)
+            widget = self.table.cellWidget(r, 4)
             if widget is not None:
-                needed = max(needed, widget.sizeHint().height())
+                needed = max(needed, widget.sizeHint().height(),
+                             widget.minimumSizeHint().height())
         row_height = max(needed + 8, 30)
         for r in range(self.table.rowCount()):
             self.table.setRowHeight(r, row_height)
 
+        # The header reports 0 before the first layout pass, which made the table
+        # one header shorter than its rows and clipped the last picker. Fall back
+        # to its size hint, and leave room for a horizontal scrollbar. - Claude Generated
+        header = self.table.horizontalHeader()
+        header_height = max(header.height(), header.sizeHint().height())
         total = (
-            self.table.horizontalHeader().height()
+            header_height
             + 2 * self.table.frameWidth()
             + row_height * self.table.rowCount()
+            + self.table.horizontalScrollBar().sizeHint().height()
         )
         self.table.setMinimumHeight(total)
         self.table.setMaximumHeight(total)
