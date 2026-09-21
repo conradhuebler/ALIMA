@@ -1390,8 +1390,32 @@ class UnifiedInputWidget(QWidget):
                 if parent:
                     parent.setVisible(False)
 
+    def webcam_enabled(self) -> bool:
+        """Whether webcam capture may run at all - Claude Generated.
+
+        ``UIConfig.enable_webcam_input`` is a data-protection switch: a house that
+        forbids camera recordings must be able to switch the camera off for
+        certain, not merely hide the button. Fails closed — an unreadable config
+        means no camera.
+        """
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            return bool(ConfigManager().get_ui_config().enable_webcam_input)
+        except Exception as e:
+            self.logger.warning(f"Webcam-Einstellung nicht lesbar, Kamera bleibt aus: {e}")
+            return False
+
     def capture_from_webcam(self):
         """Open webcam capture dialog - Claude Generated (Webcam Feature)"""
+        # Guard at the point of effect, not only at the point of display. Hiding
+        # the frame relies on finding its parent group box; if that ever fails,
+        # the frame stays clickable and the camera would open regardless.
+        # - Claude Generated
+        if not self.webcam_enabled():
+            self.logger.info("Webcam-Aufnahme ist in den Einstellungen abgeschaltet")
+            return
+
         try:
             from .webcam_capture_dialog import WebcamCaptureDialog
 

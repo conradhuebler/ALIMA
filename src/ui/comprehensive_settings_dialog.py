@@ -318,9 +318,11 @@ class ComprehensiveSettingsDialog(QDialog):
         group = QGroupBox("Anwendung")
         form = QFormLayout()
 
-        self.enable_webcam_input = QCheckBox("Webcam-Aufnahme im Pipeline-Tab anbieten")
+        self.enable_webcam_input = QCheckBox("Kamera-Aufnahmen zulassen")
         self.enable_webcam_input.setToolTip(
-            "Blendet den Kamera-Knopf für Direktaufnahmen ein."
+            "Abgeschaltet erreicht die Anwendung die Kamera nicht: der Knopf "
+            "verschwindet, und der Aufnahmedialog öffnet auch dann nicht, wenn er "
+            "auf anderem Weg angestoßen wird."
         )
         form.addRow("Webcam:", self.enable_webcam_input)
 
