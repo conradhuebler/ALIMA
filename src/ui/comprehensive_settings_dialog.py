@@ -6,7 +6,7 @@ Claude Generated
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
+    QDialog, QVBoxLayout, QHBoxLayout, QWidget,
     QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox,
     QPushButton, QTextEdit, QLabel, QGroupBox, QScrollArea, QFrame,
     QMessageBox, QFileDialog,
@@ -21,6 +21,7 @@ from ..utils.config_manager import ConfigManager, AlimaConfig
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
 from ..core.agents.workflow_loader import discover_workflow_files, is_v4_yaml
+from .settings import CollapsibleSection, SettingsIndex, SettingsShell
 from ..utils.logging_utils import LOG_LEVEL_CHOICES
 
 
@@ -81,17 +82,18 @@ class ComprehensiveSettingsDialog(QDialog):
         self.resize(target_width, target_height)
     
     def _setup_ui(self):
-        """Setup the user interface - Claude Generated"""
+        """One sidebar, five pages, no nested navigation - Claude Generated.
+
+        The pages are named after the job someone came to do, and each is a
+        composition of ``_build_*_group`` builders. Every control registers with
+        ``self.index`` so the search field can reach it, including inside folded
+        sections — that registration is what makes folding acceptable.
+        """
         layout = QVBoxLayout()
-        
-        # Create tab widget
-        self.tab_widget = QTabWidget()
-        
-        # Grouped by the job at hand, not by the subsystem a setting happens to
-        # live in. The old split (Database / Providers & Models / Plugins /
-        # System / About) meant that "which model runs" sat in one tab while the
-        # agent's model-switch permission sat in another, and the search sources
-        # were separated from the database they cache into. - Claude Generated
+
+        self.index = SettingsIndex()
+        self.shell = SettingsShell(self.index)
+
         self.unified_provider_tab = UnifiedProviderTab(
             self.config_to_edit.unified_config,
             self.config_to_edit,
@@ -105,43 +107,18 @@ class ComprehensiveSettingsDialog(QDialog):
         self.unified_provider_tab.config_changed.connect(self.config_changed)
         self.unified_provider_tab.task_preferences_changed.connect(self.task_preferences_changed)  # Forward task preference changes - Claude Generated
 
-        # 🤖 Modelle — which LLM runs, and what it may decide for itself.
-        models_tab = QTabWidget()
-        models_tab.addTab(self.unified_provider_tab, "Provider & Standards")
-        models_tab.addTab(
-            self._scrolled(
-                self._build_model_switch_group(),
-                self._build_repetition_group(),
-            ),
-            "Verhalten",
-        )
-        self.tab_widget.addTab(models_tab, "🤖 Modelle")
+        self._add_models_page()
+        self._add_indexing_page()
+        self._add_sources_page()
+        self._add_storage_page()
+        self._add_application_page()
 
-        # 🔗 Datenquellen — where the data comes from and how it is kept.
-        sources_tab = QTabWidget()
-        sources_tab.addTab(self.plugin_settings_tab, "Quellen & Plugins")
-        sources_tab.addTab(self.database_tab, "Datenbank")
-        sources_tab.addTab(
-            self._scrolled(self._build_source_cache_group()), "Cache"
+        self._add_wizard_shortcut()
+        self.shell.set_footer(
+            f"Einstellungen liegen in {self.config_manager.config_file}"
         )
-        self.tab_widget.addTab(sources_tab, "🔗 Datenquellen")
 
-        # 📚 Erschließung — how this house indexes.
-        self.indexing_tab = self._scrolled(
-            self._build_workflow_group(),
-            self._build_indexing_context_group(),
-        )
-        self.tab_widget.addTab(self.indexing_tab, "📚 Erschließung")
-
-        # ⚙️ Programm — the application itself.
-        self.system_tab = self._scrolled(
-            self._build_program_group(),
-            self._build_config_path_group(),
-            self._build_about_group(),
-        )
-        self.tab_widget.addTab(self.system_tab, "⚙️ Programm")
-        
-        layout.addWidget(self.tab_widget)
+        layout.addWidget(self.shell)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -481,6 +458,140 @@ class ComprehensiveSettingsDialog(QDialog):
 
         paths_group.setLayout(paths_layout)
         return paths_group
+
+    # ---- pages -------------------------------------------------------
+    #
+    # One method per sidebar entry. Each composes group builders and registers
+    # its controls with the search index. - Claude Generated
+
+    PAGE_MODELS = "Sprachmodelle"
+    PAGE_INDEXING = "Erschließung"
+    PAGE_SOURCES = "Datenquellen"
+    PAGE_STORAGE = "Daten und Speicher"
+    PAGE_APPLICATION = "Anwendung"
+
+    def _page(self, *groups) -> QWidget:
+        """A page body: group boxes stacked, nothing else."""
+        widget = QWidget()
+        box = QVBoxLayout(widget)
+        for group in groups:
+            box.addWidget(group)
+        box.addStretch()
+        return widget
+
+    def _add_models_page(self) -> None:
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self.unified_provider_tab, 1)
+        box.addWidget(self._build_model_switch_group())
+        box.addWidget(self._build_repetition_group())
+        self.shell.add_page(self.PAGE_MODELS, page)
+        self.index.add(self.PAGE_MODELS, "Modellwechsel durch den Agenten",
+                       widget=self.chat_allow_model_switch,
+                       synonyms=["switch", "agent"])
+        self.index.add(self.PAGE_MODELS, "Wiederholungserkennung",
+                       widget=self.repetition_enabled,
+                       synonyms=["repetition", "schleife", "loop"])
+
+    def _add_indexing_page(self) -> None:
+        self.shell.add_page(
+            self.PAGE_INDEXING,
+            self._page(
+                self._build_workflow_group(),
+                self._build_indexing_context_group(),
+            ),
+        )
+        self.index.add(self.PAGE_INDEXING, "Standard-Workflow",
+                       section="Workflow", widget=self.default_workflow_combo,
+                       synonyms=["ablauf", "yaml", "workflow"])
+        self.index.add(self.PAGE_INDEXING, "Institutionskontext",
+                       section="Haus und Regeln",
+                       widget=self.chat_institution_context,
+                       synonyms=["haus", "bibliothek", "prompt"])
+        self.index.add(self.PAGE_INDEXING, "Zusatzregeln",
+                       section="Haus und Regeln", widget=self.open_rules_btn,
+                       synonyms=["regeln", "rules"])
+
+    def _add_sources_page(self) -> None:
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self.plugin_settings_tab, 1)
+        self.shell.add_page(self.PAGE_SOURCES, page)
+        self.index.add(self.PAGE_SOURCES, "Datenquellen",
+                       synonyms=["plugin", "lobid", "swb", "katalog", "doi"])
+
+    def _add_storage_page(self) -> None:
+        cache = CollapsibleSection("Zwischenspeicher", expanded=True)
+        cache_box = QVBoxLayout(cache.body())
+        cache_box.setContentsMargins(0, 0, 0, 0)
+        cache_box.addWidget(self._build_source_cache_group())
+
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.addWidget(self.database_tab)
+        box.addWidget(cache)
+        box.addStretch()
+        self.shell.add_page(self.PAGE_STORAGE, page)
+
+        self.index.add(self.PAGE_STORAGE, "Wissensdatenbank",
+                       widget=self.db_type_combo,
+                       synonyms=["sqlite", "mariadb", "mysql", "datenbank"])
+        self.index.add(self.PAGE_STORAGE, "Datei auf diesem Rechner",
+                       section="Wissensdatenbank", widget=self.sqlite_path,
+                       synonyms=["sqlite", "pfad"])
+        self.index.add(self.PAGE_STORAGE, "Zeitlimit",
+                       section="Wissensdatenbank", widget=self.connection_timeout,
+                       synonyms=["timeout"])
+        self.index.add(self.PAGE_STORAGE, "Antworten zwischenspeichern",
+                       section="Zwischenspeicher",
+                       widget=self.enable_response_cache,
+                       reveal=cache.expand, synonyms=["cache", "rohantworten"])
+        self.index.add(self.PAGE_STORAGE, "Cache-Verzeichnis",
+                       section="Zwischenspeicher", widget=self.cache_dir,
+                       reveal=cache.expand, synonyms=["cache", "ordner"])
+
+    def _add_application_page(self) -> None:
+        self.shell.add_page(
+            self.PAGE_APPLICATION,
+            self._page(
+                self._build_program_group(),
+                self._build_config_path_group(),
+                self._build_about_group(),
+            ),
+        )
+        self.index.add(self.PAGE_APPLICATION, "Protokoll", widget=self.log_level,
+                       synonyms=["log", "debug", "logdatei", "support"])
+        self.index.add(self.PAGE_APPLICATION, "Schriftgröße",
+                       widget=self.font_size_spin, synonyms=["font size", "schrift"])
+        self.index.add(self.PAGE_APPLICATION, "Kamera-Aufnahmen zulassen",
+                       widget=self.enable_webcam_input,
+                       synonyms=["webcam", "kamera", "datenschutz"])
+        self.index.add(self.PAGE_APPLICATION, "Ergebnis-Ablage",
+                       widget=self.autosave_dir,
+                       synonyms=["autosave", "ergebnisse", "ordner"])
+
+    def _add_wizard_shortcut(self) -> None:
+        """The way into the multi-page setup, under the sidebar - Claude Generated."""
+        button = QPushButton("🧭 Einrichtungsassistent…")
+        button.setToolTip(
+            "Führt durch Anbieter, Modelle, Datenbank und Katalog. Bestehende "
+            "Einstellungen bleiben erhalten."
+        )
+        button.clicked.connect(self._open_setup_wizard)
+        self.shell.sidebar_footer.addWidget(button)
+
+    def _open_setup_wizard(self) -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "show_setup_wizard"):
+            self.accept()
+            parent.show_setup_wizard()
+        else:
+            QMessageBox.information(
+                self, "Nicht verfügbar",
+                "Der Einrichtungsassistent ist nur aus dem Hauptfenster erreichbar.",
+            )
 
     @staticmethod
     def _scrolled(*groups) -> QWidget:

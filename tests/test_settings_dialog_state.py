@@ -434,13 +434,42 @@ class EveryWidgetTheSavePathTouchesExistsTest(_DialogHarness, unittest.TestCase)
         missing = [n for n in names if not hasattr(dlg, n)]
         self.assertEqual(missing, [], f"nicht eingehängt: {missing}")
 
-    def test_the_four_task_tabs_are_present(self):
+    def test_the_five_pages_are_present(self):
         dlg = self._dialog()
-        titles = [dlg.tab_widget.tabText(i) for i in range(dlg.tab_widget.count())]
-        for expected in ("Modelle", "Datenquellen", "Erschließung", "Programm"):
+        titles = [dlg.shell.nav.item(i).text() for i in range(dlg.shell.nav.count())]
+        for expected in ("Sprachmodelle", "Erschließung", "Datenquellen",
+                         "Daten und Speicher", "Anwendung"):
             self.assertTrue(
                 any(expected in t for t in titles), f"{expected} fehlt in {titles}"
             )
+
+    def test_the_dialog_frame_has_no_tabs_of_its_own(self):
+        """The whole point of the sidebar: one navigation level.
+
+        Sub-widgets brought in from elsewhere may still carry tabs of their own;
+        what must not come back is a tab bar for the dialog's own pages.
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QTabWidget
+
+        dlg = self._dialog()
+        self.assertFalse(hasattr(dlg, "tab_widget"))
+        direct = dlg.shell.findChildren(
+            QTabWidget, options=Qt.FindChildOption.FindDirectChildrenOnly
+        )
+        self.assertEqual(direct, [])
+
+    def test_every_page_is_represented_in_the_search_index(self):
+        """A page nobody can search is a page nobody finds."""
+        dlg = self._dialog()
+        pages = set(dlg.index.pages())
+        for expected in ("Sprachmodelle", "Erschließung", "Datenquellen",
+                         "Daten und Speicher", "Anwendung"):
+            self.assertIn(expected, pages)
+
+    def test_the_footer_names_the_configuration_file(self):
+        dlg = self._dialog()
+        self.assertIn("config.json", dlg.shell.footer.text())
 
     def test_a_full_save_still_runs(self):
         """End to end over the regrouped dialog."""
