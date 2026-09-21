@@ -104,12 +104,10 @@ class UnifiedProviderTab(QWidget):
         # Action buttons
         button_layout = QHBoxLayout()
         
-        self.test_all_button = QPushButton("🧪 Test All Providers")
-        self.test_all_button.clicked.connect(self._test_all_providers)
-
-        button_layout.addWidget(self.test_all_button)
+        # "🧪 Test All Providers" sat here and called _refresh_models() verbatim —
+        # two buttons, one action. The remaining one is next to the provider list,
+        # where it belongs. - Claude Generated
         button_layout.addStretch()
-        
         layout.addLayout(button_layout)
     
     def _create_providers_tab(self) -> QWidget:
@@ -139,7 +137,7 @@ class UnifiedProviderTab(QWidget):
         provider_button_layout = QHBoxLayout()
         self.add_provider_button = QPushButton("➕ Anbieter hinzufügen…")
         self.add_provider_button.clicked.connect(self._add_provider)
-        self.refresh_models_button = QPushButton("🔄 Alle Modelle abfragen")
+        self.refresh_models_button = QPushButton("🔄 Alle Anbieter prüfen")
         self.refresh_models_button.clicked.connect(self._refresh_models)
         provider_button_layout.addWidget(self.add_provider_button)
         provider_button_layout.addWidget(self.refresh_models_button)
@@ -396,9 +394,8 @@ class UnifiedProviderTab(QWidget):
         the table already shows, once as input and once as result. The table is
         now both. - Claude Generated
         """
-        names = [p.name for p in self.unified_config.providers if p.enabled]
-        for selector in self.resolution_view._selectors.values():
-            selector.set_providers(names, refresh=False)
+        # The table derives the provider list itself on refresh; pushing it from
+        # here ran before the pickers existed. - Claude Generated
         self._refresh_effective_defaults()
 
     def _on_scope_selection(self, scope: str, provider: str, model: str) -> None:
@@ -517,11 +514,6 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error starting provider refresh: {e}")
             QMessageBox.critical(self, "Refresh Error", f"Failed to start provider refresh:\n\n{str(e)}")
-    
-    def _test_all_providers(self):
-        """Test connections to all enabled providers via ProviderStatusService - Claude Generated"""
-        # Delegate to _refresh_models which already uses ProviderStatusService
-        self._refresh_models()
     
     def _show_save_toast(self, message: str, duration: int = 2000, error: bool = False):
         """Show toast notification via main window's global status bar - Claude Generated"""

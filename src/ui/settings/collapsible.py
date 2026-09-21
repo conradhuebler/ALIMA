@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QToolButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class CollapsibleSection(QWidget):
@@ -37,6 +43,12 @@ class CollapsibleSection(QWidget):
         self._body = QFrame()
         self._body.setFrameShape(QFrame.Shape.NoFrame)
         self._body.setVisible(expanded)
+
+        # Take only the height actually needed. Without this a folded section
+        # keeps the vertical stretch its body asked for, which is what made the
+        # provider cards balloon and run into each other. - Claude Generated
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        self._body.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -75,4 +87,5 @@ class CollapsibleSection(QWidget):
             Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
         )
         self._body.setVisible(checked)
+        self.updateGeometry()
         self.toggled.emit(checked)

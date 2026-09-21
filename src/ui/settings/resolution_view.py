@@ -53,6 +53,7 @@ class ResolutionView(QGroupBox):
         super().__init__("Was wofür benutzt wird", parent)
         box = QVBoxLayout(self)
         self._selectors: dict = {}
+        self._provider_names: list = []
         self._loading = False
 
         self.table = QTableWidget(0, len(self.HEADERS))
@@ -77,11 +78,24 @@ class ResolutionView(QGroupBox):
     # -- content ---------------------------------------------------------
 
     def refresh(self, unified_config: Any) -> None:
-        """Rebuild from the configuration. Never touches the network."""
+        """Rebuild from the configuration. Never touches the network.
+
+        The provider list for the pickers is derived here rather than pushed in
+        from outside: the pickers are created on first refresh, so a caller that
+        set the providers beforehand set them on nothing and the provider combo
+        came up empty while the model combo worked. - Claude Generated
+        """
         try:
             rows = effective_rows(unified_config)
         except Exception:
             rows = []
+
+        try:
+            self._provider_names = [
+                p.name for p in unified_config.get_enabled_providers()
+            ]
+        except Exception:
+            self._provider_names = []
 
         self.table.setRowCount(len(rows))
         notes = []
@@ -109,9 +123,35 @@ class ResolutionView(QGroupBox):
                 notes.append(row.note)
         self._loading = False
 
-        self.table.resizeRowsToContents()
+        self._fit_height()
         self.note.setText("  ".join(notes))
         self.note.setVisible(bool(notes))
+
+    def _fit_height(self) -> None:
+        """Uniform rows that fit their picker, and no scrollbar - Claude Generated.
+
+        ``resizeRowsToContents`` measures the text cells and ignores the widget in
+        the last column, which produced rows of 35/35/35/26 px with a 25 px combo
+        squeezed into the last one. The picker decides the height instead.
+        A four-row table that then scrolls is the worst of both: these rows are
+        the content, not a sample of it.
+        """
+        needed = 0
+        for r in range(self.table.rowCount()):
+            widget = self.table.cellWidget(r, 3)
+            if widget is not None:
+                needed = max(needed, widget.sizeHint().height())
+        row_height = max(needed + 8, 30)
+        for r in range(self.table.rowCount()):
+            self.table.setRowHeight(r, row_height)
+
+        total = (
+            self.table.horizontalHeader().height()
+            + 2 * self.table.frameWidth()
+            + row_height * self.table.rowCount()
+        )
+        self.table.setMinimumHeight(total)
+        self.table.setMaximumHeight(total)
 
     def _selector_for(self, row, unified_config):
         """The picker that sets this row's own default - Claude Generated.
@@ -134,6 +174,7 @@ class ResolutionView(QGroupBox):
             )
             self._selectors[row.scope] = selector
 
+        selector.set_providers(list(self._provider_names), refresh=False)
         own_provider, own_model = self._own_choice(row.scope, unified_config)
         selector.set_selection(own_provider, own_model)
         return selector

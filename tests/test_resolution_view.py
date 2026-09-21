@@ -164,6 +164,67 @@ class TheTableIsAlsoTheControlTest(unittest.TestCase):
         self.assertEqual(seen, [])
 
 
+class ItFitsAndItsPickersAreUsableTest(unittest.TestCase):
+    """Defects found by actually using it. - Claude Generated"""
+
+    _kept: list = []
+
+    def _view(self, cfg):
+        from src.ui.settings import ResolutionView
+
+        _qapp(self._kept)
+        view = ResolutionView()
+        view.refresh(cfg)
+        self._kept.append(view)
+        return view
+
+    def test_the_provider_combo_is_populated(self):
+        """It came up empty while the model combo worked.
+
+        The pickers are created on first refresh, so a caller that pushed the
+        provider list in beforehand set it on nothing. The table derives the list
+        itself now.
+        """
+        view = self._view(_config())
+        for scope, selector in view._selectors.items():
+            self.assertGreater(
+                selector.provider_combo.count(), 0, f"{scope} ohne Anbieter"
+            )
+
+    def test_only_the_general_scope_lacks_an_empty_entry(self):
+        view = self._view(_config())
+        counts = {s: sel.provider_combo.count() for s, sel in view._selectors.items()}
+        self.assertEqual(counts["general"], 2)
+        for scope in ("pipeline", "agentic", "vision"):
+            self.assertEqual(counts[scope], 3, scope)
+
+    def test_rows_are_uniform_and_fit_their_picker(self):
+        """resizeRowsToContents measured the text cells and ignored the combo.
+
+        The model names differ wildly in length on purpose: with similar ones the
+        text-measured heights come out equal by accident and the test passes
+        without holding anything. On the real config they were 35/35/35/26 with a
+        25 px combo squeezed into the last row.
+        """
+        cfg = _config(
+            preferred_provider="A",
+            preferred_model="ein-ausgesprochen-langer-modellname-der-umbricht-2603",
+            pipeline_default_provider="B", pipeline_default_model="m",
+            vision_default_provider="A", vision_default_model="x",
+        )
+        view = self._view(cfg)
+        heights = [view.table.rowHeight(r) for r in range(view.table.rowCount())]
+        self.assertEqual(len(set(heights)), 1, f"ungleiche Zeilen: {heights}")
+        for r in range(view.table.rowCount()):
+            widget = view.table.cellWidget(r, 3)
+            self.assertGreaterEqual(heights[r], widget.sizeHint().height())
+
+    def test_the_table_shows_all_rows_without_scrolling(self):
+        view = self._view(_config())
+        self.assertEqual(view.table.minimumHeight(), view.table.maximumHeight())
+        self.assertGreater(view.table.minimumHeight(), 0)
+
+
 class ItDoesNotTouchTheNetworkTest(unittest.TestCase):
     """Four probes before the dialog is usable, and a dead endpoint hangs it."""
 

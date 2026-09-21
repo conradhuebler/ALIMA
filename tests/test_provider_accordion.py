@@ -118,3 +118,58 @@ class ModelLimitsAreADeviationListTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ItDoesNotBalloonTest(unittest.TestCase):
+    """A folded card kept the vertical stretch its body asked for, so the cards
+    ballooned and ran into each other. - Claude Generated"""
+
+    _kept: list = []
+
+    def _accordion(self, n=5):
+        from src.ui.settings import ProviderAccordion
+
+        _qapp(self._kept)
+        acc = ProviderAccordion()
+        acc.refresh(
+            [UnifiedProvider(name=f"P{i}", provider_type="ollama") for i in range(n)],
+            models={f"P{i}": [f"m{j}" for j in range(20)] for i in range(n)},
+            thresholds={},
+        )
+        self._kept.append(acc)
+        return acc
+
+    def test_a_folded_card_is_one_line_tall(self):
+        acc = self._accordion(1)
+        card = next(iter(acc.cards.values()))
+        self.assertLess(card.sizeHint().height(), 40, "zugeklappte Karte zu hoch")
+
+    def test_a_card_never_claims_vertical_stretch(self):
+        """The actual cause of the ballooning, asserted directly.
+
+        sizeHint alone does not show it: a hidden body contributes nothing to the
+        hint, while the size *policy* is what made the layout hand the card the
+        leftover height.
+        """
+        from PyQt6.QtWidgets import QSizePolicy
+
+        card = next(iter(self._accordion(1).cards.values()))
+        self.assertEqual(
+            card.sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum
+        )
+        self.assertEqual(
+            card.body().sizePolicy().verticalPolicy(), QSizePolicy.Policy.Maximum
+        )
+
+    def test_five_folded_cards_stay_compact(self):
+        """Five providers must not fill the page before anything is opened."""
+        self.assertLess(self._accordion(5).sizeHint().height(), 200)
+
+    def test_unfolding_grows_only_that_card(self):
+        acc = self._accordion(3)
+        cards = list(acc.cards.values())
+        before = [c.sizeHint().height() for c in cards]
+        cards[0].expand()
+        after = [c.sizeHint().height() for c in cards]
+        self.assertGreater(after[0], before[0])
+        self.assertEqual(after[1:], before[1:])

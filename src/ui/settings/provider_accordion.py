@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
+    QSizePolicy,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -63,7 +64,8 @@ class ProviderCard(CollapsibleSection):
         super().__init__(self._header(provider, models), parent=parent)
 
         box = QVBoxLayout(self.body())
-        box.setContentsMargins(18, 0, 0, 8)
+        box.setContentsMargins(18, 2, 0, 8)
+        box.setSpacing(3)
 
         box.addWidget(self._line("Typ", getattr(provider, "provider_type", "")))
         box.addWidget(self._line("Endpunkt", _endpoint(provider)))
@@ -127,6 +129,7 @@ class ProviderCard(CollapsibleSection):
     @staticmethod
     def _line(label: str, value: str) -> QWidget:
         row = QWidget()
+        row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         caption = QLabel(f"{label}:")
@@ -141,7 +144,8 @@ class ProviderCard(CollapsibleSection):
     def _build_limits(self, host: QWidget, provider_name: str,
                       models: List[str], thresholds: Dict[str, int]) -> None:
         box = QVBoxLayout(host)
-        box.setContentsMargins(0, 0, 0, 0)
+        box.setContentsMargins(12, 2, 0, 4)
+        box.setSpacing(3)
 
         note = QLabel(
             "Ab wie vielen Zeichen ein Text für dieses Modell gestückelt wird. "
@@ -201,6 +205,8 @@ class ProviderAccordion(QWidget):
         super().__init__(parent)
         self._box = QVBoxLayout(self)
         self._box.setContentsMargins(0, 0, 0, 0)
+        self._box.setSpacing(4)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.cards: Dict[str, ProviderCard] = {}
         self._empty = QLabel(
             "Noch kein Anbieter eingerichtet. Ohne einen Anbieter kann ALIMA "
