@@ -82,9 +82,12 @@ Dazu zwei unsichtbare Achsen:
   ein solcher Task bekam gar keinen Vorschlag. Fällt jetzt auf die aktivierten
   Provider in Konfigurationsreihenfolge zurück.
 
-Erst wenn das auf **eine** sichtbare Achse zusammengeführt ist, lohnt die
-Gliederung der Tabs nach Aufgaben („Modelle", „Datenquellen", „Erschließung",
-„Programm") statt nach Technik.
+**Schritte 3 und 4 ✅ erledigt (Sep 21).** Die abgeleiteten Standards sind weg,
+und die Tabs sind nach Aufgabe gegliedert statt nach Subsystem: 🤖 Modelle,
+🔗 Datenquellen, 📚 Erschließung, ⚙️ Programm. Jede Gruppe ist ein eigener
+Builder, die Tabs sind Komposition. Eine gebaute, aber nicht eingehängte Gruppe
+fällt nur im Lade-/Speicherpfad auf (dort werden Widgets über `self.<name>`
+adressiert) — dafür gibt es jetzt einen Test.
 
 **Kleinere offene Punkte:**
 

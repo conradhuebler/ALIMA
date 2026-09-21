@@ -404,6 +404,51 @@ class ChatUsesTheConfiguredIterationLimitTest(unittest.TestCase):
         )
 
 
+class EveryWidgetTheSavePathTouchesExistsTest(_DialogHarness, unittest.TestCase):
+    """Moving a control between tabs must not lose it.
+
+    The tabs are grouped by the job at hand (Modelle / Datenquellen /
+    Erschließung / Programm), assembled from per-group builders. Load and save
+    address the widgets by attribute, so a group builder that is written but
+    never composed into a tab — or a widget dropped while splitting a group —
+    surfaces here as a missing attribute rather than as an AttributeError in
+    front of the operator. - Claude Generated
+    """
+
+    def _referenced_attributes(self):
+        import inspect
+        import re
+
+        from src.ui.comprehensive_settings_dialog import ComprehensiveSettingsDialog
+
+        src = (
+            inspect.getsource(ComprehensiveSettingsDialog._load_current_settings)
+            + inspect.getsource(ComprehensiveSettingsDialog._get_config_from_ui)
+        )
+        return sorted(set(re.findall(r"self\.([a-z_][a-z0-9_]*)", src)))
+
+    def test_no_referenced_widget_is_missing(self):
+        dlg = self._dialog()
+        names = self._referenced_attributes()
+        self.assertGreater(len(names), 20, "Attributsuche hat offenbar nichts gefunden")
+        missing = [n for n in names if not hasattr(dlg, n)]
+        self.assertEqual(missing, [], f"nicht eingehängt: {missing}")
+
+    def test_the_four_task_tabs_are_present(self):
+        dlg = self._dialog()
+        titles = [dlg.tab_widget.tabText(i) for i in range(dlg.tab_widget.count())]
+        for expected in ("Modelle", "Datenquellen", "Erschließung", "Programm"):
+            self.assertTrue(
+                any(expected in t for t in titles), f"{expected} fehlt in {titles}"
+            )
+
+    def test_a_full_save_still_runs(self):
+        """End to end over the regrouped dialog."""
+        cfg = self._dialog()._get_config_from_ui()
+        self.assertEqual(cfg.system_config.url_fetch_allowlist, ["intranet.example"])
+        self.assertEqual(cfg.ui_config.ui_language, "en")
+
+
 class NoConfigScopeFictionTest(unittest.TestCase):
     """There is one config file; nothing may offer a choice of "scope".
 

@@ -13,10 +13,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
 from PyQt6.QtGui import QGuiApplication
-import json
 import logging
 import time
-from pathlib import Path
 from copy import deepcopy
 
 from ..utils.config_manager import ConfigManager, AlimaConfig
@@ -89,8 +87,11 @@ class ComprehensiveSettingsDialog(QDialog):
         # Create tab widget
         self.tab_widget = QTabWidget()
         
-        # Create tabs
-        self.database_tab = self._create_database_tab()
+        # Grouped by the job at hand, not by the subsystem a setting happens to
+        # live in. The old split (Database / Providers & Models / Plugins /
+        # System / About) meant that "which model runs" sat in one tab while the
+        # agent's model-switch permission sat in another, and the search sources
+        # were separated from the database they cache into. - Claude Generated
         self.unified_provider_tab = UnifiedProviderTab(
             self.config_to_edit.unified_config,
             self.config_to_edit,
@@ -99,22 +100,46 @@ class ComprehensiveSettingsDialog(QDialog):
             self
         )
         self.plugin_settings_tab = PluginSettingsTab(self)
-        self.system_tab = self._create_system_tab()
-        self.about_tab = self._create_about_tab()
-        
-        # Connect unified provider tab signals
+        self.database_tab = self._create_database_tab()
+
         self.unified_provider_tab.config_changed.connect(self.config_changed)
         self.unified_provider_tab.task_preferences_changed.connect(self.task_preferences_changed)  # Forward task preference changes - Claude Generated
-        
-        # Add tabs
-        self.tab_widget.addTab(self.database_tab, "🗄️ Database")
-        self.tab_widget.addTab(self.unified_provider_tab, "🚀 Providers & Models")  # Claude Generated - Unified Tab
-        self.tab_widget.addTab(self.plugin_settings_tab, "🔌 Plugins")
-        
-        # Task Preferences are now integrated into the unified provider tab
-        
-        self.tab_widget.addTab(self.system_tab, "⚙️ System")
-        self.tab_widget.addTab(self.about_tab, "ℹ️ About")
+
+        # 🤖 Modelle — which LLM runs, and what it may decide for itself.
+        models_tab = QTabWidget()
+        models_tab.addTab(self.unified_provider_tab, "Provider & Standards")
+        models_tab.addTab(
+            self._scrolled(
+                self._build_model_switch_group(),
+                self._build_repetition_group(),
+            ),
+            "Verhalten",
+        )
+        self.tab_widget.addTab(models_tab, "🤖 Modelle")
+
+        # 🔗 Datenquellen — where the data comes from and how it is kept.
+        sources_tab = QTabWidget()
+        sources_tab.addTab(self.plugin_settings_tab, "Quellen & Plugins")
+        sources_tab.addTab(self.database_tab, "Datenbank")
+        sources_tab.addTab(
+            self._scrolled(self._build_source_cache_group()), "Cache"
+        )
+        self.tab_widget.addTab(sources_tab, "🔗 Datenquellen")
+
+        # 📚 Erschließung — how this house indexes.
+        self.indexing_tab = self._scrolled(
+            self._build_workflow_group(),
+            self._build_indexing_context_group(),
+        )
+        self.tab_widget.addTab(self.indexing_tab, "📚 Erschließung")
+
+        # ⚙️ Programm — the application itself.
+        self.system_tab = self._scrolled(
+            self._build_program_group(),
+            self._build_config_path_group(),
+            self._build_about_group(),
+        )
+        self.tab_widget.addTab(self.system_tab, "⚙️ Programm")
         
         layout.addWidget(self.tab_widget)
         
@@ -238,111 +263,112 @@ class ComprehensiveSettingsDialog(QDialog):
         return widget
     
     
-    def _create_system_tab(self) -> QWidget:
-        """Create system configuration tab - Claude Generated
+    def _build_source_cache_group(self) -> QGroupBox:
+        """Wie Quellantworten zwischengespeichert und zum GND-Pool verdichtet werden."""
+        group = QGroupBox("Quell-Cache")
+        form = QFormLayout()
 
-        Wraps all group boxes in a QScrollArea so nothing gets crushed at
-        normal dialog height. — Claude Generated
-        """
-        outer = QWidget()
-        outer_layout = QVBoxLayout(outer)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        # System settings
-        system_group = QGroupBox("System Settings")
-        system_layout = QFormLayout()
-        
         # WP2 raw-first response cache toggles - Claude Generated
-        self.enable_response_cache = QCheckBox("Cache source responses (raw-first)")
+        self.enable_response_cache = QCheckBox("Rohantworten der Quellen speichern")
         self.enable_response_cache.setToolTip(
-            "Store API/HTML responses verbatim in search_response_cache "
-            "(lobid/swb/catalog/finc + DOI). Master switch for the raw cache."
+            "Legt API-/HTML-Antworten unverändert im search_response_cache ab "
+            "(lobid/swb/catalog/finc + DOI). Hauptschalter; einzelne Plugins "
+            "können ihn im Plugin-Formular überschreiben."
         )
-        system_layout.addRow("Response-Cache:", self.enable_response_cache)
+        form.addRow("Response-Cache:", self.enable_response_cache)
 
-        self.aggregate_from_raw = QCheckBox("Build GND pool from raw (aggregate)")
+        self.aggregate_from_raw = QCheckBox("GND-Pool aus den Rohantworten aufbauen")
         self.aggregate_from_raw.setToolTip(
-            "Both pipelines derive the GND pool (counter + provenance) from the raw "
-            "cache via aggregate_gnd_results. Uncheck to fall back to the legacy "
-            "mapping-first aggregation."
+            "Beide Pipelines leiten den GND-Pool (Zähler + Herkunft) über "
+            "aggregate_gnd_results aus dem Roh-Cache ab. Abgeschaltet gilt die "
+            "ältere Mapping-zuerst-Verdichtung."
         )
-        system_layout.addRow("Aggregate:", self.aggregate_from_raw)
+        form.addRow("GND-Pool:", self.aggregate_from_raw)
 
-        # Webcam input option - Claude Generated
-        self.enable_webcam_input = QCheckBox("📷 Enable webcam capture in Pipeline tab")
-        self.enable_webcam_input.setToolTip("Enable/disable the webcam button for capturing images directly from camera")
-        # Note: Saved on dialog close via _get_config_from_ui() - Claude Generated
-        system_layout.addRow("Webcam:", self.enable_webcam_input)
+        cache_layout = QHBoxLayout()
+        self.cache_dir = QLineEdit()
+        cache_layout.addWidget(self.cache_dir)
+        cache_browse = QPushButton("Durchsuchen…")
+        cache_browse.clicked.connect(self._browse_cache_dir)
+        cache_layout.addWidget(cache_browse)
+        form.addRow("Cache-Verzeichnis:", cache_layout)
 
-        # Global font size — Claude Generated
+        group.setLayout(form)
+        return group
+
+    def _build_workflow_group(self) -> QGroupBox:
+        """Welcher Workflow eine Erschließung fährt - Claude Generated"""
+        group = QGroupBox("Workflow")
+        form = QFormLayout()
+
+        self.default_workflow_combo = QComboBox()
+        self.default_workflow_combo.setToolTip(
+            "Standard-Workflow für agentische Pipeline-Läufe. Gilt, wenn im "
+            "Pipeline-Tab oder per CLI kein Workflow gewählt wird (dasselbe "
+            "Feld wie der ⭐ im Pipeline-Tab)."
+        )
+        self._populate_default_workflow_combo()
+        form.addRow("Standard-Workflow:", self.default_workflow_combo)
+
+        group.setLayout(form)
+        return group
+
+    def _build_program_group(self) -> QGroupBox:
+        """Die Anwendung selbst: Darstellung, Protokoll, Ablage - Claude Generated"""
+        group = QGroupBox("Anwendung")
+        form = QFormLayout()
+
+        self.enable_webcam_input = QCheckBox("Webcam-Aufnahme im Pipeline-Tab anbieten")
+        self.enable_webcam_input.setToolTip(
+            "Blendet den Kamera-Knopf für Direktaufnahmen ein."
+        )
+        form.addRow("Webcam:", self.enable_webcam_input)
+
         self.font_size_spin = QSpinBox()
         self.font_size_spin.setRange(8, 16)
         self.font_size_spin.setSuffix(" pt")
         self.font_size_spin.setToolTip("Basis-Schriftgröße für alle Bedienelemente (8–16 pt)")
-        system_layout.addRow("Schriftgröße:", self.font_size_spin)
+        form.addRow("Schriftgröße:", self.font_size_spin)
 
         self.log_level = QComboBox()
         for value, label in LOG_LEVEL_CHOICES:
             self.log_level.addItem(label, value)
         self.log_level.setToolTip(
             "Wie ausführlich in alima.log geschrieben wird. Für eine Fehlermeldung "
-            "auf „Debug\u201c stellen, das Problem wiederholen und die Datei mitschicken."
+            "auf \u201eDebug\u201c stellen, das Problem wiederholen und die Datei "
+            "mitschicken."
         )
-        system_layout.addRow("Protokoll:", self.log_level)
+        form.addRow("Protokoll:", self.log_level)
 
-        # Default workflow for agentic pipeline runs - Claude Generated
-        self.default_workflow_combo = QComboBox()
-        self.default_workflow_combo.setToolTip(
-            "Standard-Workflow für agentische Pipeline-Läufe. "
-            "Wird verwendet, wenn im Pipeline-Tab oder per CLI kein expliziter Workflow gewählt wird."
-        )
-        self._populate_default_workflow_combo()
-        system_layout.addRow("Standard-Workflow:", self.default_workflow_combo)
-
-        # Cache Directory - Claude Generated
-        cache_layout = QHBoxLayout()
-        self.cache_dir = QLineEdit()
-        cache_layout.addWidget(self.cache_dir)
-        cache_browse = QPushButton("Browse...")
-        cache_browse.clicked.connect(self._browse_cache_dir)
-        cache_layout.addWidget(cache_browse)
-        system_layout.addRow("Cache Directory:", cache_layout)
-
-        # Autosave / batch output directory - Claude Generated
         autosave_layout = QHBoxLayout()
         self.autosave_dir = QLineEdit()
-        self.autosave_dir.setToolTip("Verzeichnis für automatisch gespeicherte Pipeline-Ergebnisse und Batch-Output")
+        self.autosave_dir.setToolTip(
+            "Verzeichnis für automatisch gespeicherte Pipeline-Ergebnisse und Batch-Output"
+        )
         autosave_layout.addWidget(self.autosave_dir)
-        autosave_browse = QPushButton("Browse...")
+        autosave_browse = QPushButton("Durchsuchen…")
         autosave_browse.clicked.connect(self._browse_autosave_dir)
         autosave_layout.addWidget(autosave_browse)
-        system_layout.addRow("Autosave-Verzeichnis:", autosave_layout)
+        form.addRow("Ergebnis-Ablage:", autosave_layout)
 
-        system_group.setLayout(system_layout)
-        layout.addWidget(system_group)
+        group.setLayout(form)
+        return group
 
-        # Chat-Agent settings — Claude Generated
-        chat_group = QGroupBox("💬 Chat-Agent")
-        chat_layout = QFormLayout()
+    def _build_indexing_context_group(self) -> QGroupBox:
+        """Was der Agent über die eigene Einrichtung und deren Regeln weiß."""
+        group = QGroupBox("Haus und Regeln")
+        form = QFormLayout()
 
         self.chat_institution_context = QTextEdit()
         self.chat_institution_context.setMaximumHeight(70)
         self.chat_institution_context.setToolTip(
             "Wird jedem Chat-System-Prompt vorangestellt, um dem Agenten Identität "
-            "und Kontext zu geben, z.B. 'Du bist der Chatbot der Universitätsbibliothek "
-            "XYZ.' Leer = keine institutionelle Rahmung."
+            "und Kontext zu geben. Leer = keine institutionelle Rahmung."
         )
         self.chat_institution_context.setPlaceholderText(
             "z.B. Du bist der Chatbot der Universitätsbibliothek XYZ."
         )
-        chat_layout.addRow("Institutionskontext:", self.chat_institution_context)
+        form.addRow("Institutionskontext:", self.chat_institution_context)
 
         # Personal indexing rules live in their own file, so they get a button
         # rather than a field here. - Claude Generated
@@ -356,7 +382,15 @@ class ComprehensiveSettingsDialog(QDialog):
         self.open_rules_btn.clicked.connect(self._open_rules_dialog)
         rules_row.addWidget(self.open_rules_btn)
         rules_row.addStretch()
-        chat_layout.addRow("Zusatzregeln:", rules_row)
+        form.addRow("Zusatzregeln:", rules_row)
+
+        group.setLayout(form)
+        return group
+
+    def _build_model_switch_group(self) -> QGroupBox:
+        """Ob der Chat-Agent sein eigenes Modell wechseln darf - Claude Generated"""
+        group = QGroupBox("Modellwechsel durch den Agenten")
+        form = QFormLayout()
 
         self.chat_allow_model_switch = QCheckBox(
             "Agent darf Provider/Modell selbst wechseln"
@@ -368,12 +402,13 @@ class ComprehensiveSettingsDialog(QDialog):
             "Der Wechsel gilt ab der nächsten Antwort, wird nie gespeichert und "
             "endet, sobald Du die LLM-Auswahl in der Werkzeugleiste anfasst."
         )
-        chat_layout.addRow("Modellwechsel:", self.chat_allow_model_switch)
+        form.addRow("Chat-Agent:", self.chat_allow_model_switch)
 
-        chat_group.setLayout(chat_layout)
-        layout.addWidget(chat_group)
+        group.setLayout(form)
+        return group
 
-
+    def _build_repetition_group(self) -> QGroupBox:
+        """Wiederholungserkennung im klassischen Stream - Claude Generated"""
         # Repetition Detection settings - Claude Generated
         repetition_group = QGroupBox("🔄 Wiederholungserkennung (klassische Läufe)")
         repetition_layout = QFormLayout()
@@ -426,8 +461,10 @@ class ComprehensiveSettingsDialog(QDialog):
         repetition_layout.addRow("Grace Period:", self.repetition_grace_period)
 
         repetition_group.setLayout(repetition_layout)
-        layout.addWidget(repetition_group)
+        return repetition_group
 
+    def _build_config_path_group(self) -> QGroupBox:
+        """Wo die Konfiguration liegt - Claude Generated"""
         # Where the configuration lives. One file — the project/user/system
         # checkboxes above this used to offer a choice save_config never read.
         # - Claude Generated
@@ -441,57 +478,70 @@ class ComprehensiveSettingsDialog(QDialog):
         paths_layout.addWidget(paths_label)
 
         paths_group.setLayout(paths_layout)
-        layout.addWidget(paths_group)
+        return paths_group
 
+    @staticmethod
+    def _scrolled(*groups) -> QWidget:
+        """Stack group boxes in a scroll area so nothing is crushed - Claude Generated."""
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        for group in groups:
+            layout.addWidget(group)
         layout.addStretch()
-        scroll.setWidget(widget)
+
+        scroll.setWidget(inner)
         outer_layout.addWidget(scroll)
         return outer
 
-    def _create_about_tab(self) -> QWidget:
+    def _create_system_tab(self) -> QWidget:
+        """The System tab as a composition of its group builders - Claude Generated."""
+        return self._scrolled(
+            self._build_program_group(),
+            self._build_chat_group(),
+            self._build_repetition_group(),
+            self._build_config_path_group(),
+        )
+
+    def _build_about_group(self) -> QGroupBox:
         """Project identity from the single source of truth - Claude Generated.
 
-        Used to be a hand-written wall that documented a four-level
-        Project/User/System/Legacy config priority the loader never had, and
-        listed "Library Catalog" and "Prompts" tabs this dialog does not have.
-        The facts now come from ``src/core/about.py``, which ``tests/test_about.py``
-        pins against the README.
+        Facts come from ``src/core/about.py``, which ``tests/test_about.py`` pins
+        against the README. Was a tab of its own that additionally documented a
+        four-level config priority the loader never had.
         """
         from ..core import about as about_mod
 
         pub = about_mod.PUBLICATION
-        widget = QWidget()
-        layout = QVBoxLayout()
+        group = QGroupBox("Über ALIMA")
+        box = QVBoxLayout(group)
 
-        about_text = f"""
-        <h2>{about_mod.NAME} — {about_mod.EXPANSION}</h2>
-        <p>{about_mod.SUMMARY}</p>
-        <p><b>Einrichtung:</b> {about_mod.INSTITUTION}<br>
-        <b>Lizenz:</b> {about_mod.LICENSE}<br>
-        <b>Repository:</b> <a href="{about_mod.REPOSITORY}">{about_mod.REPOSITORY}</a></p>
-        <h3>Publikation</h3>
-        <p>{pub['citation']}<br>
-        <a href="{pub['url']}">{pub['url']}</a>{' (Open Access)' if pub['open_access'] else ''}</p>
-        <h3>Konfiguration</h3>
-        <p>{self.config_manager.config_file}</p>
-        """.strip()
-
-        about_label = QLabel(about_text)
+        about_label = QLabel(
+            f"<b>{about_mod.NAME}</b> — {about_mod.EXPANSION}"
+            f"<p>{about_mod.SUMMARY}</p>"
+            f"<p><b>Einrichtung:</b> {about_mod.INSTITUTION}<br>"
+            f"<b>Lizenz:</b> {about_mod.LICENSE}<br>"
+            f"<b>Repository:</b> <a href=\"{about_mod.REPOSITORY}\">"
+            f"{about_mod.REPOSITORY}</a></p>"
+            f"<p>{pub['citation']}<br>"
+            f"<a href=\"{pub['url']}\">{pub['url']}</a>"
+            f"{' (Open Access)' if pub['open_access'] else ''}</p>"
+        )
         about_label.setWordWrap(True)
         about_label.setOpenExternalLinks(True)
         about_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
-        about_label.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(about_label)
-        scroll_area.setWidgetResizable(True)
-
-        layout.addWidget(scroll_area)
-        widget.setLayout(layout)
-        return widget
+        box.addWidget(about_label)
+        return group
 
     def _load_current_settings(self):
         """Load current settings into UI elements - Claude Generated"""
