@@ -812,17 +812,48 @@ class NoWorkflowStepNamesItsOwnModelTest(unittest.TestCase):
         self.assertEqual(params["provider"], "aus-dem-kontext")
         self.assertEqual(params["model"], "m-kontext")
 
-    def test_no_settings_surface_promises_a_per_step_model(self):
-        """Die Behauptung darf auch nicht an anderer Stelle wieder auftauchen."""
-        import pathlib
+    def test_the_reflection_turn_takes_them_from_the_context_too(self):
+        """Auch der Reflexionsschritt: sein ``llm:``-Block traegt beides nicht."""
+        import inspect
 
-        surfaces = sorted(pathlib.Path("src/ui/settings").glob("*.py"))
-        surfaces.append(pathlib.Path("src/ui/comprehensive_settings_dialog.py"))
-        for module in surfaces:
-            text = module.read_text(encoding="utf-8")
-            for claim in ("llm.provider", "llm.model", "Modell je Schritt",
-                          "eigenes Modell nennen", "WORKFLOW_NOTE"):
-                self.assertNotIn(claim, text, f"{module.name}: {claim}")
+        from src.core.agents.steps.reflection_step import ReflectionStep
+
+        src = inspect.getsource(ReflectionStep.run)
+        self.assertIn('"provider": getattr(context, "provider"', src)
+        self.assertNotIn('llm_cfg.get("provider")', src)
+        self.assertNotIn('llm_cfg.get("model")', src)
+
+    def test_the_meta_agent_no_longer_takes_a_reflection_model(self):
+        """Die beiden Parameter wurden geparst, durchgereicht und nie gelesen."""
+        import inspect
+
+        from src.core.agents.meta_agent import MetaAgent
+
+        params = inspect.signature(MetaAgent.__init__).parameters
+        self.assertNotIn("reflection_model", params)
+        self.assertNotIn("reflection_provider", params)
+
+    def test_no_module_promises_a_per_step_model(self):
+        """Die Behauptung stand an vier Stellen und kam nach der ersten Runde
+        in ``pipeline_manager`` wieder hoch. Deshalb der ganze Baum.
+
+        ``\b`` statt eines nackten Teilstrings: ``llm.model_used`` im
+        Review-Tab ist ein echtes Attribut und keine Behauptung.
+        """
+        import pathlib
+        import re
+
+        claim = re.compile(
+            r"llm\.(provider|model)\b|Modell je Schritt|eigenes Modell nennen"
+            r"|WORKFLOW_NOTE"
+        )
+        offenders = []
+        for module in sorted(pathlib.Path("src").rglob("*.py")):
+            hit = claim.search(module.read_text(encoding="utf-8"))
+            if hit:
+                offenders.append(f"{module}: {hit.group(0)}")
+        self.assertEqual(offenders, [])
+
 
 
 if __name__ == "__main__":

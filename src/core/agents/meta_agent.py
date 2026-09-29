@@ -37,8 +37,6 @@ class MetaAgent:
         stream_callback: Optional[Callable[[str], None]] = None,
         context_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         max_cycles: int = 10,
-        reflection_model: str = "",
-        reflection_provider: str = "",
         should_stop: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.llm_service = llm_service
@@ -46,8 +44,6 @@ class MetaAgent:
         self.stream_callback = stream_callback
         self.context_callback = context_callback
         self.max_cycles = max_cycles
-        self.reflection_model = reflection_model
-        self.reflection_provider = reflection_provider
         self.should_stop = should_stop
         self.executor = WorkflowExecutor(
             llm_service=llm_service,
@@ -819,7 +815,7 @@ class MetaAgent:
         """Run reflection step to assess quality.
 
         ``reflection_cfg`` is the workflow's ``meta_agent.reflection:`` block —
-        a self-contained definition (prompts + model/provider + LLM params).
+        a self-contained definition (prompts + LLM params).
         Reflection only runs when this block exists (see ``run``); omitted
         sub-fields fall back to the ReflectionStep code defaults so a bare
         ``reflection: {}`` block is enough to switch the quality gate on.
@@ -828,20 +824,16 @@ class MetaAgent:
         """
         rc = reflection_cfg or {}
 
-        # LLM params from the block (with sensible defaults).
+        # LLM params from the block (with sensible defaults). Provider and model
+        # are NOT among them: ReflectionStep takes both from the run context, so
+        # a model named here would be written and never read. The reflection turn
+        # runs on the model of the run it reflects on. - Claude Generated
         llm_block: Dict[str, Any] = {
             "temperature": float(rc.get("temperature", 0.1)),
             "top_p": float(rc.get("top_p", 0.9)),
             "max_tokens": int(rc.get("max_tokens", 32768)),
             "max_iterations": 1,
         }
-        # Block model/provider win; else the constructor-level reflection_*.
-        model = rc.get("model") or self.reflection_model
-        provider = rc.get("provider") or self.reflection_provider
-        if model:
-            llm_block["model"] = model
-        if provider:
-            llm_block["provider"] = provider
 
         step_cfg: Dict[str, Any] = {
             "id": "reflection",

@@ -13,8 +13,6 @@ settings:
 meta_agent:
   enabled: false
   max_cycles: 10
-  reflection_model: ""
-  reflection_provider: ""
   quality_rules:
     - "dk_depth: at_least_4_digits"
     - "keywords: min_10_verified"

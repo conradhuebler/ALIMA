@@ -29,8 +29,6 @@ prompts:                                       # OPTIONAL per-step prompt overri
 meta_agent:                                    # OPTIONAL planning loop config
   enabled: false                               # default false
   max_cycles: 10
-  reflection_model: ""                         # parsed and passed on, but see below
-  reflection_provider: ""
   quality_rules:
     - "dk_depth: at_least_4_digits"
     - "keywords: min_10_verified"
@@ -144,8 +142,8 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
 `ReflectionStep` take provider and model from the run context — the pick in the
 pipeline tab, else the configured defaults (Einstellungen ▸ Sprachmodelle). The
 `llm:` block sets temperature, top_p, token budget, iteration cap, thinking and
-seed only. `meta_agent.reflection_model` / `reflection_provider` are parsed and
-handed to `MetaAgent`, but `ReflectionStep` does not read them either.
+seed only. The reflection turn of the `meta_agent:` loop runs on the same model
+for the same reason.
 
 **Output shape** (what `outputs:` paths see):
 

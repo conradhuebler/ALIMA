@@ -204,7 +204,10 @@ class PipelineConfig:
         Simplified provider selection strategy:
         - Uses pipeline_default_provider/model from unified config as baseline
         - Falls back to first available provider if no default set
-        - Step overrides can be applied via task_preferences
+
+        Every step gets that one baseline. There is no per-step model in the
+        saved configuration: the pipeline dialog and the CLI set one for the
+        run, and a batch job file carries its own. - Claude Generated
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -279,9 +282,10 @@ class PipelineConfig:
             # read like a fallback chain and was not one: nothing consulted
             # entries 2..n, and a dead first entry failed the step instead of
             # moving on. Three of six configured tasks even had no step to land
-            # on at all. The classic pipeline now runs on the pipeline default;
-            # an agentic workflow names its model per step in its own YAML
-            # (``llm.provider``/``llm.model``). - Claude Generated
+            # on at all. Both paths now run on one model per run: the classic
+            # pipeline on the pipeline default, an agentic workflow on the run
+            # context (``LLMAgentStep`` reads no provider/model from the step's
+            # ``llm:`` block). - Claude Generated
 
             # Resolve default workflow from system config; keep fallback for tests.
             default_workflow = "alima_v51"
