@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 NAME = "ALIMA"
-EXPANSION = "Automated Library Indexing and Metadata Assignment"
+EXPANSION = "AI-powered Library Indexing and Metadata Assignment"
 
 SUMMARY = (
     "Pipeline für die bibliothekarische Sacherschließung: sie analysiert einen "

@@ -1,4 +1,4 @@
-# ALIMA — Automated Library Indexing and Metadata Assignment
+# ALIMA — AI-powered Library Indexing and Metadata Assignment
 
 **Sacherschließung mit Large Language Models.** ALIMA erzeugt GND-konforme Schlagwörter und DK/RVK-Klassifikationen aus Dokumentinhalten.
 

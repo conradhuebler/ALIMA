@@ -61,7 +61,7 @@ def create_argument_parser():
     """
     parser = argparse.ArgumentParser(
         description=(
-            "ALIMA CLI - Automated Library Indexing and Metadata Assignment: "
+            "ALIMA CLI - AI-powered Library Indexing and Metadata Assignment: "
             "classic and agentic pipelines, batch processing, chat agent, "
             "GND/DK/RVK search, and configuration (providers, database, plugins)."
         )
