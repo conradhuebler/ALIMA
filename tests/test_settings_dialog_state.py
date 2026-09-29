@@ -622,6 +622,25 @@ class WorkflowsAreEditableWhereTheyAreChosenTest(_DialogHarness, unittest.TestCa
             dlg._get_config_from_ui().system_config.default_workflow, "tiefe"
         )
 
+    def test_the_workflow_files_are_read_once_per_open(self):
+        """Ein Durchgang kostet 200 ms; er lief beim Bauen und beim Laden."""
+        from src.ui.settings import workflow_entries as real
+
+        calls = []
+
+        def counting(**kw):
+            calls.append(kw)
+            return real(**kw)
+
+        with patch(
+            "src.core.agents.workflow_loader.discover_workflow_files",
+            return_value=self._files,
+        ), patch(
+            "src.ui.comprehensive_settings_dialog.workflow_entries", counting
+        ):
+            self._dialog()
+        self.assertEqual(len(calls), 1, calls)
+
     def test_the_configured_default_is_where_the_star_starts(self):
         """Ohne eigenes ``_refresh_workflow_list``: der Dialog liest es selbst
         aus ``SystemConfig.default_workflow``."""
@@ -853,7 +872,6 @@ class NoWorkflowStepNamesItsOwnModelTest(unittest.TestCase):
             if hit:
                 offenders.append(f"{module}: {hit.group(0)}")
         self.assertEqual(offenders, [])
-
 
 
 if __name__ == "__main__":

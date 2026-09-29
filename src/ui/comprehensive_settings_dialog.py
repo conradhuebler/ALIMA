@@ -297,7 +297,10 @@ class ComprehensiveSettingsDialog(QDialog):
         self.workflow_list.default_changed.connect(self._on_default_workflow_changed)
         self.workflow_list.edit_requested.connect(self._edit_workflow)
         self.workflow_list.new_requested.connect(lambda: self._edit_workflow(""))
-        self._refresh_workflow_list()
+        # Gefuellt wird sie von ``_load_current_settings``, nicht schon hier:
+        # ein Durchgang durch alle Workflow-YAMLs kostet 200 ms (fast
+        # vollstaendig das Parsen der 197 KiB), und zweimal beim Oeffnen des
+        # Dialogs ist einmal zu viel. - Claude Generated
         box.addWidget(self.workflow_list)
 
         group.setLayout(box)
