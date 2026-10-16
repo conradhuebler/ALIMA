@@ -37,3 +37,6 @@
 - `ToolRegistry.register_all_tools()` sets up all handlers with lazy service init
 - Agents access tools via `ToolRegistry.execute(name, args)` → JSON string result
 - No network transport needed - in-process tool execution
+
+## ✅ FIXED (Oct 2026): `select_from_gnd_pool` TypeError'd on every call
+`_handle_select_from_gnd_pool` called `generate_response(system_prompt=..., provider="", model="", max_tokens=...)` — none of the four kwargs matched the real signature (`system`, no empty-string provider resolution, no `max_tokens` parameter at all). Caught per-chunk as a routine warning, so the tool always returned `keywords: []` silently — and the chat agent is told to use exactly this tool. Now resolves the agentic default via `resolve_default_provider_model(scope=ProviderScope.AGENTIC)` (same hierarchy as `headless_agent.py`) before the chunk loop. Tests: `tests/test_select_from_gnd_pool.py`.

@@ -889,10 +889,25 @@ class ToolRegistry(ToolGenerationMixin):
         Claude Generated (P-κ).
         """
         import re as _re
+        import uuid as _uuid
+
+        from src.utils.config_models import ProviderScope
 
         llm = self._llm_service
         if llm is None:
             return json.dumps({"error": "select_from_gnd_pool requires LLM service"})
+
+        # provider="" / model="" never resolved to anything - generate_response
+        # maps an empty provider name to no entry in supported_providers and
+        # fails before ever reaching a model. Resolve the agentic default once,
+        # the same hierarchy headless_agent.py/_pipeline_agentic.py use for an
+        # agent-invoked LLM call with no explicit provider of its own.
+        # - Claude Generated
+        default_provider, default_model = llm.alima_config.unified_config.resolve_default_provider_model(
+            scope=ProviderScope.AGENTIC
+        )
+        if not default_provider or not default_model:
+            return json.dumps({"error": "select_from_gnd_pool: no usable LLM provider configured"})
 
         if not gnd_entries:
             return json.dumps({"keywords": [], "count": 0, "chunks_processed": 0})
@@ -955,13 +970,22 @@ class ToolRegistry(ToolGenerationMixin):
             )
 
             try:
+                # generate_response's actual signature: provider, model,
+                # prompt, request_id, ..., system=... (not system_prompt), and
+                # no max_tokens parameter at all - every one of these four
+                # kwargs was wrong, so this call TypeError'd on every single
+                # invocation (confirmed via inspect.signature().bind()) and
+                # was swallowed below as a routine per-chunk failure. The
+                # tool had silently returned "keywords: []" always.
+                # - Claude Generated
                 response = llm.generate_response(
+                    provider=default_provider,
+                    model=default_model,
                     prompt=user_prompt,
-                    system_prompt=system_prompt,
-                    provider="",
-                    model="",
+                    request_id=str(_uuid.uuid4()),
+                    system=system_prompt,
                     temperature=0.01,
-                    max_tokens=2048,
+                    stream=False,
                 )
                 total_iterations += 1
             except Exception as exc:
