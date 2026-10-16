@@ -1,20 +1,27 @@
 """Run-control / config / workflow mixin for PipelineTab. Claude Generated.
 
 Extracted from ``pipeline_tab.py`` (F-5 god-file split): starting the pipeline
-worker, global provider/model + think overrides, the config dialog + save/load,
-workflow-combo population + selection, agentic-panel rebuild, catalog config,
-and result emission to other tabs. Method bodies are moved verbatim.
+worker, global provider/model + think overrides, save/load, workflow-combo
+population + selection, agentic-panel rebuild, catalog config, and result
+emission to other tabs. Method bodies are moved verbatim.
 ``PipelineTabControlMixin`` is mixed into ``PipelineTab`` (which provides
 ``__init__``, ``setup_ui`` and the widgets/state these drive); not a standalone
 widget.
+
+The per-step override dialog (``PipelineConfigDialog``, Smart/Advanced/Expert)
+was removed Oct 2026: the classic pipeline runs every step on the one pipeline
+default (``PipelineConfig.create_from_provider_preferences``), the same value
+the ``workflow_combo`` row below already derives ``enable_agentic_mode`` from
+- a per-step override UI duplicated that, plus a second, redundant workflow
+picker and a third copy of the pipeline-default provider/model combo (both
+already live in the Settings dialog). - Claude Generated
 """
 from __future__ import annotations
 
 from PyQt6.QtWidgets import QMessageBox
 
-from ..core.pipeline_manager import PipelineConfig, PipelineStep
+from ..core.pipeline_manager import PipelineStep
 from ..utils.error_visibility import log_caught
-from .pipeline_config_dialog import PipelineConfigDialog
 from .workers import PipelineWorker
 
 
@@ -200,133 +207,12 @@ class PipelineTabControlMixin:
             f"frequency_threshold={self.dk_frequency_threshold.value()}"
         )
 
-    def show_pipeline_config(self):
-        """Show pipeline configuration dialog - Claude Generated"""
-        prompt_service = None
-        if hasattr(self.alima_manager, "prompt_service"):
-            prompt_service = self.alima_manager.prompt_service
-
-        # Get config_manager for provider preferences integration - Claude Generated
-        config_manager = getattr(self.alima_manager, 'config_manager', None) or getattr(self.llm_service, 'config_manager', None)
-        
-        dialog = PipelineConfigDialog(
-            llm_service=self.llm_service,
-            prompt_service=prompt_service,
-            current_config=self.pipeline_manager.config,
-            config_manager=config_manager,
-            parent=self,
-        )
-        dialog.config_saved.connect(self.on_config_saved)
-        dialog.exec()
-
-    def on_config_saved(self, config: PipelineConfig):
-        """Handle saved pipeline configuration - Claude Generated"""
-        self.pipeline_manager.set_config(config)
-
-        # Update step widgets to reflect new configuration
-        self.update_step_display_from_config()
-
-        QMessageBox.information(
-            self,
-            "Konfiguration gespeichert",
-            "Pipeline-Konfiguration wurde erfolgreich aktualisiert!",
-        )
-
     def load_json_state(self):
         """Load pipeline state from JSON file - Claude Generated"""
         if self.main_window and hasattr(self.main_window, 'load_analysis_state_from_file'):
             self.main_window.load_analysis_state_from_file()
         else:
             self.logger.error("Cannot load JSON: MainWindow not available")
-
-    def update_step_display_from_config(self):
-        """Update step widgets based on current configuration - Claude Generated"""
-        config = self.pipeline_manager.config
-
-        # Update provider/model display for each step
-        for step_id, step_widget in self.step_widgets.items():
-            if step_id in config.step_configs:
-                step_config = config.step_configs[step_id]
-
-                # Handle both dict and PipelineStepConfig objects - Claude Generated
-                if isinstance(step_config, dict):
-                    provider = step_config.get("provider") or ""
-                    model = step_config.get("model") or ""
-                    enabled = step_config.get("enabled", True)
-                else:
-                    provider = step_config.provider or ""
-                    model = step_config.model or ""
-                    enabled = step_config.enabled
-
-                # Update step data
-                step_widget.step.provider = provider
-                step_widget.step.model = model
-
-                # ENHANCED: Add task preference information - Claude Generated
-                selection_reason = self._determine_selection_reason(step_id, provider, model)
-                step_widget.step.selection_reason = selection_reason
-
-                # Update display (visual styling based on enabled state)
-                if not enabled:
-                    step_widget.setStyleSheet("QFrame { opacity: 0.5; }")
-                else:
-                    step_widget.setStyleSheet("")
-
-                step_widget.update_status_display()
-
-    def _determine_selection_reason(self, step_id: str, provider: str, model: str) -> str:
-        """Determine why this provider/model was selected for the step - Claude Generated"""
-        try:
-            # Get config manager from pipeline manager
-            config_manager = getattr(self.pipeline_manager, 'config_manager', None)
-            if not config_manager:
-                return "unknown"
-
-            # Load current config to check task preferences
-            config = config_manager.load_config()
-            if not config or not hasattr(config, 'task_preferences'):
-                return "fallback"
-
-            # Map step_id to task name for task_preferences lookup
-            task_name_mapping = {
-                "initialisation": "initialisation",
-                "keywords": "keywords",
-                "dk_classification": "dk_class",
-                "image_text_extraction": "image_text_extraction"
-            }
-
-            task_name = task_name_mapping.get(step_id)
-            if not task_name or task_name not in config.unified_config.task_preferences:
-                return "provider preferences" if provider else "default"
-
-            # Check if this provider/model matches task preferences
-            task_data = config.unified_config.task_preferences[task_name]
-            model_priority = task_data.model_priority if task_data else []
-
-            for rank, priority_entry in enumerate(model_priority, 1):
-                candidate_provider = priority_entry.get("provider_name")
-                candidate_model = priority_entry.get("model_name")
-
-                if candidate_provider == provider and candidate_model == model:
-                    return f"task preference #{rank}"
-
-            # Check chunked preferences
-            chunked_priorities = task_data.chunked_model_priority if task_data and task_data.chunked_model_priority else []
-            for rank, priority_entry in enumerate(chunked_priorities, 1):
-                candidate_provider = priority_entry.get("provider_name")
-                candidate_model = priority_entry.get("model_name")
-
-                if candidate_provider == provider and candidate_model == model:
-                    return f"chunked preference #{rank}"
-
-            # If we have provider/model but it's not in task preferences
-            if provider and model:
-                return "provider preferences"
-            else:
-                return "fallback"
-
-        except Exception as e:
-            return f"error: {str(e)[:20]}"
 
     def reset_pipeline(self):
         """Reset pipeline to initial state - Claude Generated"""

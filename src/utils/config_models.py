@@ -502,7 +502,7 @@ class UnifiedProviderConfig:
     gemini_preferred_model: str = ""
     anthropic_preferred_model: str = ""
 
-    # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog, pipeline_config_dialog
+    # P1.8 REVERT: Field is actually used in CLI, comprehensive_settings_dialog
     preferred_provider: str = ""  # the general default
     preferred_model: str = ""     # Model for preferred_provider — central general default
                                   # (baseline for pipeline + chat when no pipeline_default set)

@@ -135,7 +135,7 @@ class EntriesComeFromTheWorkflowFilesTest(unittest.TestCase):
         entries = self._entries()
         self.assertEqual(entries[0].stem, CLASSIC_STEM)
         self.assertEqual(entries[0].version, "")
-        self.assertTrue(entries[0].editable)
+        self.assertFalse(entries[0].editable)
 
     def test_it_can_be_asked_for_the_files_alone(self):
         stems = [e.stem for e in self._entries(include_classic=False)]

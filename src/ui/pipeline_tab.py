@@ -255,37 +255,26 @@ class PipelineTab(
 
         main_layout.addWidget(self.main_splitter)
 
-    def _get_task_provider_model(self, task_name: str) -> tuple[str, str]:
-        """
-        Get provider and model from task preferences configuration.
-        Falls back to sensible defaults if not configured.
-        Claude Generated Fix for persistent settings
+    def _get_pipeline_default_provider_model(self) -> tuple[str, str]:
+        """The one model every classic-pipeline step actually runs on.
+
+        Per-step overrides (``task_preferences``, the Smart/Advanced/Expert
+        dialog) are gone - ``PipelineConfig.create_from_provider_preferences``
+        gives every step the SAME pipeline default, so the step tiles should
+        show that, not a per-task lookup that no longer has anything to find.
+        - Claude Generated
         """
         try:
             from ..utils.config_manager import ConfigManager
-            config_manager = ConfigManager()
-            config = config_manager.load_config()
-            
-            if config and hasattr(config, 'unified_config') and config.unified_config:
-                task_prefs = getattr(config.unified_config, 'task_preferences', {})
-                if task_name in task_prefs:
-                    task_data = task_prefs[task_name]
-                    if hasattr(task_data, 'model_priority') and task_data.model_priority:
-                        first_pref = task_data.model_priority[0]
-                        if isinstance(first_pref, dict):
-                            provider = first_pref.get('provider_name', '')
-                            model = first_pref.get('model_name', '')
-                        else:
-                            provider = getattr(first_pref, 'provider_name', '')
-                            model = getattr(first_pref, 'model_name', '')
-                        self.logger.debug(f"Loaded task preference for {task_name}: {provider}/{model}")
-                        return provider, model
-        except Exception as e:
-            self.logger.warning(f"Could not load task preference for {task_name}: {e}")
+            from ..utils.config_models import ProviderScope
 
-        # No task preference found — return empty strings so the pipeline uses
-        # global_provider_override or the first available provider from step_configs.
-        return "", ""
+            config = ConfigManager().load_config()
+            return config.unified_config.resolve_default_provider_model(
+                scope=ProviderScope.PIPELINE
+            )
+        except Exception as e:
+            self.logger.warning(f"Could not resolve the pipeline default: {e}")
+            return "", ""
 
     def create_pipeline_step_tabs(self):
         """Create pipeline step tabs - Claude Generated"""
@@ -300,8 +289,7 @@ class PipelineTab(
         self.pipeline_tabs.addTab(input_step_widget, "📥 Input & Datenquellen")
 
         # Step 2: Initialisation
-        # Get provider/model from task preferences - Claude Generated Fix
-        init_provider, init_model = self._get_task_provider_model("initialisation")
+        init_provider, init_model = self._get_pipeline_default_provider_model()
         initialisation_step = PipelineStep(
             step_id="initialisation",
             name="🔤 SCHRITT 2: INITIALISIERUNG",
@@ -326,8 +314,7 @@ class PipelineTab(
         self.pipeline_tabs.addTab(search_step_widget, "🔍 GND-Recherche")
 
         # Step 4: Keywords (Verbale Erschließung)
-        # Get provider/model from task preferences - Claude Generated Fix
-        kw_provider, kw_model = self._get_task_provider_model("keywords")
+        kw_provider, kw_model = self._get_pipeline_default_provider_model()
         keywords_step = PipelineStep(
             step_id="keywords",
             name="✅ SCHRITT 4: SCHLAGWORTE",
@@ -354,7 +341,7 @@ class PipelineTab(
         self.pipeline_tabs.addTab(dk_search_step_widget, "📊 Katalog-Recherche")
 
         # Step 6: DK Classification (LLM analysis)
-        dk_provider, dk_model = self._get_task_provider_model("dk_classification")
+        dk_provider, dk_model = self._get_pipeline_default_provider_model()
         dk_classification_step = PipelineStep(
             step_id="dk_classification",
             name="📚 SCHRITT 6: DK-KLASSIFIKATION",
@@ -431,11 +418,6 @@ class PipelineTab(
         self.load_json_button.setToolTip("Pipeline-State aus JSON-Datei laden")
         self.load_json_button.clicked.connect(self.load_json_state)
         tb_layout.addWidget(self.load_json_button)
-
-        config_btn = QPushButton("⚙️ Config")
-        config_btn.setToolTip("Pipeline-Konfiguration öffnen (per-Step Modell/Prompt/Parameter)")
-        config_btn.clicked.connect(self.show_pipeline_config)
-        tb_layout.addWidget(config_btn)
 
         reset_btn = QPushButton("🔄 Reset")
         reset_btn.setToolTip("Pipeline zurücksetzen")

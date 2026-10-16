@@ -685,8 +685,6 @@ class WorkflowsAreEditableWhereTheyAreChosenTest(_DialogHarness, unittest.TestCa
         item = dlg.workflow_list.list.topLevelItem(names.index(row_name))
         with patch(
             "src.ui.workflow_editor_dialog.WorkflowEditorDialog", _FakeEditor
-        ), patch(
-            "src.ui.pipeline_config_dialog.PipelineConfigDialog"
         ):
             dlg.workflow_list._on_double_click(item)
         return opened
@@ -696,86 +694,19 @@ class WorkflowsAreEditableWhereTheyAreChosenTest(_DialogHarness, unittest.TestCa
         dlg = self._dlg()
         self.assertEqual(self._double_click(dlg, "Tiefenrecherche"), ["tiefe"])
 
-    def test_the_classic_pipeline_is_listed_with_its_own_editor(self):
-        """Sie hat keine YAML, aber dieselbe Frage: welches Modell macht was."""
+    def test_the_classic_pipeline_is_listed_but_not_editable(self):
+        """Keine YAML, und seit der Smart/Advanced/Expert-Entfernung (Oct
+        2026) auch kein eigener Dialog mehr - sie läuft auf dem
+        Pipeline-Standard, der schon auf der Sprachmodelle-Seite steht."""
         dlg = self._dlg()
         names = [r[1] for r in dlg.workflow_list.row_texts()]
         classic = next(n for n in names if "Klassische Pipeline" in n)
 
-        # Nicht der Workflow-Editor: der bekäme hier nichts zu öffnen.
         self.assertEqual(self._double_click(dlg, classic), [])
 
         dlg.workflow_list.select("__classic__")
         dlg.workflow_list._on_selection()
-        self.assertTrue(dlg.workflow_list.edit_button.isEnabled())
-
-    def test_the_classic_row_opens_the_pipeline_step_dialog(self):
-        """Und nicht den YAML-Editor: für die klassische Pipeline gibt es keine
-        Datei, er hätte nichts zu öffnen."""
-        dlg = self._dlg()
-        dlg.alima_manager = MagicMock()
-        pipeline_opened, yaml_opened = [], []
-
-        class _FakePipelineDialog:
-            config_saved = MagicMock()
-
-            def __init__(self, **kw):
-                pipeline_opened.append(kw)
-
-            def exec(self):
-                return 0
-
-        class _FakeYamlEditor:
-            saved = MagicMock()
-
-            def __init__(self, _parent, initial_workflow=None):
-                yaml_opened.append(initial_workflow)
-
-            def exec(self):
-                return 0
-
-        with patch(
-            "src.ui.pipeline_config_dialog.PipelineConfigDialog", _FakePipelineDialog
-        ), patch(
-            "src.ui.workflow_editor_dialog.WorkflowEditorDialog", _FakeYamlEditor
-        ):
-            dlg._edit_workflow("__classic__")
-        self.assertEqual(yaml_opened, [])
-        self.assertEqual(len(pipeline_opened), 1)
-        self.assertIs(
-            pipeline_opened[0]["llm_service"], dlg.alima_manager.llm_service
-        )
-
-    def test_without_a_running_application_it_says_so_instead_of_half_working(self):
-        dlg = self._dlg()
-        dlg.alima_manager = None
-        with patch(
-            "src.ui.comprehensive_settings_dialog.QMessageBox"
-        ) as message, patch(
-            "src.ui.pipeline_config_dialog.PipelineConfigDialog"
-        ) as never, patch(
-            "src.ui.workflow_editor_dialog.WorkflowEditorDialog"
-        ) as never_yaml:
-            dlg._edit_workflow("__classic__")
-        self.assertTrue(message.information.called)
-        self.assertFalse(never.called)
-        self.assertFalse(never_yaml.called)
-
-    def test_what_the_pipeline_dialog_wrote_is_not_overwritten_on_save(self):
-        """Es schreibt selbst auf die Platte, dieser Dialog bearbeitet eine
-        Kopie — ohne Übernahme setzte "Speichern" es zurück."""
-        dlg = self._dlg()
-        dlg.config_to_edit.unified_config.pipeline_default_provider = "alt"
-        dlg.config_to_edit.unified_config.pipeline_default_model = "alt-m"
-
-        saved = dlg.config_manager.load_config()
-        saved.unified_config.pipeline_default_provider = "neu"
-        saved.unified_config.pipeline_default_model = "neu-m"
-
-        dlg._adopt_pipeline_defaults()
-        result = dlg._get_config_from_ui().unified_config
-        self.assertEqual(result.pipeline_default_provider, "neu")
-        self.assertEqual(result.pipeline_default_model, "neu-m")
+        self.assertFalse(dlg.workflow_list.edit_button.isEnabled())
 
     def test_the_new_button_opens_an_empty_editor(self):
         dlg = self._dlg()
@@ -792,8 +723,6 @@ class WorkflowsAreEditableWhereTheyAreChosenTest(_DialogHarness, unittest.TestCa
 
         with patch(
             "src.ui.workflow_editor_dialog.WorkflowEditorDialog", _FakeEditor
-        ), patch(
-            "src.ui.pipeline_config_dialog.PipelineConfigDialog"
         ):
             dlg.workflow_list.new_button.click()
         self.assertEqual(opened, [None])

@@ -21,7 +21,6 @@ from typing import Optional
 from ..utils.config_manager import ConfigManager, AlimaConfig
 from .unified_provider_tab import UnifiedProviderTab
 from .plugin_settings_tab import PluginSettingsTab
-from ..utils.error_visibility import log_caught
 from .settings import (
     CollapsibleSection,
     SettingsIndex,
@@ -29,7 +28,6 @@ from .settings import (
     WorkflowList,
     workflow_entries,
 )
-from .settings.workflow_list import CLASSIC_STEM
 from ..utils.logging_utils import LOG_LEVEL_CHOICES
 
 
@@ -323,85 +321,25 @@ class ComprehensiveSettingsDialog(QDialog):
         self.logger.debug("Standard-Workflow gewählt: %s", stem)
 
     def _edit_workflow(self, stem: str) -> None:
-        """Open the editor that fits the row; refresh the list afterwards.
+        """Open the YAML editor for this row; refresh the list afterwards.
 
-        Both editors write immediately and have no part in this dialog's unit of
-        work — "Abbrechen" here does not undo a saved workflow. They are separate
-        modal dialogs with their own Save, which is how the menu entry and the
-        pipeline tab use them too. - Claude Generated
+        The classic row (``CLASSIC_STEM``) has ``editable=False`` and never
+        reaches here — it has no YAML, and the per-step override dialog that
+        used to answer "edit" for it (Smart/Advanced/Expert) was removed Oct
+        2026: the classic pipeline runs every step on the pipeline default
+        already set on the Sprachmodelle page.
+
+        The editor writes immediately and has no part in this dialog's unit of
+        work — "Abbrechen" here does not undo a saved workflow. It is a
+        separate modal dialog with its own Save, which is how the menu entry
+        uses it too. - Claude Generated
         """
-        if stem == CLASSIC_STEM:
-            self._edit_classic_pipeline()
-            return
-
         from .workflow_editor_dialog import WorkflowEditorDialog
 
         editor = WorkflowEditorDialog(self, initial_workflow=stem or None)
         editor.saved.connect(lambda saved_stem: self._refresh_workflow_list())
         editor.exec()
         self._refresh_workflow_list()
-
-    def _edit_classic_pipeline(self) -> None:
-        """Provider und Modell der klassischen Pipeline - Claude Generated
-
-        Der klassische Pfad hat keine YAML, aber dieselbe Frage: welches Modell
-        macht welchen Schritt. Das beantwortet der vorhandene
-        ``PipelineConfigDialog``, derselbe, den das Pipeline-Tab öffnet.
-
-        Er braucht einen ``LlmService``, den nur der ``AlimaManager`` hat — ohne
-        ihn (Dialog außerhalb des Hauptfensters) bleibt der Knopf sprechend
-        stehen statt halb zu funktionieren. Seine Schritt-Einstellungen gehen an
-        das Pipeline-Tab, seine Pipeline-Vorgabe schreibt er selbst auf die
-        Platte; letztere wird danach in die hier bearbeitete Kopie übernommen,
-        sonst überschriebe "Speichern" sie wieder.
-        """
-        llm_service = getattr(self.alima_manager, "llm_service", None)
-        if llm_service is None:
-            QMessageBox.information(
-                self,
-                "Nicht verfügbar",
-                "Die Schritt- und Modellwahl der klassischen Pipeline braucht "
-                "die laufende Anwendung. Öffne sie über das Pipeline-Tab "
-                "(⚙️ Pipeline-Konfiguration).",
-            )
-            return
-
-        from .pipeline_config_dialog import PipelineConfigDialog
-
-        pipeline_tab = getattr(self.parent(), "pipeline_tab", None)
-        manager = getattr(pipeline_tab, "pipeline_manager", None)
-        dialog = PipelineConfigDialog(
-            llm_service=llm_service,
-            prompt_service=getattr(self.alima_manager, "prompt_service", None),
-            current_config=getattr(manager, "config", None),
-            config_manager=self.config_manager,
-            parent=self,
-        )
-        if pipeline_tab is not None and hasattr(pipeline_tab, "on_config_saved"):
-            dialog.config_saved.connect(pipeline_tab.on_config_saved)
-        dialog.exec()
-        self._adopt_pipeline_defaults()
-
-    def _adopt_pipeline_defaults(self) -> None:
-        """Take over what the pipeline dialog wrote to disk. - Claude Generated
-
-        It edits the ConfigManager's own unified config; this dialog edits a
-        deepcopy. Without this the copy still holds the previous pipeline
-        default and "💾 Speichern" would put it back.
-        """
-        try:
-            saved = self.config_manager.load_config().unified_config
-        except Exception as exc:
-            log_caught(self.logger, exc, "Pipeline-Vorgabe nicht nachgelesen")
-            return
-        mine = self.config_to_edit.unified_config
-        mine.pipeline_default_provider = (
-            getattr(saved, "pipeline_default_provider", "") or ""
-        )
-        mine.pipeline_default_model = (
-            getattr(saved, "pipeline_default_model", "") or ""
-        )
-        self.unified_provider_tab._refresh_effective_defaults()
 
     def _build_program_group(self) -> QGroupBox:
         """Die Anwendung selbst: Darstellung, Protokoll, Ablage - Claude Generated"""

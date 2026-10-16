@@ -11,9 +11,13 @@ in its own YAML. That is what the list shows. Double-click opens the existing
 
 The classic pipeline is listed too although it is not a file. It is what runs
 when nothing agentic is chosen, so leaving it out would make the list read as if
-there were no such option. Its row carries no version and no YAML; the host
-decides what "edit" means for it — ``editable`` says a row can be edited, not
-that it is a file.
+there were no such option. Its row carries no version, no YAML, and
+(``editable=False``) no "Bearbeiten" action — the per-step provider/model
+override dialog that used to live behind it (Smart/Advanced/Expert,
+``PipelineConfigDialog``) was removed Oct 2026: the classic pipeline runs
+every step on the one pipeline default already set on the Sprachmodelle page,
+and a second, dialog-shaped place to set the same value was one picker too
+many.
 
 Shipped workflows live in the project's ``workflows/`` directory and are not
 written in place: the editor's "Speichern" puts a copy under
@@ -70,8 +74,9 @@ CLASSIC_ENTRY = WorkflowEntry(
     steps=5,
     location="eingebaut",
     summary="Fünf feste Schritte ohne Agenten: Eingabe, Initialisierung, "
-            "Suche, Schlagworte, Klassifikation. Keine YAML-Datei; "
-            "»Bearbeiten« öffnet die Schritt- und Modellwahl der Pipeline.",
+            "Suche, Schlagworte, Klassifikation. Läuft auf dem Pipeline-"
+            "Standard (Sprachmodelle-Seite) — kein eigener Dialog.",
+    editable=False,
 )
 
 
