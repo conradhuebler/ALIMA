@@ -547,7 +547,7 @@ image_text_extraction:
   - seed
   required:
   - image
-  output_format: json
+  output_format: xml
   prompts:
   - prompt: 'Du bist ein OCR-Experte für deutsche Texte. Extrahiere den kompletten
       Text aus diesem Bild so genau wie möglich. Achte besonders auf:

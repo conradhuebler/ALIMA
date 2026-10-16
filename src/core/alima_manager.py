@@ -891,7 +891,13 @@ class AlimaManager:
                     'temperature': float(prompt_config.temp),
                     'p_value': float(prompt_config.p_value),
                     'seed': prompt_config.seed,
-                    'stream': stream_callback is not None  # Enable streaming if callback provided - Claude Generated
+                    'stream': stream_callback is not None,  # Enable streaming if callback provided - Claude Generated
+                    # Every sibling call site passes this through (see
+                    # analyze_abstract above) - without it, output_format=None
+                    # defaults to JSON-mode on Gemini/OpenAI-compatible/Ollama,
+                    # which matters here because image_text_extraction wants
+                    # raw OCR text, not JSON. - Claude Generated
+                    'output_format': prompt_config.output_format,
                 }
                 
                 # Add image if present in context

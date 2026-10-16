@@ -88,6 +88,11 @@ def analyze(
             seed=seed,
             image=path,
             stream=False,
+            # Raw text expected (see DEFAULT_PROMPT / _coalesce above), not
+            # JSON. output_format=None defaults to JSON-mode on Gemini/
+            # OpenAI-compatible/Ollama - "xml" is this codebase's existing
+            # signal for "give me plain text" (pipeline_input.py). - Claude Generated
+            output_format="xml",
         )
     except Exception as exc:
         raise RuntimeError(f"LLM-Aufruf fehlgeschlagen: {exc}") from exc

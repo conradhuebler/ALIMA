@@ -406,7 +406,8 @@
                 ],
                 "0"
             ]
-        ]
+        ],
+        "output_format": "xml"
     },
     "rephrase": {
         "fields": [

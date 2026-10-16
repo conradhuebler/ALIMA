@@ -155,6 +155,11 @@ class TestImageAnalyzer(unittest.TestCase):
         kwargs = mock_llm.generate_response.call_args.kwargs
         self.assertEqual(kwargs["image"], self.img_path)
         self.assertFalse(kwargs["stream"])
+        # output_format=None defaults to JSON-mode on Gemini/OpenAI-compatible/
+        # Ollama; DEFAULT_PROMPT asks for plain text and the result is used raw
+        # (_coalesce, no JSON parsing) - "xml" is this codebase's existing
+        # signal for "give me plain text" (see pipeline_input.py).
+        self.assertEqual(kwargs["output_format"], "xml")
 
     def test_missing_image_raises(self):
         mock_llm = MagicMock()

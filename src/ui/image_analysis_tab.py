@@ -93,6 +93,13 @@ class ImageAnalysisWorker(StoppableWorker):
                 seed=self.seed,
                 image=self.image_path,
                 stream=False,
+                # Result is displayed as plain text (analysis_finished.emit
+                # below, no JSON parsing anywhere downstream) - output_format
+                # defaults to JSON-mode on Gemini/OpenAI-compatible/Ollama,
+                # which would wrap or corrupt the extracted text. "xml" is
+                # this codebase's existing signal for "give me plain text"
+                # (pipeline_input.py). - Claude Generated
+                output_format="xml",
             )
 
             # Check for interruption after receiving response
