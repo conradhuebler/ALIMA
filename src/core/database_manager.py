@@ -58,6 +58,25 @@ class DatabaseManager:
             from ..utils.qt_plugin_setup import setup_qt_plugin_paths
             setup_qt_plugin_paths()
 
+    def _mysql_connect_options(self) -> str:
+        """Build the QMYSQL/QMARIADB connect-options string - Claude Generated
+
+        ``MYSQL_OPT_SSL_MODE`` is the Qt driver's own recognized token for
+        this (confirmed by reading the driver binary's strings, not just its
+        docs) - ``ssl_disabled`` had a GUI+CLI control but nothing ever read
+        it, so a connection always ran with the default SSL mode regardless.
+        """
+        options = [f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}"]
+        if self.config.ssl_disabled:
+            options.append("MYSQL_OPT_SSL_MODE=SSL_MODE_DISABLED")
+        return ";".join(options)
+
+    @staticmethod
+    def _is_valid_charset_name(charset: str) -> bool:
+        """Real MySQL charset names are alphanumeric, optionally with
+        underscores (utf8mb4, utf8, latin1, utf8_general_ci). - Claude Generated"""
+        return bool(charset) and charset.replace("_", "").isalnum()
+
     def get_connection(self) -> QSqlDatabase:
         """
         Get or create database connection with appropriate driver.
@@ -104,7 +123,7 @@ class DatabaseManager:
             connection.setDatabaseName(self.config.database)
             connection.setUserName(self.config.username)
             connection.setPassword(self.config.password)
-            connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
+            connection.setConnectOptions(self._mysql_connect_options())
 
         elif self.config.db_type.lower() == 'mariadb':
             driver_name = "QMARIADB"
@@ -114,7 +133,7 @@ class DatabaseManager:
             connection.setDatabaseName(self.config.database)
             connection.setUserName(self.config.username)
             connection.setPassword(self.config.password)
-            connection.setConnectOptions(f"MYSQL_OPT_CONNECT_TIMEOUT={self.config.connection_timeout}")
+            connection.setConnectOptions(self._mysql_connect_options())
 
         else:
             raise ValueError(f"Unsupported database type: {self.config.db_type}")
@@ -164,6 +183,28 @@ class DatabaseManager:
                     )
             pragma_query.finish()
             pragma_query.clear()
+
+        # Qt's QMYSQL/QMARIADB driver hard-codes the connection charset to
+        # "utf8" (3-byte, cannot hold the full Unicode range) and has no
+        # connect-option for overriding it - confirmed by reading the actual
+        # driver strings (libqsqlmysql.so), not just its docs. SET NAMES is
+        # the standard workaround; DatabaseConfig.charset defaults to
+        # "utf8mb4" and had no reader at all until now. - Claude Generated
+        elif SQLDialect.is_mysql_family(self.config.db_type) and self.config.charset:
+            # SET NAMES takes no bind parameter (MySQL protocol limitation,
+            # not a Qt one) - restrict to real charset-name shape before
+            # interpolating it into SQL. - Claude Generated
+            if self._is_valid_charset_name(self.config.charset):
+                charset_query = QSqlQuery(connection)
+                if not charset_query.exec(f"SET NAMES '{self.config.charset}'"):
+                    self.logger.warning(
+                        f"Could not set charset to '{self.config.charset}': "
+                        f"{charset_query.lastError().text()}"
+                    )
+                charset_query.finish()
+                charset_query.clear()
+            else:
+                self.logger.warning(f"Ignoring invalid charset name: '{self.config.charset}'")
 
         # Store in thread-local storage
         self._thread_local.connection = connection

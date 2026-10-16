@@ -43,6 +43,23 @@ The `src/core/` directory contains the fundamental business logic and data manag
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): DatabaseConfig.charset/ssl_disabled hatten keinen Leser
+`DatabaseManager.get_connection()`s MySQL/MariaDB-Zweige übergaben an
+`setConnectOptions` nur `MYSQL_OPT_CONNECT_TIMEOUT` - beide Felder hatten ein
+Bedienelement (GUI-Dialog + CLI `database set`), aber nichts darunter las sie;
+eine Verbindung lief immer mit dem Server-Default für SSL und Zeichensatz.
+Am tatsächlichen Treiber nachgeprüft (Strings in `libqsqlmysql.so`, nicht nur
+Qt-Doku): `MYSQL_OPT_SSL_MODE=SSL_MODE_DISABLED` ist der vom Treiber erkannte
+Connect-Options-Token für `ssl_disabled`, jetzt in `_mysql_connect_options()`.
+Für `charset` gibt es **keinen** Connect-Options-Token — der Treiber setzt
+intern hartkodiert `"utf8"` (3-Byte, nicht `"utf8mb4"`, der konfigurierte
+Default). Fix: `SET NAMES '<charset>'` direkt nach dem Öffnen, hinter einer
+Namensvalidierung (`_is_valid_charset_name`) — `SET NAMES` kennt keinen
+Bind-Parameter. Tests: `tests/test_database_mysql_options.py` (reine
+String-Bau-/Validierungslogik; der eigentliche `SET NAMES`-Aufruf folgt der
+bestehenden Politik, den MySQL/MariaDB-Verbindungspfad nicht gegen einen
+echten Server zu testen, wie der SQLite-Pragma-Block direkt daneben).
+
 ### Current Issues
 - ✅ **Raw-First Response Cache (WP2, July 2)**: `search_response_cache` speichert die
   Quell-Antwort verbatim; `aggregate_gnd_results` (`src/core/search/aggregate.py`)
