@@ -341,6 +341,12 @@ class LlmService(QObject):
     # attribute. - Claude Generated
     current_think: Optional[bool] = None
     current_output_format: Optional[str] = None
+
+    # OpenAI multimodal/reasoning models that reject non-default sampling
+    # controls (temperature/top_p) on chat completions outright - used by
+    # every OpenAI-compatible generator, text and tool-calling alike.
+    # - Claude Generated
+    STRICT_DEFAULT_SAMPLING_MODELS = ("gpt-4o", "gpt-5", "o1", "o3", "o4")
     current_repetition_penalty: Optional[float] = None
 
     # Define PyQt signals for text streaming
@@ -1678,8 +1684,7 @@ class LlmService(QObject):
 
             # Some OpenAI multimodal/reasoning models reject non-default sampling controls
             # on chat completions. For image OCR we prefer compatibility over tuning.
-            strict_default_sampling_models = ("gpt-4o", "gpt-5", "o1", "o3", "o4")
-            if image and any(model.lower().startswith(prefix) for prefix in strict_default_sampling_models):
+            if image and any(model.lower().startswith(prefix) for prefix in self.STRICT_DEFAULT_SAMPLING_MODELS):
                 params.pop("temperature", None)
                 params.pop("top_p", None)
                 self.logger.info(
@@ -2733,6 +2738,13 @@ class LlmService(QObject):
                     params["seed"] = seed
                 if openai_tools:
                     params["tools"] = openai_tools
+                # Reasoning models (o1/o3/o4/gpt-5) reject temperature/top_p
+                # outright on chat completions - the text path already knew
+                # this (see _generate_openai_compatible), the tool-calling
+                # path never guarded for it at all. - Claude Generated
+                if any(model.lower().startswith(prefix) for prefix in self.STRICT_DEFAULT_SAMPLING_MODELS):
+                    params.pop("temperature", None)
+                    params.pop("top_p", None)
                 self._apply_openai_think(params, model)
                 response_stream = self.clients[provider].chat.completions.create(**params)
 
@@ -2819,6 +2831,13 @@ class LlmService(QObject):
                     params["seed"] = seed
                 if openai_tools:
                     params["tools"] = openai_tools
+                # Reasoning models (o1/o3/o4/gpt-5) reject temperature/top_p
+                # outright on chat completions - the text path already knew
+                # this (see _generate_openai_compatible), the tool-calling
+                # path never guarded for it at all. - Claude Generated
+                if any(model.lower().startswith(prefix) for prefix in self.STRICT_DEFAULT_SAMPLING_MODELS):
+                    params.pop("temperature", None)
+                    params.pop("top_p", None)
                 self._apply_openai_think(params, model)
 
                 response = self.clients[provider].chat.completions.create(**params)
