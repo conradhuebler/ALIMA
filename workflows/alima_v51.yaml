@@ -58,14 +58,14 @@ meta_agent:
         sondern mit 'dk_collect'/'classification' fortfahren.
 
   # Reflection quality gate — the PRESENCE of this block switches it on.
-  # model/provider empty = workflow's main model. `rules:` is appended to the
-  # generic ALIMA Quality Agent base. User-prompt state placeholders:
+  # Reflection always runs on the run's own model (ReflectionStep reads
+  # provider/model from the run context, never from this block — see
+  # meta_agent.py::_run_reflection). `rules:` is appended to the generic
+  # ALIMA Quality Agent base. User-prompt state placeholders:
   # {dk_codes} {has_deep_dk} {missing_concepts} {missing_concepts_searched}
   # {final_keywords} {keyword_chains_count} {catalog_total_titles}
   # {catalog_unique_notations} {current_step} {steps_completed} {analyse_excerpt} …
   reflection:
-    model: ""
-    provider: ""
     temperature: 0.1
     top_p: 0.9
     max_tokens: 32768

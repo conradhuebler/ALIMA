@@ -89,9 +89,12 @@ means adding `status: "research"`.
 - **Reflection is opt-in**: the gate runs **only** if a `meta_agent.reflection:`
   block exists. No block → pure PLAN→EXECUTE chain (planner alone finishes).
   `alima_classic`, `catalog_search`, … have no block → no reflection.
-- The `reflection:` block is self-contained: `model`/`provider` (empty = main
-  model), `temperature`/`top_p`/`max_tokens`, `rules`, optional
-  `system_prompt`/`user_prompt`. The reflection **user prompt** (state dump,
+- The `reflection:` block is self-contained: `temperature`/`top_p`/`max_tokens`,
+  `rules`, optional `system_prompt`/`user_prompt`. No `model`/`provider` — the
+  reflection turn always runs on the run's own model, taken from the run
+  context like every other step (`meta_agent.py::_run_reflection` deliberately
+  excludes both when building the step config, since ReflectionStep would
+  never read them). The reflection **user prompt** (state dump,
   code default) feeds the **real DK codes** + a deterministic `has_deep_dk`
   flag — so the gate stops demanding "deeper" DK on already-deep codes.
 - Planner and reflection stay **two separate prompts** on purpose (cross-check).

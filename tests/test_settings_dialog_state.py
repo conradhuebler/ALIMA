@@ -802,6 +802,26 @@ class NoWorkflowStepNamesItsOwnModelTest(unittest.TestCase):
                 offenders.append(f"{module}: {hit.group(0)}")
         self.assertEqual(offenders, [])
 
+    def test_no_shipped_workflow_carries_a_dead_reflection_model_field(self):
+        """The guard above only scans ``src/`` - the actual fields lived in
+        ``workflows/*.yaml`` (``meta_agent.reflection.model``/``.provider``),
+        a shape no regex over Python source would ever match. Parse the YAML
+        instead of grepping it, so a key nested somewhere else under
+        ``reflection:`` can't produce a false negative or positive."""
+        import pathlib
+        import yaml
+
+        offenders = []
+        for path in sorted(pathlib.Path("workflows").glob("*.yaml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            reflection = (data.get("meta_agent") or {}).get("reflection")
+            if not isinstance(reflection, dict):
+                continue
+            for dead_key in ("model", "provider"):
+                if dead_key in reflection:
+                    offenders.append(f"{path}: reflection.{dead_key}")
+        self.assertEqual(offenders, [])
+
 
 if __name__ == "__main__":
     unittest.main()
