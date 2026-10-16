@@ -69,7 +69,9 @@ class FirstStartWizard(QWizard):
     #: Sections the wizard actually asks about. Everything else on an existing
     #: config is left alone. - Claude Generated
     _WIZARD_OWNED_PROVIDER_FIELDS = (
-        "providers", "task_preferences", "preferred_provider", "preferred_model",
+        "providers", "preferred_provider", "preferred_model",
+        "pipeline_default_provider", "pipeline_default_model",
+        "vision_default_provider", "vision_default_model",
         "gemini_api_key", "anthropic_api_key",
         "gemini_preferred_model", "anthropic_preferred_model",
     )
@@ -109,10 +111,9 @@ class FirstStartWizard(QWizard):
             api_key = getattr(self.llm_page, 'api_key', '')
             models = getattr(self.llm_page, 'available_models', [])
 
-            # Get task model selections from model page - Claude Generated
-            task_model_selections = getattr(
-                self.model_page, 'task_model_selections', {}
-            ) if hasattr(self, 'model_page') else {}
+            # Get pipeline/vision model selections from model page - Claude Generated
+            pipeline_model = getattr(self.model_page, 'pipeline_model', '') if hasattr(self, 'model_page') else ''
+            vision_model = getattr(self.model_page, 'vision_model', '') if hasattr(self, 'model_page') else ''
 
             # If no models were tested, use default model list
             if not models:
@@ -133,7 +134,8 @@ class FirstStartWizard(QWizard):
                 base_url=base_url,
                 api_key=api_key,
                 models=models,
-                task_model_selections=task_model_selections
+                pipeline_model=pipeline_model,
+                vision_model=vision_model,
             )
 
             # …and, on a machine that is already set up, apply it *onto* the
@@ -678,64 +680,66 @@ class LLMSetupPage(QWizardPage):
 
 
 class ModelSelectionPage(QWizardPage):
-    """Model selection for different pipeline tasks - Claude Generated"""
+    """Model selection for pipeline + vision - Claude Generated
+
+    Used to ask six questions, one per classic-pipeline task. That per-task
+    choice (``task_preferences``) only ever acted as a dead-on-arrival first
+    entry of a fallback chain nothing else walked, and three of the six tasks
+    had no step to land on at all (see ``docs/settings_cleanup_phase1.md``).
+    Retired Oct 2026 to the two scopes that actually vary: the pipeline
+    default (every classic step) and the vision default (image/OCR, a
+    capability question rather than a pipeline step).
+    """
 
     def __init__(self, presets=None):
         super().__init__()
-        self.setTitle("Modell-Auswahl für Pipeline-Schritte")
-        self.setSubTitle("Wählen Sie für jeden Schritt das optimale Modell")
+        self.setTitle("Modell-Auswahl")
+        self.setSubTitle("Welches Modell für die Pipeline, welches für Bilder/OCR?")
 
-        # Store selections {task_type: model_name}
-        self.task_model_selections = {}
+        self.pipeline_model: str = ""
+        self.vision_model: str = ""
         self._presets = presets
 
         layout = QVBoxLayout()
 
-        # Explanation
         explanation = QLabel(
-            "Verschiedene Pipeline-Schritte haben unterschiedliche Anforderungen:\n"
-            "• Initialisation & Keywords: Benötigen Reasoning-Fähigkeiten\n"
-            "• Classification: Benötigt strukturiertes Denken\n"
-            "• Vision: Benötigt Bildverständnis\n\n"
-            "Sie können für jeden Schritt das optimale Modell wählen.\n"
-            "Oder nutzen Sie den Button unten um ein Modell für alle zu verwenden."
+            "Das Pipeline-Modell läuft auf jedem Schritt der klassischen Pipeline "
+            "(Initialisierung, Schlagworte, Klassifikation).\n"
+            "Das Vision-Modell übernimmt Bild- und OCR-Analyse - das braucht "
+            "Bildverständnis, nicht jedes Modell kann das.\n\n"
+            "Oder nutzen Sie den Button unten um ein Modell für beides zu verwenden."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
 
-        # Task selection form
-        self.task_combos = {}
-
-        # Use shared LLM task configuration from config_models - Claude Generated
-        # Single source of truth for consistent task lists across all wizards/dialogs
-        from ..utils.config_models import LLM_TASK_DISPLAY_INFO
-
         form_layout = QFormLayout()
 
-        for task_type, task_label, task_desc in LLM_TASK_DISPLAY_INFO:
-            # Use the enum's value (lower‑case) as the identifier – this aligns with the
-            # configuration builder (setup_utils) which expects ``task_type.value`` as the key.
-            task_key = task_type.value
+        def _make_combo() -> QComboBox:
             combo = QComboBox()
             combo.setMinimumWidth(300)
-            combo.setToolTip(task_desc)
             combo.setEditable(True)
             completer = QCompleter()
             completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
             completer.setFilterMode(Qt.MatchFlag.MatchContains)
             combo.setCompleter(completer)
+            return combo
 
-            label = QLabel(f"{task_label}:")
-            label.setToolTip(task_desc)
+        self.pipeline_combo = _make_combo()
+        self.pipeline_combo.setToolTip("Initialisation, Keywords, Classification, DK Classification")
+        pipeline_label = QLabel("🔧 Pipeline-Modell:")
+        pipeline_label.setToolTip(self.pipeline_combo.toolTip())
+        form_layout.addRow(pipeline_label, self.pipeline_combo)
 
-            form_layout.addRow(label, combo)
-            self.task_combos[task_key] = combo
+        self.vision_combo = _make_combo()
+        self.vision_combo.setToolTip("Bild-/OCR-Analyse")
+        vision_label = QLabel("👁️ Vision-Modell:")
+        vision_label.setToolTip(self.vision_combo.toolTip())
+        form_layout.addRow(vision_label, self.vision_combo)
 
         layout.addLayout(form_layout)
 
-        # "Use same model for all" button
-        self.use_same_btn = QPushButton("🔄 Gleiches Modell für alle Tasks verwenden")
-        self.use_same_btn.clicked.connect(self._use_same_for_all)
+        self.use_same_btn = QPushButton("🔄 Gleiches Modell für beide verwenden")
+        self.use_same_btn.clicked.connect(self._use_same_for_both)
         layout.addWidget(self.use_same_btn)
 
         layout.addStretch()
@@ -753,25 +757,23 @@ class ModelSelectionPage(QWizardPage):
 
         if not available_models:
             # Still no models - show placeholder
-            for combo in self.task_combos.values():
+            for combo in (self.pipeline_combo, self.vision_combo):
                 combo.addItem("(Keine Modelle verfügbar)")
             return
 
-        # Populate all combos
-        for task_key, combo in self.task_combos.items():
+        for combo in (self.pipeline_combo, self.vision_combo):
             combo.clear()
             combo.addItems(available_models)
 
-            # Set intelligent defaults based on task
-            if 'vision' in task_key:
-                # Prefer vision models for vision tasks
-                vision_models = [m for m in available_models
-                               if 'vision' in m.lower() or 'llava' in m.lower()]
-                if vision_models:
-                    combo.setCurrentText(vision_models[0])
-            else:
-                # Use first available model as default
-                combo.setCurrentIndex(0)
+        self.pipeline_combo.setCurrentIndex(0)
+
+        # Prefer a vision-sounding model for the vision combo's default
+        vision_models = [m for m in available_models
+                         if 'vision' in m.lower() or 'llava' in m.lower()]
+        if vision_models:
+            self.vision_combo.setCurrentText(vision_models[0])
+        else:
+            self.vision_combo.setCurrentIndex(0)
 
         # Apply preset models after populating combos - Claude Generated
         if self._presets and self._presets.has_models():
@@ -784,30 +786,27 @@ class ModelSelectionPage(QWizardPage):
 
     def _apply_presets(self, presets) -> None:
         """Pre-select model combos from institution preset values - Claude Generated"""
-        for task_key, combo in self.task_combos.items():
-            model = presets.llm_task_models.get(task_key) or presets.llm_default_model
-            if not model:
-                continue
-            idx = combo.findText(model)
+        pipeline_model = presets.pipeline_model()
+        if pipeline_model:
+            idx = self.pipeline_combo.findText(pipeline_model)
             if idx >= 0:
-                combo.setCurrentIndex(idx)
+                self.pipeline_combo.setCurrentIndex(idx)
 
-    def _use_same_for_all(self):
-        """Set all tasks to use the same model - Claude Generated"""
-        if not self.task_combos:
-            return
+        vision_model = presets.vision_model()
+        if vision_model:
+            idx = self.vision_combo.findText(vision_model)
+            if idx >= 0:
+                self.vision_combo.setCurrentIndex(idx)
 
-        # Get first combo's selection
-        first_model = list(self.task_combos.values())[0].currentText()
-
-        # Apply to all
-        for combo in self.task_combos.values():
-            combo.setCurrentText(first_model)
+    def _use_same_for_both(self):
+        """Set the vision combo to the pipeline combo's selection - Claude Generated"""
+        model = self.pipeline_combo.currentText()
+        self.vision_combo.setCurrentText(model)
 
         QMessageBox.information(
             self,
             "Modelle eingestellt",
-            f"✅ Alle Tasks verwenden jetzt: {first_model}"
+            f"✅ Beide verwenden jetzt: {model}"
         )
 
     def validatePage(self) -> bool:
@@ -817,44 +816,42 @@ class ModelSelectionPage(QWizardPage):
         """
         from PyQt6.QtWidgets import QMessageBox
 
-        # Clear previous selections
-        self.task_model_selections = {}
+        self.pipeline_model = ""
+        self.vision_model = ""
 
-        # Validate each task has a REAL model selected (not auto-select)
-        for task_key, combo in self.task_combos.items():
+        for attr, combo, label in (
+            ("pipeline_model", self.pipeline_combo, "Pipeline-Modell"),
+            ("vision_model", self.vision_combo, "Vision-Modell"),
+        ):
             model = combo.currentText()
 
-            # Check for invalid selections
             if not model:
                 QMessageBox.warning(
                     self,
                     "Modell erforderlich",
-                    f"Bitte wählen Sie ein Modell für {task_key} aus."
+                    f"Bitte wählen Sie ein {label} aus."
                 )
                 return False
 
-            # Reject placeholder text
             if "(Keine Modelle" in model or "(No models" in model:
                 QMessageBox.warning(
                     self,
                     "Modell erforderlich",
-                    f"Keine Modelle verfügbar für {task_key}. Bitte überprüfen Sie die LLM-Verbindung."
+                    f"Keine Modelle verfügbar für {label}. Bitte überprüfen Sie die LLM-Verbindung."
                 )
                 return False
 
-            # CRITICAL: Reject "auto-select" and "default" - Wizard MUST use explicit models
             model_lower = model.lower()
             if model_lower in ["auto-select", "(auto-select)", "default", "auto"]:
                 QMessageBox.warning(
                     self,
                     "Automatische Auswahl nicht erlaubt",
-                    f"Bitte wählen Sie ein spezifisches Modell für {task_key},\n"
+                    f"Bitte wählen Sie ein spezifisches {label},\n"
                     f"nicht automatische Auswahl (Auto-select)."
                 )
                 return False
 
-            # Valid selection - save it
-            self.task_model_selections[task_key] = model
+            setattr(self, attr, model)
 
         return True
 
@@ -1543,12 +1540,12 @@ class SummaryPage(QWizardPage):
             gnd_option = "Preset-Datenbank (bereits konfiguriert)"
 
         # Build model selections summary - Claude Generated
-        model_summary = ""
-        if hasattr(wizard, 'model_page') and wizard.model_page.task_model_selections:
+        if hasattr(wizard, 'model_page') and (wizard.model_page.pipeline_model or wizard.model_page.vision_model):
             model_summary = "\n🎯 Modell-Zuordnungen:\n"
-            for task, model in wizard.model_page.task_model_selections.items():
-                task_label = task.replace('_', ' ').title()
-                model_summary += f"   {task_label}: {model}\n"
+            if wizard.model_page.pipeline_model:
+                model_summary += f"   Pipeline: {wizard.model_page.pipeline_model}\n"
+            if wizard.model_page.vision_model:
+                model_summary += f"   Vision: {wizard.model_page.vision_model}\n"
         else:
             model_summary = "\n🎯 Modell-Zuordnungen: Standard"
 

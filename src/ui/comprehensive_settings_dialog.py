@@ -55,8 +55,7 @@ class ComprehensiveSettingsDialog(QDialog):
     """Comprehensive settings dialog combining all ALIMA configurations - Claude Generated"""
 
     config_changed = pyqtSignal()
-    task_preferences_changed = pyqtSignal()  # Forward task preference changes - Claude Generated
-    
+
     def __init__(self, alima_manager=None, parent=None):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
@@ -111,7 +110,6 @@ class ComprehensiveSettingsDialog(QDialog):
         self.database_tab = self._create_database_tab()
 
         self.unified_provider_tab.config_changed.connect(self.config_changed)
-        self.unified_provider_tab.task_preferences_changed.connect(self.task_preferences_changed)  # Forward task preference changes - Claude Generated
 
         self._add_models_page()
         self._add_indexing_page()
@@ -1025,16 +1023,27 @@ class ComprehensiveSettingsDialog(QDialog):
             if getattr(provider, 'preferred_model', ''):
                 llm_block["default_model"] = provider.preferred_model
 
-        # Build task_models from task_preferences
-        task_preferences = getattr(self.config_to_edit.unified_config, 'task_preferences', {})
+        # Build task_models from the resolved pipeline/vision defaults - Claude
+        # Generated. Used to read task_preferences, a field
+        # resolve_default_provider_model never consults and that stays empty on
+        # most configs now it is retired as a live write surface (Oct 2026).
+        # These two scopes are what actually runs; preset_loader.py's
+        # pipeline_model()/vision_model() read the same "pipeline"/"vision" keys
+        # back, and still fall back through any older per-task key a
+        # hand-written preset file may still carry.
+        from ..utils.config_models import ProviderScope
+
         task_models: dict = {}
-        for task_key, pref in task_preferences.items():
-            priority = getattr(pref, 'model_priority', [])
-            if priority:
-                first = priority[0]
-                model_name = first.get('model_name', '') if isinstance(first, dict) else ''
-                if model_name:
-                    task_models[task_key] = model_name
+        _, pipeline_model = self.config_to_edit.unified_config.resolve_default_provider_model(
+            scope=ProviderScope.PIPELINE
+        )
+        if pipeline_model:
+            task_models["pipeline"] = pipeline_model
+        _, vision_model = self.config_to_edit.unified_config.resolve_default_provider_model(
+            scope=ProviderScope.VISION
+        )
+        if vision_model:
+            task_models["vision"] = vision_model
         if task_models:
             llm_block["task_models"] = task_models
 

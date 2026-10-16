@@ -10,7 +10,6 @@ import logging
 from typing import Optional, List
 
 from .config_manager import ConfigManager
-from .config_models import TaskType
 from .setup_utils import (
     OllamaConnectionValidator, APIKeyValidator, GNDDatabaseDownloader,
     ConfigurationBuilder, PromptValidator, SetupResult
@@ -30,7 +29,8 @@ class CLISetupWizard:
         self.base_url = None
         self.api_key = None
         self.available_models = []
-        self.task_model_selections = {}  # {task_type.value: model_name}
+        self.pipeline_model = ""  # model for every classic-pipeline step
+        self.vision_model = ""    # model for image/OCR analysis
         # Catalog SOAP settings (optional) - Claude Generated
         self.catalog_search_url = ""
         self.catalog_details_url = ""
@@ -58,7 +58,7 @@ class CLISetupWizard:
         try:
             self._print_welcome()
             self._setup_llm_provider()
-            self._collect_task_model_selections()  # Collect task-specific model preferences
+            self._collect_task_model_selections()  # Collect pipeline/vision model preferences
             self._setup_gnd_database()
             self._setup_catalog()  # Optional SOAP catalog step - Claude Generated
             self._setup_finc()    # Optional finc / VuFind-JSON step - Claude Generated
@@ -71,7 +71,8 @@ class CLISetupWizard:
                 base_url=self.base_url,
                 api_key=self.api_key,
                 models=self.available_models,
-                task_model_selections=self.task_model_selections  # Pass task selections
+                pipeline_model=self.pipeline_model,
+                vision_model=self.vision_model,
             )
             config.system_config.first_run_completed = True
 
@@ -299,29 +300,18 @@ class CLISetupWizard:
                 raise Exception("Anthropic-Setup fehlgeschlagen")
 
     def _collect_task_model_selections(self):
-        """Collect task-specific model preferences from user - Claude Generated"""
+        """Collect pipeline/vision model preferences from user - Claude Generated
+
+        Used to ask once per classic-pipeline task (six questions). That
+        per-task choice only ever acted as a dead first entry of a fallback
+        chain nothing else walked (see ``docs/settings_cleanup_phase1.md``);
+        retired Oct 2026 to the two scopes that actually vary.
+        """
         if not self.available_models:
-            print("⚠️  Keine Modelle verfügbar, überspringe Task-Auswahl")
+            print("⚠️  Keine Modelle verfügbar, überspringe Modell-Auswahl")
             return
 
-        print("\n\n📌 Schritt 2: Modell-Auswahl für Pipeline-Schritte\n")
-        print("Verschiedene Schritte haben unterschiedliche Anforderungen:")
-        print("  • Initialisation & Keywords: Benötigen Reasoning-Fähigkeiten")
-        print("  • Classification: Benötigt strukturiertes Denken")
-        print("  • Vision: Benötigt Bildverständnis\n")
-
-        # Use shared LLM task configuration from config_models - Claude Generated
-        # Single source of truth for consistent task lists across all wizards/dialogs
-        from .config_models import LLM_TASK_DISPLAY_INFO
-
-        # Convert shared constant to CLI format (remove icons from labels)
-        llm_tasks = []
-        for task_type, icon_label, description in LLM_TASK_DISPLAY_INFO:
-            # Extract label without emoji icon (remove first ~2-3 chars: emoji + space)
-            # Example: "🔤 Initialisation" -> "Initialisation"
-            label = icon_label.split(' ', 1)[1] if ' ' in icon_label else icon_label
-            llm_tasks.append((task_type, label, description))
-
+        print("\n\n📌 Schritt 2: Modell-Auswahl\n")
         print("Verfügbare Modelle:\n")
         for idx, model in enumerate(self.available_models[:10]):
             print(f"  {idx + 1}) {model}")
@@ -329,17 +319,19 @@ class CLISetupWizard:
             print(f"  ... und {len(self.available_models) - 10} weitere")
 
         print("\n" + "-" * 60)
-        print("Drücken Sie ENTER um das Standard-Modell für alle Tasks zu verwenden")
+        print("Drücken Sie ENTER um das Standard-Modell zu verwenden")
         print("Oder geben Sie die Modellnummer (1-X) ein\n")
 
         default_model = self.available_models[0]
 
-        for task_type, task_label, task_desc in llm_tasks:
-            # Determine preset model for this task - Claude Generated
-            preset_model = (
-                self._presets.llm_task_models.get(task_type.value)
-                or self._presets.llm_default_model
-            )
+        for attr, label, desc, preset_model in (
+            ("pipeline_model", "Pipeline-Modell",
+             "läuft auf jedem Schritt der klassischen Pipeline",
+             self._presets.pipeline_model()),
+            ("vision_model", "Vision-Modell",
+             "Bild-/OCR-Analyse, benötigt Bildverständnis",
+             self._presets.vision_model()),
+        ):
             if preset_model and preset_model in self.available_models:
                 task_default = preset_model
                 preset_hint = f" [Preset: {preset_model}]"
@@ -347,29 +339,29 @@ class CLISetupWizard:
                 task_default = default_model
                 preset_hint = ""
 
-            print(f"\n{task_label} ({task_desc}){preset_hint}")
+            print(f"\n{label} ({desc}){preset_hint}")
             print(f"  Standard: {task_default}")
 
-            choice = input(f"Modell für {task_label} (1-{len(self.available_models)}/Enter für Standard): ").strip()
+            choice = input(f"Modell für {label} (1-{len(self.available_models)}/Enter für Standard): ").strip()
 
             if choice:
                 try:
                     idx = int(choice) - 1
                     if 0 <= idx < len(self.available_models):
                         selected_model = self.available_models[idx]
-                        self.task_model_selections[task_type.name] = selected_model
-                        print(f"  ✓ {task_label}: {selected_model}")
+                        setattr(self, attr, selected_model)
+                        print(f"  ✓ {label}: {selected_model}")
                     else:
                         print(f"  ⚠️  Ungültige Auswahl, verwende Standard")
-                        self.task_model_selections[task_type.name] = task_default
+                        setattr(self, attr, task_default)
                 except ValueError:
                     print(f"  ⚠️  Ungültige Eingabe, verwende Standard")
-                    self.task_model_selections[task_type.name] = task_default
+                    setattr(self, attr, task_default)
             else:
-                self.task_model_selections[task_type.name] = task_default
-                print(f"  ✓ {task_label}: {task_default}")
+                setattr(self, attr, task_default)
+                print(f"  ✓ {label}: {task_default}")
 
-        print("\n✅ Task-Modell-Auswahl gespeichert\n")
+        print("\n✅ Modell-Auswahl gespeichert\n")
 
     def _setup_gnd_database(self):
         """Interactive GND database setup - Claude Generated"""

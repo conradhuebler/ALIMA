@@ -940,13 +940,13 @@ class AbstractTab(QWidget):
             self.logger.debug(f"User explicitly selected model: {model}")
 
     def reset_explicit_selections(self):
-        """Clear explicit selections and revert to task preference defaults - Claude Generated"""
+        """Clear explicit selections and revert to the pipeline default - Claude Generated"""
         self.explicit_provider_selection = None
         self.explicit_model_selection = None
-        self.logger.debug("Cleared explicit selections - reverting to task preference defaults")
+        self.logger.debug("Cleared explicit selections - reverting to pipeline default")
 
-        # Apply task preference first, then prompt defaults - Claude Generated
-        self._apply_task_preference()
+        # Apply the pipeline default first, then prompt defaults - Claude Generated
+        self._apply_pipeline_default()
 
         # Re-apply current prompt's settings (parameters only, model already set by preference)
         current_index = self.prompt_selector_combo.currentIndex()
@@ -1310,40 +1310,47 @@ class AbstractTab(QWidget):
         self.provider_combo.addItems(providers)
         self.update_models(self.provider_combo.currentText())
         self.user_interaction_mode = True  # Re-enable tracking
-        # Apply task preference as default selection - Claude Generated
-        self._apply_task_preference()
+        # Apply the pipeline default as the starting selection - Claude Generated
+        self._apply_pipeline_default()
 
-    def _apply_task_preference(self):
-        """Apply task_preferences from config as default provider/model selection - Claude Generated"""
+    def _apply_pipeline_default(self):
+        """Pre-select the pipeline default provider/model - Claude Generated
+
+        Used to read ``task_preferences`` keyed by ``self.task`` ("initialisation"/
+        "keywords"/"dk_classification" - see ``PIPELINE_TASKS``), a per-step choice
+        nothing else in the resolution hierarchy ever consulted. Every task here is
+        a classic-pipeline step, so the pipeline scope is the right single answer
+        regardless of which one is selected. Retired Oct 2026, consistent with
+        ``pipeline_tab.py``'s step tiles.
+        """
         if not self.task:
             return
         try:
+            from ..utils.config_models import ProviderScope
+
             config = self.alima_manager.config_manager.load_config()
-            task_pref = config.unified_config.task_preferences.get(self.task)
-            if not task_pref or not task_pref.model_priority:
-                self.logger.debug(f"No task preference for '{self.task}' - keeping current selection")
+            prov, model = config.unified_config.resolve_default_provider_model(
+                scope=ProviderScope.PIPELINE
+            )
+            if not prov:
+                self.logger.debug("No pipeline default configured - keeping current selection")
                 return
 
-            # Find first provider/model from priority list that is available
-            for entry in task_pref.model_priority:
-                prov = entry.get("provider_name", "")
-                model = entry.get("model_name", "")
-                if prov in self.available_models and model in self.available_models.get(prov, []):
-                    self.user_interaction_mode = False
-                    prov_idx = self.provider_combo.findText(prov)
-                    if prov_idx >= 0:
-                        self.provider_combo.setCurrentIndex(prov_idx)
-                        self.update_models(prov)
-                        model_idx = self.model_combo.findText(model)
-                        if model_idx >= 0:
-                            self.model_combo.setCurrentIndex(model_idx)
-                    self.user_interaction_mode = True
-                    self.logger.debug(f"Applied task preference for '{self.task}': {prov}/{model}")
-                    return
-
-            self.logger.debug(f"No available provider/model from task preference for '{self.task}'")
+            if prov in self.available_models and model in self.available_models.get(prov, []):
+                self.user_interaction_mode = False
+                prov_idx = self.provider_combo.findText(prov)
+                if prov_idx >= 0:
+                    self.provider_combo.setCurrentIndex(prov_idx)
+                    self.update_models(prov)
+                    model_idx = self.model_combo.findText(model)
+                    if model_idx >= 0:
+                        self.model_combo.setCurrentIndex(model_idx)
+                self.user_interaction_mode = True
+                self.logger.debug(f"Applied pipeline default for '{self.task}': {prov}/{model}")
+            else:
+                self.logger.debug(f"Pipeline default {prov}/{model} not available - keeping current selection")
         except Exception as e:
-            self.logger.warning(f"Could not apply task preference: {e}")
+            self.logger.warning(f"Could not apply pipeline default: {e}")
 
     def cancel_analysis(self):
         """Cancel the running analysis - Claude Generated"""

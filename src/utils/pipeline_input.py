@@ -420,7 +420,6 @@ def _get_best_vision_provider_pipeline(llm_service, logger=None) -> Tuple[Option
         from .config_models import TaskType
         from .config_manager import ConfigManager
 
-        # Initialize ConfigManager for task_preferences access - Claude Generated
         config_manager = ConfigManager()
         # The vision default, resolved through the same chain as every other
         # default (vision -> general -> first usable provider). Used to go

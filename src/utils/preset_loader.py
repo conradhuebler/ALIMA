@@ -55,6 +55,24 @@ class InstitutionPresets:
         """True if preset contains model configuration - Claude Generated"""
         return bool(self.llm_default_model or self.llm_task_models)
 
+    def pipeline_model(self) -> str:
+        """The model for every non-vision pipeline step - Claude Generated
+
+        ``llm_task_models`` keeps its per-task dict shape for backward
+        compatibility with hand-written preset files, but the wizard only
+        asks about two scopes now (pipeline, vision). Every real preset in
+        use has the same model under every non-vision key, so the first one
+        found is as good as any.
+        """
+        for key, model in self.llm_task_models.items():
+            if key != "vision" and model:
+                return model
+        return self.llm_default_model
+
+    def vision_model(self) -> str:
+        """The model for image/OCR analysis - Claude Generated"""
+        return self.llm_task_models.get("vision") or self.llm_default_model
+
     def has_database_config(self) -> bool:
         """True if preset contains database configuration - Claude Generated"""
         return bool(self.db_type)

@@ -9,11 +9,13 @@ Sep-2026 rework is four, and each is a row here:
 * the **vision default** — image and OCR analysis, a capability question rather
   than a pipeline step.
 
-Per-task model choices (``task_preferences``) are gone. They were a per-step
-choice for the classic pipeline and only ever the first entry of a list that read
-like a fallback chain and was not one: nothing consulted entries 2..n, a dead
-first entry failed the step instead of moving on, and three of six configured
-tasks had no step to land on at all.
+Per-task model choices (``task_preferences``) are retired as a live config
+surface. They were never part of this resolution hierarchy to begin with — a
+separate, dead-end lookup that only read its own first entry and had no
+fallback — and the wizards, dialogs and step widgets that wrote or read them
+are gone too (Oct 2026). The field and dataclass remain only because
+``adopt_vision_task_preference`` still needs something to migrate an old
+on-disk vision choice from.
 
 A workflow step does **not** name its own model: ``LLMAgentStep._llm_params``
 and ``ReflectionStep.run`` take provider and model from the run context and read

@@ -52,12 +52,24 @@ Task-Preferences-Auswahl zur Laufzeit (`_resolve_provider_smart`, PRIORITY 2)
 war durch ein `TaskType.TEXT` tot, das es nicht gibt — der breite `except`
 meldete den `AttributeError` als `warning`.
 
-**Der eigentliche DAU-Blocker:** fünf Ebenen entscheiden über das Modell, das
-läuft — General/Pipeline/Agentic Default, die Spalte „Preferred Model" je
-Provider, die Task Preferences, dazu `pipeline_tab.global_override_selector` und
-die Standard-Combos im `PipelineConfigDialog`. Aufgelöst wird das in
-`UnifiedProviderConfig.resolve_default_provider_model`
-(`config_models.py`); **keine Oberfläche zeigt, welche Ebene gewinnt.**
+**Der eigentliche DAU-Blocker:** fünf Ebenen entschieden über das Modell, das
+läuft — General/Pipeline/Agentic/Vision Default, die Spalte „Preferred Model"
+je Provider, die Task Preferences, dazu `pipeline_tab.global_override_selector`
+und die Standard-Combos im `PipelineConfigDialog`. Aufgelöst wird das in
+`UnifiedProviderConfig.resolve_default_provider_model` (`config_models.py`).
+
+✅ **Zwei der fünf Ebenen sind weg (Oct 2026):** Task Preferences sind als
+aktive Konfigurationsfläche zurückgezogen (kein Schreiber, kein Leser mehr
+außer der einmaligen Vision-Migration `adopt_vision_task_preference`) —
+sechs Wizard-Fragen pro Pipeline-Schritt wurden zu zweien (Pipeline, Vision),
+`AlimaManager.execute_task` löst jetzt über `resolve_default_provider_model`
+auf statt über eine Task-Preferences-Fallback-Kette.
+`PipelineConfigDialog` (Smart/Advanced/Expert-Pro-Schritt-Override) ist
+komplett entfernt — die klassische Pipeline lief ohnehin nur je auf dem einen
+Pipeline-Standard, ein Pro-Schritt-Override hatte nichts zu unterscheiden.
+`pipeline_tab.global_override_selector` bleibt als einzige verbliebene
+Sonderebene (expliziter Toolbar-Override, nicht Teil der
+Resolution-Hierarchie) — eigene Durchsicht wert, nicht Teil dieser Runde.
 
 Dazu zwei unsichtbare Achsen:
 
@@ -75,12 +87,10 @@ Dazu zwei unsichtbare Achsen:
   `pass  # Disabled until proper implementation`). `preferred_provider` schreibt
   jetzt nur noch der sichtbare Selektor, `provider_priority` nur noch der
   Einrichtungsassistent.
-- `provider_priority` hält Provider-*Namen* und belegt über
-  `task_preferences_widget:342` die Modell-Reihenfolge eines Tasks ohne eigene
-  Präferenzen vor. Ältere Konfigurationen tragen dort einen Provider-*Typ*
-  (`openai_compatible`), der auf keinen Provider passt — der Seed lief leer und
-  ein solcher Task bekam gar keinen Vorschlag. Fällt jetzt auf die aktivierten
-  Provider in Konfigurationsreihenfolge zurück.
+- ~~`provider_priority`~~ ✅ **gegenstandslos.** Das Feld und
+  `task_preferences_widget.py`, das es las, wurden bereits am 21. Sep 2026
+  entfernt (`f77cf6d`, vor dieser Dokumentationskorrektur) — beide Verweise
+  hier waren seitdem stale.
 
 **Schritte 3 und 4 ✅ erledigt (Sep 21).** Die abgeleiteten Standards sind weg,
 und die Tabs sind nach Aufgabe gegliedert statt nach Subsystem: 🤖 Modelle,
@@ -91,10 +101,11 @@ adressiert) — dafür gibt es jetzt einen Test.
 
 **Kleinere offene Punkte:**
 
-- `TaskPreference.chunking_threshold` hat einen Leser
-  (`task_preferences_widget`), wird aber von keinem Parser wiederhergestellt —
-  die Bewahrung über einen Neustart hinweg ist wirkungslos. Bewusst nicht in
-  Phase 1 angefasst.
+- ~~`TaskPreference.chunking_threshold` hat einen Leser...~~ ✅ **gegenstandslos
+  (Oct 2026).** Der letzte Leser (`_pipeline_classic_steps.py`, ein
+  Keywords-Schritt-Override) ist mit der Task-Preferences-Zurückziehung
+  entfernt — nichts schrieb das Feld je, also war der Leser tot, nicht nur
+  unvollständig bewahrt.
 - `UnifiedProvider.id` (uuid4) hat keinen Leser, ist aber ein persistierter
   Identitätsschlüssel. Eigene Durchsicht wert.
 - `RepetitionDetectionConfig.show_suggestions` hat auch nach der Reparatur

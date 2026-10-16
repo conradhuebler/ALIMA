@@ -265,7 +265,13 @@ class AnthropicProvider:
 
 @dataclass
 class TaskPreference:
-    """Task-specific provider preferences with chunked-task support - Claude Generated"""
+    """Task-specific provider preferences with chunked-task support - Claude Generated
+
+    Retired as a live config surface Oct 2026 (no UI writes it any more, no live
+    resolution path reads it) — see ``UnifiedProviderConfig.task_preferences``.
+    Kept only because ``adopt_vision_task_preference`` still needs something to
+    migrate an old on-disk vision choice from.
+    """
     # Allowed LLM tasks only
     LLM_TASKS = {TaskType.INITIALISATION, TaskType.KEYWORDS, TaskType.CLASSIFICATION,
                  TaskType.DK_CLASSIFICATION, TaskType.VISION, TaskType.CHUNKED_PROCESSING}
@@ -484,16 +490,20 @@ class UnifiedProviderConfig:
     # Falls back to pipeline_default, then preferred_provider if unset.
     # Image/OCR analysis. A capability question, not a pipeline step: it applies
     # to image and PDF input whatever the operating mode. Used to live in
-    # task_preferences["vision"], which nothing consulted — the vision path asked
-    # SmartProviderSelector, and that never reads task preferences.
-    # - Claude Generated
+    # task_preferences["vision"], which no live resolution path consulted — every
+    # vision caller (ImageAnalysisTab via SmartProviderSelector,
+    # AlimaManager.execute_task) now resolves through this field instead
+    # (Oct 2026). - Claude Generated
     vision_default_provider: str = ""
     vision_default_model: str = ""
 
     agentic_default_provider: str = ""
     agentic_default_model: str = ""
 
-    # Task-specific preferences (for step overrides)
+    # Retired as a live config surface (Oct 2026): no UI writes it, no live
+    # resolution path reads it. Parsed from disk only so
+    # adopt_vision_task_preference() has a legacy vision choice to migrate into
+    # vision_default_provider/model; save_config() no longer writes it back.
     task_preferences: Dict[str, TaskPreference] = field(default_factory=dict)
 
     # Individual provider configs (LEGACY - will be migrated to providers list)
@@ -589,32 +599,6 @@ class UnifiedProviderConfig:
                 return provider
         return None
 
-    def get_task_preference(self, task_type: TaskType) -> TaskPreference:
-        """Get task preference, with fallback to defaults - Claude Generated"""
-        task_key = task_type.value
-        if task_key in self.task_preferences:
-            return self.task_preferences[task_key]
-
-        # Return default task preference
-        return TaskPreference(
-            task_type=task_type,
-            model_priority=[],
-            allow_fallback=True
-        )
-
-    def get_model_priority_for_task(self, task_name: str, is_chunked: bool = False) -> List[Dict[str, str]]:
-        """Get model priority for a task, with chunked variant support - Claude Generated"""
-        task_pref = self.task_preferences.get(task_name)
-
-        if not task_pref:
-            return []
-
-        # Use chunked priority if available and requested
-        if is_chunked and task_pref.chunked_model_priority:
-            return task_pref.chunked_model_priority
-
-        return task_pref.model_priority
-
     def resolve_provider_model(self, provider_name: str) -> tuple[str, str]:
         """Return a usable (provider, model) for a known provider name.
 
@@ -682,10 +666,13 @@ class UnifiedProviderConfig:
 
         Four settings can decide which model runs: the general default, the
         pipeline default, the agentic default and the vision default. Which one
-        applied used to be invisible, and there were six — per-task preferences,
-        ``provider_priority`` and ``disabled_providers`` were removed in Sep 2026
-        because none of them had a control that matched what they did. The
-        resolution lives here so the explanation cannot drift from it:
+        applied used to be invisible, and there were six — ``provider_priority``
+        and ``disabled_providers`` were removed in Sep 2026 because neither had a
+        control that matched what it did. Per-task preferences (``task_preferences``)
+        were never part of this resolution at all — they fed a separate, dead-end
+        lookup (``get_model_priority_for_task``) that only read its own first
+        entry and had no fallback; retired as a live config surface in Oct 2026.
+        The resolution lives here so the explanation cannot drift from it:
         ``resolve_default_provider_model`` delegates to this.
 
         Returns ``(provider, model, source)`` where ``source`` is a key of

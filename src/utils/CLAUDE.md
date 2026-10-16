@@ -45,12 +45,42 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 - **Record priors (WP-D1 P2, Aug 3):** `prepare_notation_classification_context(record_priors=…)` renders the input record's own classifications as an authority block + admits prior RVK into `allowed_standard_rvk_map` (source `input_record`, `_source_rank` 4). Channel: `record_sink` dict through `extract(**opts)` → KAS `input_record_classifications` → `execute_complete_pipeline`/classic dk step. Without priors byte-identical (test-pinned).
 - **DOI/URL resolver (Aug 4):** schema-less host-looking input is a URL (`looks_like_schemaless_url`, shared with the GUI auto-detect); a DOI whose API abstract is < 300 chars escalates to a landing-page crawl (`_resolve_doi_with_quality_escalation`) — the richer result wins, API title/authors kept.
 - **GND signals + crosswalk (WP-D1 P3/P4, Aug 3):** record `gnd_subjects` → `merge_record_gnd_subjects` (pool bucket `input_record`, count=1); `k10plus_resolver.fetch_record_for_identifier` resolves DOI/ISBN/PPN with **client-side verification** (the `pica.doi` index tokenizes — never trust hit position); lookup tool `k10plus_resolve`. ⚠️ PPN search needs `search_type="ppn"` (`pica.ppn`) — the keyword index (`pica.slw`) never matches a PPN (live-proven 0 hits).
-- Providers: Ollama, OpenAI-compatible, Gemini, Anthropic; multi-host, priority ordering, task-specific preferences; environment-variable overrides.
+- Providers: Ollama, OpenAI-compatible, Gemini, Anthropic; multi-host, priority ordering, environment-variable overrides. Per-task model choices (`task_preferences`) are retired as a live surface — see the Oct 2026 entry below.
 
 ## [Variable Section - Short-term Information]
 
 ### ✅ FIXED (Oct 2026): ein abgeschalteter Standard-Provider "gewann" trotzdem
 `explain_default_provider_model` prüfte je Kandidat nur `if provider:` (ein nicht-leerer Name) — egal ob `preferred_provider`/`pipeline_default_provider`/`agentic_default_provider`/`vision_default_provider` tatsächlich noch aktiviert oder überhaupt noch konfiguriert war. Nur der letzte Rückfall (`first_enabled`) prüfte `is_usable`. Einen Provider abschalten oder löschen, auf den ein Standard zeigt: die Tabelle zeigte ihn weiter als "konfiguriert", der Lauf scheiterte dann erst tief in `llm_service` ("No client found"). Jetzt prüft jeder Kandidat `enabled` und `is_usable`, bevor er gewinnt — ein nicht nutzbarer Name fällt genauso durch wie ein leerer. Tests: `tests/test_disabled_default_falls_through.py`.
+
+### ✅ FIXED (Oct 2026): `task_preferences` als aktive Konfigurationsfläche zurückgezogen
+Sechs Wizard-Fragen pro klassischem Pipeline-Schritt (Initialisation/Keywords/
+Classification/DK-Classification/Vision/Chunked) wirkten wie eine
+Fallback-Kette und waren keine: nur der erste Eintrag jeder Liste wurde
+gelesen, ohne Rückfall auf den zweiten; drei der sechs Tasks hatten nie einen
+Schritt, auf den sie landen konnten. `resolve_default_provider_model`/
+`explain_default_provider_model` haben `task_preferences` nie konsultiert —
+die einzige echte Wirkung lief über zwei eigene, voneinander unabhängige
+Pfade: `AbstractTab._apply_task_preference` (Vorauswahl) und
+`AlimaManager.execute_task` (die tatsächliche Modellwahl für
+`image_text_extraction`, mit einer Vision/Initialisation/Keywords-Fallback-Kette
+quer durch unabhängige Tasks). Beide lösen jetzt über die normale
+Scope-Hierarchie auf (`ProviderScope.PIPELINE`/`VISION`). Wizard-Seiten (GUI
+`ModelSelectionPage`, CLI `_collect_task_model_selections`) fragen nur noch
+zwei Modelle ab (Pipeline, Vision); `ConfigurationBuilder.create_initial_config`
+setzt `pipeline_default_*`/`vision_default_*` direkt statt `TaskPreference`-
+Objekte zu bauen. `save_config` entfernt `task_preferences` aktiv aus dem, was
+auf die Platte geschrieben wird — das Feld und die Dataclass bleiben nur, weil
+`adopt_vision_task_preference()` eine alte Vision-Wahl noch migrieren muss.
+Nebenbefunde: die CLI-Variante speicherte ihre Antworten unter `task_type.name`
+(Großbuchstaben), während `create_initial_config` mit `.value` nachschlug —
+jede CLI-Modellwahl ging damit schon vorher ins Leere. `create_initial_config`
+selbst war seit einer `SystemConfig`-Feldentfernung kaputt (`debug=False` an ein
+Dataclass, das dieses Feld nicht mehr hat) — jeder Wizard-Lauf, GUI wie CLI,
+scheiterte mit `TypeError`, bevor diese Änderung begann. ~250 Zeilen toter
+Legacy-Vision-Code (`unified_input_widget.py`, nur vom nie aufgerufenen
+`_extract_image_with_llm_legacy` erreichbar) sowie ein nie emittiertes
+`task_preferences_changed`-Signal gingen im selben Zug. Tests:
+`tests/test_task_preferences_retirement.py`.
 
 ### ✅ FIXED (Oct 2026): ein Provider-Problem konnte die ganze Konfiguration zurücksetzen
 `_parse_config` warf `ValueError` bei „keine Provider" oder „alle Provider aus" — gefangen

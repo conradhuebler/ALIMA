@@ -31,9 +31,8 @@ class UnifiedProviderTab(QWidget):
     """
 
     config_changed = pyqtSignal()
-    task_preferences_changed = pyqtSignal()  # New signal for task preference changes - Claude Generated
 
-    
+
     def __init__(self, unified_config: UnifiedProviderConfig, alima_config: AlimaConfig,
                  config_manager: ConfigManager, alima_manager=None, parent=None):
         super().__init__(parent)
@@ -541,8 +540,3 @@ class UnifiedProviderTab(QWidget):
                 continue
             setattr(self.unified_config, prov_field, prov or "")
             setattr(self.unified_config, model_field, model or "")
-
-
-        # NOTE: Task preferences are managed in self.config.unified_config.task_preferences
-        # They are already updated by individual UI operations
-        # No additional UI → config sync needed here

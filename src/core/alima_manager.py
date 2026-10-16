@@ -780,28 +780,34 @@ class AlimaManager:
 
         # Handle chunked tasks: keywords_chunked -> keywords base task
         base_task_name = task_name
-        is_chunked = False
         if task_name.endswith('_chunked'):
             base_task_name = task_name[:-8]  # Remove '_chunked' suffix
-            is_chunked = True
         
-        # Get model priority for task
+        # Resolve the provider/model for this task via the same hierarchy every
+        # other call site uses. Used to read task_preferences via
+        # get_model_priority_for_task(), with a fallback chain through
+        # "vision"/"initialisation"/"keywords" task preferences for
+        # image_text_extraction specifically - task_preferences is retired as a
+        # live config surface (Oct 2026); resolve_default_provider_model's
+        # vision/pipeline scopes are the real resolution path now and were
+        # already what every other vision caller (ImageAnalysisTab via
+        # SmartProviderSelector) used. - Claude Generated
         model_priority = []
         try:
+            from ..utils.config_models import ProviderScope
+
             unified_config = self.config_manager.get_unified_config()
-            model_priority = unified_config.get_model_priority_for_task(task_name, is_chunked)
-            
-            # Fallback for image_text_extraction: use vision, initialisation, or keywords preference
-            if not model_priority and task_name == "image_text_extraction":
-                for fallback_task in ["vision", "initialisation", "keywords"]:
-                    model_priority = unified_config.get_model_priority_for_task(fallback_task)
-                    if model_priority:
-                        self.logger.info(f"Using fallback task '{fallback_task}' for image_text_extraction")
-                        break
-            
-            self.logger.info(f"Using task-specific model priority: {model_priority}")
+            scope = (
+                ProviderScope.VISION
+                if base_task_name in ("image_text_extraction", "vision")
+                else ProviderScope.PIPELINE
+            )
+            provider, model = unified_config.resolve_default_provider_model(scope=scope)
+            if provider:
+                model_priority = [{"provider_name": provider, "model_name": model}]
+                self.logger.info(f"Using resolved default for task '{task_name}' ({scope}): {provider}/{model}")
         except Exception as e:
-            log_caught(self.logger, e, "Task-Preferences lesen (nutze Fallback)")
+            log_caught(self.logger, e, "Default-Provider/Modell für Task auflösen (nutze Fallback)")
         
         # Fallback to available providers if no specific priority configured
         if not model_priority:

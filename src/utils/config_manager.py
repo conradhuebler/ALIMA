@@ -720,6 +720,15 @@ class ConfigManager:
                 except Exception as e:
                     self.logger.warning(f"Error parsing task preference '{task_name}': {e}")
 
+        # A vision task preference never reached a run; adopting it as the vision
+        # default is what finally makes it take effect. - Claude Generated
+        if unified_config.adopt_vision_task_preference():
+            self.logger.info(
+                "Vision-Voreinstellung als Vision-Standard übernommen: "
+                f"{unified_config.vision_default_provider}/"
+                f"{unified_config.vision_default_model} — sie war bisher wirkungslos"
+            )
+
         self.logger.debug(f"✅ Parsed modern config: {len(unified_config.providers)} providers, {len(unified_config.task_preferences)} task preferences")
         return unified_config
 
@@ -801,11 +810,10 @@ class ConfigManager:
 
                     if 'unified_config' in current_config:
                         # Keep the existing unified_config on disk but overwrite the
-                        # parts the caller actually edited: providers, task prefs and
-                        # the default-model fields.
+                        # parts the caller actually edited: providers and the
+                        # default-model fields.
                         incoming_unified = config_dict.get('unified_config', {})
                         incoming_providers = incoming_unified.get('providers', [])
-                        incoming_task_prefs = incoming_unified.get('task_preferences', {})
                         preserved_unified_config = current_config['unified_config'].copy()
 
                         # An empty incoming list is never an intentional "delete
@@ -818,8 +826,19 @@ class ConfigManager:
                         # model below. - Claude Generated
                         if incoming_providers:
                             preserved_unified_config['providers'] = incoming_providers
-                        if incoming_task_prefs:
-                            preserved_unified_config['task_preferences'] = incoming_task_prefs
+
+                        # task_preferences is retired as a live config surface
+                        # (Oct 2026) - nothing writes it any more, and the only
+                        # remaining reader is the one-shot
+                        # adopt_vision_task_preference() migration, which already
+                        # ran at load time (in memory) before this save. Actively
+                        # drop it rather than leaving it in the "keep whatever is
+                        # on disk" default: the migration's target field
+                        # (vision_default_provider/model) is preserved below like
+                        # every other default field, so nothing is lost, and the
+                        # legacy section stops being re-written forever.
+                        # - Claude Generated
+                        preserved_unified_config.pop('task_preferences', None)
 
                         for key in (
                             'pipeline_default_provider',
@@ -967,28 +986,6 @@ class ConfigManager:
     # UNIFIED PROVIDER CONFIG MANAGEMENT - Integrated from UnifiedProviderConfigManager
     # ============================================================================
 
-    def validate_unified_config(self, unified_config: Optional[UnifiedProviderConfig] = None) -> List[str]:
-        """Validate unified provider configuration - Claude Generated"""
-        if unified_config is None:
-            unified_config = self.get_unified_config()
-
-        issues = []
-
-        # Check for enabled providers
-        enabled_providers = unified_config.get_enabled_providers()
-        if not enabled_providers:
-            issues.append("No enabled providers configured")
-
-        # Check task preferences
-        for task_key, task_pref in unified_config.task_preferences.items():
-            for provider_info in task_pref.model_priority:
-                if isinstance(provider_info, dict):
-                    provider_name = provider_info.get("provider_name")
-                    if provider_name and not unified_config.get_provider_by_name(provider_name):
-                        issues.append(f"Task '{task_key}' references unavailable provider '{provider_name}'")
-
-        return issues
-
     def add_ollama_provider(self, provider: OllamaProvider) -> bool:
         """Add Ollama provider to unified config - Claude Generated"""
         unified_config = self.get_unified_config()
@@ -1075,25 +1072,6 @@ class ConfigManager:
         """Get list of enabled providers - Claude Generated"""
         unified_config = self.get_unified_config()
         return unified_config.get_enabled_providers()
-
-    def update_task_preference(self, task_name: str, task_preference: TaskPreference) -> bool:
-        """Update task preference in unified config - Claude Generated"""
-        unified_config = self.get_unified_config()
-        unified_config.task_preferences[task_name] = task_preference
-        return self.save_unified_config(unified_config)
-
-    def get_task_preference(self, task_name: str) -> TaskPreference:
-        """Get task preference from unified config - Claude Generated"""
-        unified_config = self.get_unified_config()
-        if task_name in unified_config.task_preferences:
-            return unified_config.task_preferences[task_name]
-
-        # Return default preference
-        return TaskPreference(
-            task_type=TaskType.GENERAL,
-            model_priority=[],
-            allow_fallback=True
-        )
 
     # ============================================================================
     # BRIDGE METHODS - For import compatibility during migration

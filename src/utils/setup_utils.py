@@ -17,7 +17,7 @@ from urllib.parse import urlparse  # BUGFIX: For parsing Ollama base_url - Claud
 from .config_models import (
     AlimaConfig, SystemConfig, DatabaseConfig, UIConfig,
     UnifiedProviderConfig,
-    UnifiedProvider, TaskPreference, TaskType
+    UnifiedProvider,
 )
 
 
@@ -257,7 +257,8 @@ class ConfigurationBuilder:
         base_url: str = None,
         api_key: str = None,
         models: List[str] = None,
-        task_model_selections: dict = None
+        pipeline_model: str = "",
+        vision_model: str = "",
     ) -> AlimaConfig:
         """Create initial ALIMA configuration with LLM provider - Claude Generated
 
@@ -267,7 +268,9 @@ class ConfigurationBuilder:
             base_url: URL for Ollama/OpenAI-compatible providers
             api_key: API key for cloud providers
             models: List of available models
-            task_model_selections: Dict mapping task_type to selected model name
+            pipeline_model: Model for every classic-pipeline step (falls back
+                to the first available model)
+            vision_model: Model for image/OCR analysis (falls back the same way)
 
         Returns:
             AlimaConfig with provider configured
@@ -279,8 +282,7 @@ class ConfigurationBuilder:
         # Create system config
         system_config = SystemConfig(
             first_run_completed=False,
-            debug=False,
-            log_level='INFO'
+            log_level='normal'
         )
 
         # Create UI config
@@ -315,47 +317,35 @@ class ConfigurationBuilder:
             preferred_model=models[0] if models else ""
         )
 
-        # Create task preferences with user-selected models - Claude Generated (enhanced)
-        # Only create preferences for LLM tasks, not for non-LLM tasks (INPUT, SEARCH, DK_SEARCH)
-        task_preferences = {}
-        if models:
-            default_model = models[0]
-            llm_tasks = {TaskType.INITIALISATION, TaskType.KEYWORDS, TaskType.CLASSIFICATION,
-                        TaskType.DK_CLASSIFICATION, TaskType.VISION, TaskType.CHUNKED_PROCESSING}
+        # Pipeline + vision defaults from the wizard's two model questions.
+        # Used to be six per-task TaskPreference entries (one per classic-pipeline
+        # task); that choice only ever acted as a dead first entry of a fallback
+        # chain nothing else walked, and three of six tasks had no step to land
+        # on at all (see docs/settings_cleanup_phase1.md). Retired Oct 2026 to
+        # the two scopes that actually vary. - Claude Generated
+        default_model = models[0] if models else ""
+        resolved_pipeline_model = pipeline_model or default_model
+        resolved_vision_model = vision_model or default_model
 
-        for task_type in llm_tasks:
-            # Use user's model selection or fall back to default
-            selected_model = default_model
-            # task_model_selections stores keys using the enum's ``value`` (lower‑case) to stay consistent with how TaskPreference keys are serialized.
-            if task_model_selections and task_type.value in task_model_selections:
-                selected_model = task_model_selections[task_type.value]
-
-                # CRITICAL VALIDATION: Reject "default", "auto", or "auto-select" strings
-                # These should NEVER appear in wizard-created configs (only explicit model names)
-                if selected_model and isinstance(selected_model, str):
-                    model_lower = selected_model.lower()
-                    if model_lower in ["default", "auto", "auto-select", "(auto-select)"]:
-                        raise ValueError(
-                            f"Invalid model name '{selected_model}' for task {task_type.name}. "
-                            f"Wizard must use explicit model names, not auto-select placeholders."
-                        )
-
-                # Store task preference under the enum's value (e.g., "initialisation"), matching the lookup logic in ``UnifiedProviderConfig.get_task_preference``.
-                task_preferences[task_type.value] = TaskPreference(
-                    task_type=task_type,
-                    model_priority=[
-                        {
-                            "provider_name": provider.name,
-                            "model_name": selected_model
-                        }
-                    ],
-                    allow_fallback=True
+        # CRITICAL VALIDATION: Reject "default", "auto", or "auto-select" strings
+        # These should NEVER appear in wizard-created configs (only explicit model names)
+        for label, selected_model in (
+            ("Pipeline-Modell", resolved_pipeline_model),
+            ("Vision-Modell", resolved_vision_model),
+        ):
+            if selected_model and selected_model.lower() in ["default", "auto", "auto-select", "(auto-select)"]:
+                raise ValueError(
+                    f"Invalid model name '{selected_model}' for {label}. "
+                    f"Wizard must use explicit model names, not auto-select placeholders."
                 )
 
         # Create unified provider config
         unified_config = UnifiedProviderConfig(
             providers=[provider],
-            task_preferences=task_preferences,
+            pipeline_default_provider=provider.name,
+            pipeline_default_model=resolved_pipeline_model,
+            vision_default_provider=provider.name,
+            vision_default_model=resolved_vision_model,
         )
 
         # Assemble final config

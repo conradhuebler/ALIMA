@@ -483,23 +483,6 @@ class ClassicStepExecutorMixin:
                     filtered_config["system"] = step_config.custom_params["system_prompt"]
                 self.logger.info("Keywords: using session prompt override from custom_params")
 
-            # TaskPreference override for chunking_threshold (keywords task only)
-            if hasattr(self, 'config') and hasattr(self.config, 'step_configs'):
-                try:
-                    from ..utils.config_manager import ConfigManager
-                    cm = ConfigManager()
-                    cfg = cm.load_config()
-                    task_pref = cfg.unified_config.task_preferences.get("keywords")
-                    if task_pref and task_pref.chunking_threshold is not None:
-                        if task_pref.chunking_threshold == 0:
-                            # 0 means "Auto" → pass None to trigger auto-detect
-                            filtered_config["keyword_chunking_threshold"] = None
-                        else:
-                            filtered_config["keyword_chunking_threshold"] = task_pref.chunking_threshold
-                        self.logger.info(f"TaskPreference chunking_threshold override: {task_pref.chunking_threshold} → filtered={filtered_config.get('keyword_chunking_threshold')}")
-                except Exception as e:
-                    self.logger.debug(f"Could not load TaskPreference chunking_threshold: {e}")
-
             # Debug: Log what's actually in the filtered config - Claude Generated
             self.logger.info(f"Keywords step filtered_config: {filtered_config}")
             if "keyword_chunking_threshold" in filtered_config:
