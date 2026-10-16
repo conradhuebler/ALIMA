@@ -58,6 +58,9 @@ The `src/core/` directory contains the fundamental business logic and data manag
   Caching liegt im `CachingProvider` (`src/core/search/`), nicht mehr in
   `meta_suggester`. Offen: finaler agentischer Lauf zur Bestätigung (Chunk ≠ Final).
 
+### ✅ FIXED (Oct 2026): Chat-Historie schnitt mitten in Tool-Austauschen
+Beide Frontends (Qt6-Chat-Panel, Webapp) schnitten die letzten `CHAT_HISTORY_WINDOW` (5) Nachrichten per Index ab. Ab genug Tool-Aufrufen landet dieser Schnitt mitten in einem Austausch — auf einer verwaisten `tool`-Nachricht (ihr `assistant`-`tool_use` ist aus dem Fenster gefallen) oder auf einer `assistant`-Nachricht (Anthropic verlangt `user` als erste Nachricht). Beides führt zum selben 400er, den die Anthropic-Konvertierung in `llm_service.py` schon für falsch zusammengesetzte Nachrichten behoben hat — hier ist die Ursache eine andere: welche Nachrichten überhaupt ausgewählt werden. `chat_prompts.trim_history_to_turn_boundary` schiebt den Schnittpunkt rückwärts bis zur nächsten `user`-Nachricht statt ihn vorwärts zu kappen — mehr Kontext ist immer sicher, weniger kann wieder mitten im Austausch landen. Beide Aufrufstellen (`_chat_panel_chat_agent.py`, `webapp/routers/agent.py`) nutzen jetzt diese eine Funktion. Von einem Opus-Agenten gefunden, selbst am Code nachgerechnet vor der Behebung. Tests: `tests/test_chat_history_turn_boundary.py`.
+
 ### WIP: Iterative GND Search
 - Missing-concept feedback loop: `<missing_list>` → `extract_missing_concepts_from_response()` (processing_utils) + `execute_fallback_gnd_search()` / `execute_iterative_keyword_refinement()` (pipeline_utils). Details: `docs/iterative_gnd_search.md`.
 

@@ -28,6 +28,7 @@ from ..core.chat_prompts import (
     detect_mode,
     get_user_prompt_template,
     resolve_prompt_compact,
+    trim_history_to_turn_boundary,
 )
 from ..core.headless_agent import resolve_provider_model
 from ..utils.error_visibility import log_caught
@@ -306,7 +307,7 @@ class ChatAgentMixin:
         # Mode-aware prompt assembly + tier + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
         self.set_status_strip(t("chat.status.mode", mode=mode))
-        history = list(self.session.messages[-CHAT_HISTORY_WINDOW:])
+        history = trim_history_to_turn_boundary(self.session.messages, CHAT_HISTORY_WINDOW)
         history_truncated = len(self.session.messages) > len(history)
         compact = resolve_prompt_compact(
             getattr(chat_config, "system_prompt_tier", "auto"), model

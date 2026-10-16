@@ -498,10 +498,13 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
 
             # Last-N window of *prior* turns (exclude the just-appended current
             # message; AgentLoop re-adds it as the user prompt). history_truncated
-            # tells the model older turns exist. - Claude Generated
-            from src.core.chat_prompts import CHAT_HISTORY_WINDOW
+            # tells the model older turns exist. Turn-boundary-aware (not a raw
+            # slice): a naive last-N cut could start on an orphaned tool message
+            # or an assistant message, both rejected by Anthropic on the very
+            # next turn - same fix as the Qt6 chat panel. - Claude Generated
+            from src.core.chat_prompts import CHAT_HISTORY_WINDOW, trim_history_to_turn_boundary
             prior_history = list(session.chat_history)[:-1]
-            recent_history = prior_history[-CHAT_HISTORY_WINDOW:]
+            recent_history = trim_history_to_turn_boundary(prior_history, CHAT_HISTORY_WINDOW)
             history_truncated = len(prior_history) > len(recent_history)
 
             result = runner.run(

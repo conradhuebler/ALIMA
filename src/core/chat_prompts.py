@@ -704,6 +704,36 @@ def detect_mode(user_message: str, context_str: str = "") -> str:
 CHAT_HISTORY_WINDOW = 5
 
 
+def trim_history_to_turn_boundary(messages: list, window: int = CHAT_HISTORY_WINDOW) -> list:
+    """The last ``window`` messages, but never starting mid-turn - Claude Generated.
+
+    Both call sites (the Qt6 chat panel, the webapp) used to slice the last N
+    messages by raw count. Once a session has enough tool exchanges, that cut
+    point lands inside one: either on an orphaned "tool" message (its
+    matching assistant ``tool_use`` fell outside the window - Anthropic
+    requires every tool_result's tool_use in the immediately preceding
+    message) or on an "assistant" message (Anthropic requires the first
+    message overall to be "user"). Either shape 400s on the very next turn.
+
+    The cut point is extended BACKWARD to the nearest earlier "user" message
+    instead of forward-trimmed to an exact count - a user message is always a
+    clean turn boundary (nothing is pending before it), and growing the
+    window is always safe where shrinking it to hit an exact number is not.
+    A request this produces is therefore either the full history or strictly
+    more context than ``window`` would naively give, never less and never a
+    broken shape.
+    """
+    if window <= 0:
+        return []
+    if len(messages) <= window:
+        return list(messages)
+
+    cut = len(messages) - window
+    while cut > 0 and messages[cut].get("role") != "user":
+        cut -= 1
+    return list(messages[cut:])
+
+
 def apply_chat_directives(
     system_prompt: str,
     language: str = "de",
