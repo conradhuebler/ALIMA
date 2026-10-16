@@ -308,6 +308,7 @@ class StreamingUsesTheSdkTextStreamTest(unittest.TestCase):
 
     def test_cancellation_stops_the_loop_early(self):
         svc = _make_service()
+        get_final_message_calls = []
 
         class _CancellingStream(_FakeStream):
             @property
@@ -315,6 +316,10 @@ class StreamingUsesTheSdkTextStreamTest(unittest.TestCase):
                 for chunk in self._chunks:
                     yield chunk
                     svc.cancel_requested = True
+
+            def get_final_message(self):
+                get_final_message_calls.append(1)
+                return super().get_final_message()
 
         class _Messages:
             def stream(self, **params):
@@ -327,6 +332,16 @@ class StreamingUsesTheSdkTextStreamTest(unittest.TestCase):
             temperature=0.1, p_value=0.1, seed=None, stream=True,
         )
         self.assertEqual(result, "a")
+        # The real regression: get_final_message() calls until_done(), which
+        # reads the REST of the stream to completion regardless of how the
+        # for-loop was left (confirmed from the installed SDK's own source,
+        # anthropic/lib/streaming/_messages.py). A `break` here looked like it
+        # stopped but silently kept generating - and billing - until the
+        # model finished on its own. Cancellation must exit before this call.
+        self.assertEqual(
+            get_final_message_calls, [],
+            "get_final_message() must not run after a cancelled stream",
+        )
 
 
 class VisionSendsRealContentBlocksTest(unittest.TestCase):

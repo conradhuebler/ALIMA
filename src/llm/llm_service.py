@@ -1997,8 +1997,16 @@ class LlmService(QObject):
                     for text in anthropic_stream.text_stream:
                         self.last_chunk_time = time.time()
                         if self.cancel_requested:
+                            # return, not break: get_final_message() calls
+                            # until_done(), which reads the REST of the stream
+                            # to completion regardless of how the for-loop was
+                            # left - a `break` here looked like it stopped but
+                            # silently kept generating (and billing) until the
+                            # model finished on its own. Returning exits the
+                            # `with` block, which closes the connection.
+                            # - Claude Generated
                             self.logger.info("Anthropic generation cancelled")
-                            break
+                            return full_response
                         full_response += text
                         self.text_received.emit(self.current_request_id, text)
                     final_message = anthropic_stream.get_final_message()
