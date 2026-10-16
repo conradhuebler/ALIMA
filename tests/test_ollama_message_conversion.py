@@ -68,6 +68,17 @@ class TestOllamaMessageConversion(unittest.TestCase):
         self.assertEqual(out[0]["role"], "tool")
         self.assertEqual(out[0]["content"], '{"ok": true}')
 
+    def test_tool_result_carries_tool_name(self):
+        """Ollama has no tool_call_id - tool_name (ollama._types.Message.
+        tool_name) is the only signal correlating a result with its call,
+        which matters for a parallel multi-tool turn."""
+        out = _convert([{"role": "tool", "content": "x", "name": "search_gnd"}])
+        self.assertEqual(out[0]["tool_name"], "search_gnd")
+
+    def test_tool_result_without_a_name_gets_empty_string_not_a_missing_key(self):
+        out = _convert([{"role": "tool", "content": "x"}])
+        self.assertEqual(out[0]["tool_name"], "")
+
     def test_plain_messages_passthrough(self):
         out = _convert([
             {"role": "system", "content": "sys"},

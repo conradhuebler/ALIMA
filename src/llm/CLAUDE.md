@@ -32,6 +32,24 @@ The `src/llm/` directory provides a unified interface for integrating multiple L
 ### Gemini ✅ PORTED (Oct 2026): war komplett tot
 `google.generativeai` existiert nicht — die gepinnte, installierte SDK ist `google-genai` (Modul `google.genai`), eine andere API: `Client()` + `client.models.*` statt Modul-weitem `configure()`/`GenerativeModel()`. Jeder Init-Versuch war `ModuleNotFoundError`. Auf `google.genai` portiert (`_init_gemini`, `_generate_gemini`, `_generate_gemini_with_tools`, die Modell-Liste), dabei vier echte Funde mitbehoben: `self.clients["gemini"]` war hart kodiert statt des konfigurierten Instanznamens (derselbe Fehler wie bei Anthropic); ein Modellname ohne `gemini-`-Präfix wurde stillschweigend durch `gemini-1.5-flash` ersetzt — lief einfach auf dem falschen Modell, ohne Fehler; `hasattr(part, "function_call")` ist auf jedem Part-Objekt True (ein deklariertes, nur meist leeres Feld) und hätte jeden Text-Teil fälschlich als Tool-Aufruf behandelt — jetzt `is not None`; zwei parallele Aufrufe desselben Tools bekamen dieselbe `id` (`f"gemini_{name}"`), jetzt mit Index eindeutig. Bild-MIME-Erkennung mit Anthropic geteilt (`_detect_image_media_type`), Gemini akzeptiert kein GIF inline und konvertiert zu PNG. Tool-Schemas gehen über `parameters_json_schema` (nimmt das rohe JSON-Schema direkt, `parameters` verlangt Googles eigenen `Schema`-Typ). Der Einrichtungsassistent validierte einen Gemini-Schlüssel ebenfalls über den toten Import (`setup_utils.APIKeyValidator.validate_gemini`) — jeder gültige Schlüssel wurde als ungültig gemeldet; mitbehoben. Von einem Opus-Agenten gefunden, von mir am Code nachgerechnet vor dem Porting. Tests: `tests/test_gemini_generation.py`, `tests/test_gemini_key_validation.py`.
 
+### Zwei kleinere Lücken im Provider-Dispatch ✅ FIXED (Oct 2026)
+`_convert_messages_for_ollama` sendete Tool-Ergebnisse nur als `{"role": "tool",
+"content": ...}`. Ollama hat kein `tool_call_id`-Konzept — `tool_name`
+(`ollama._types.Message.tool_name`) ist das einzige Korrelationssignal für
+einen parallelen Multi-Tool-Turn; `AgentLoop` setzt `"name"` bereits auf jedes
+generische Tool-Result-Dict, der Konverter las es nur nie. Jetzt
+`"tool_name": msg.get("name", "")`.
+
+`cancel_generation`s serverseitiger Abbruch-Dispatch verglich `current_provider`
+gegen literale Strings (`"openai"`/`"anthropic"`/...) statt gegen `self.clients`'
+Instanznamen — derselbe Fehlertyp wie die Anthropic/Gemini-Bugs. Ein korrekter
+Treffer hätte trotzdem nichts bewirkt: die installierten `anthropic`/`openai`/
+`ollama`-Clients haben keine `.cancel()`-Methode (empirisch per `hasattr`
+bestätigt), jeder Zweig warf `AttributeError`, leise gefangen. Entfernt statt
+geflickt — der echte Abbruch läuft über `cancel_requested`/`stream_running`,
+in jeder Provider-Streaming-Schleife geprüft, unabhängig vom toten Dispatch.
+Tests: `tests/test_ollama_message_conversion.py`, `tests/test_cancel_generation.py`.
+
 ### OpenAI-Reasoning-Modelle im Tool-Pfad ✅ FIXED (Oct 2026)
 `_generate_openai_compatible` (Text-Pfad) kennt seit einer früheren Reparatur die
 OpenAI-/Reasoning-Modelle, die `temperature`/`top_p` auf Chat-Completions rundweg

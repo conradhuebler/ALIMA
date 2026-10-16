@@ -650,77 +650,19 @@ class LlmService(QObject):
         self.stream_running = False  # Claude Generated - Stop watchdog thread
         self.logger.info(f"Cancellation requested (reason: {reason})")
 
-        # Versuche serverseitigen Abbruch basierend auf dem Provider
-        try:
-            if self.current_provider == "openai" and self.current_request_id:
-                self._cancel_openai_request()
-            elif self.current_provider == "chatai" and self.current_request_id:
-                self._cancel_openai_compatible_request("chatai")
-            elif self.current_provider == "comet" and self.current_request_id:
-                self._cancel_openai_compatible_request("comet")
-            elif self.current_provider == "ollama":
-                self._cancel_ollama_request()
-            elif self.current_provider == "anthropic" and self.current_request_id:
-                self._cancel_anthropic_request()
-            else:
-                self.logger.info(
-                    f"No server-side cancellation available for {self.current_provider}"
-                )
-        except Exception as e:
-            self.logger.error(f"Error during server-side cancellation: {str(e)}")
-
+        # There used to be a server-side cancellation dispatch here, keyed by
+        # literal provider-type strings ("openai"/"anthropic"/...) against
+        # self.clients, which is keyed by configured instance name - the same
+        # bug class fixed for Anthropic/Gemini generation elsewhere this
+        # session. Fixing the key lookup alone would not have made it work:
+        # none of the installed anthropic/openai/ollama clients expose a
+        # cancel-style method at all (confirmed empirically), so every branch
+        # raised AttributeError, caught and logged. Removed rather than
+        # patched - actual cancellation already happens above
+        # (cancel_requested/stream_running), checked inside every provider's
+        # streaming loop. - Claude Generated
         self.generation_cancelled.emit(reason)
         return True
-
-    def _cancel_openai_request(self):
-        """Abbrechen einer OpenAI-Anfrage."""
-        if not self.current_request_id:
-            return
-
-        try:
-            self.logger.info(f"Cancelling OpenAI request {self.current_request_id}")
-            # Der spezifische OpenAI-Abbruch-Endpunkt
-            self.clients["openai"].cancel(self.current_request_id)
-        except (AttributeError, Exception) as e:
-            # Die neuere OpenAI API hat möglicherweise keine direkte cancel-Methode
-            self.logger.warning(f"OpenAI server-side cancellation failed: {str(e)}")
-
-    def _cancel_openai_compatible_request(self, provider):
-        """Abbrechen einer OpenAI-kompatiblen Anfrage (ChatAI, Comet)."""
-        if not self.current_request_id:
-            return
-
-        try:
-            self.logger.info(f"Cancelling {provider} request {self.current_request_id}")
-            # Für OpenAI-kompatible APIs
-            self.clients[provider].cancel(self.current_request_id)
-        except (AttributeError, Exception) as e:
-            self.logger.warning(f"{provider} server-side cancellation failed: {str(e)}")
-
-    def _cancel_ollama_request(self):
-        """Abbrechen einer Ollama-Anfrage."""
-        try:
-            self.logger.info("Cancelling Ollama request")
-            # Ollama hat einen speziellen Endpunkt zum Abbrechen
-            self.clients["ollama"].post(
-                f"{self.ollama_url}:{self.ollama_port}/api/cancel",
-                json={},  # Neuere Ollama-Versionen benötigen keine Modellangabe
-                timeout=5,  # 5 second timeout to prevent UI blocking
-            )
-        except Exception as e:
-            self.logger.warning(f"Ollama cancellation failed: {str(e)}")
-
-    def _cancel_anthropic_request(self):
-        """Abbrechen einer Anthropic-Anfrage."""
-        if not self.current_request_id:
-            return
-
-        try:
-            self.logger.info(f"Cancelling Anthropic request {self.current_request_id}")
-            # Neuere Anthropic-Versionen unterstützen möglicherweise Abbrüche
-            self.clients["anthropic"].cancel(self.current_request_id)
-        except (AttributeError, Exception) as e:
-            self.logger.warning(f"Anthropic server-side cancellation failed: {str(e)}")
 
     def _initialize_single_provider(self, provider: str):
         """
@@ -3258,10 +3200,16 @@ class LlmService(QObject):
         for msg in messages:
             role = msg["role"]
             if role == "tool":
-                # Ollama expects tool results as role "tool"
+                # Ollama expects tool results as role "tool". Ollama has no
+                # tool_call_id concept at all - ``tool_name`` (ollama._types.
+                # Message.tool_name) is the only signal available to
+                # correlate a result with its call, which matters for a
+                # parallel multi-tool turn. AgentLoop already puts "name" on
+                # every generic tool-result dict. - Claude Generated
                 ollama_msgs.append({
                     "role": "tool",
                     "content": msg.get("content", ""),
+                    "tool_name": msg.get("name", ""),
                 })
             elif role == "assistant" and isinstance(msg.get("tool_calls"), list):
                 # Assistant message with tool calls. The Ollama SDK's
