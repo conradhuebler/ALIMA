@@ -442,6 +442,7 @@ class AgentLoop:
                         provider=provider, model=model, messages=messages, tools=[],
                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
                         seed=seed, think=think,
+                        should_stop=self.should_stop, thinking_callback=thinking_cb,
                     )
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     final_stop_reason = forced.stop_reason
@@ -531,6 +532,7 @@ class AgentLoop:
                         messages=messages, tools=[],  # No tools = force text response
                         temperature=temperature, top_p=top_p, max_tokens=max_tokens,
                         seed=seed, think=think,
+                        should_stop=self.should_stop, thinking_callback=thinking_cb,
                     )
                     final_stop_reason = forced.stop_reason
                     final_content = forced.content or getattr(forced, "reasoning", "")

@@ -43,6 +43,15 @@ The `src/core/` directory contains the fundamental business logic and data manag
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): Erzwungene Abschluss-Antworten in AgentLoop ohne should_stop/thinking_callback
+Zwei Stellen in `agent_loop.py` (die "Modell ohne Text"-Nudge und der
+Max-Iterations-Zwangsabschluss) riefen `generate_with_tools` ohne
+`should_stop`/`thinking_callback` auf — anders als jeder andere Aufruf im
+selben Loop. Während dieses letzten Calls wirkte ein Stop-Request nicht, und
+Thinking wurde nicht live an `on_thinking` durchgereicht (fiel ohne Reasoning
+auf keinen Inhalt zurück). Beide Stellen bekommen jetzt dieselben zwei
+Parameter wie der Haupt-Loop-Call. Tests: `tests/test_agent_loop_hooks.py`.
+
 ### ✅ FIXED (Oct 2026): DatabaseConfig.charset/ssl_disabled hatten keinen Leser
 `DatabaseManager.get_connection()`s MySQL/MariaDB-Zweige übergaben an
 `setConnectOptions` nur `MYSQL_OPT_CONNECT_TIMEOUT` - beide Felder hatten ein

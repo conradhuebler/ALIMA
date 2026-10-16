@@ -393,6 +393,63 @@ class TestAgentLoopThinking(unittest.TestCase):
         result = loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
         self.assertEqual(result.content, "Erst suchen.\n\nDann filtern.")
 
+    def test_nudge_forced_call_receives_should_stop_and_thinking_callback(self):
+        """The one-time 'write a final answer' nudge (empty turn, no
+        reasoning) used to call generate_with_tools without should_stop or
+        thinking_callback - unlike every other call in the loop. A stop
+        request during that one call went unhonored, and its thinking (if
+        any) never reached on_thinking live."""
+        calls = []
+
+        def _gen(**kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return AgentResponse(content="", tool_calls=[], reasoning="")
+            return AgentResponse(content="Finale Antwort.", tool_calls=[])
+
+        svc = MagicMock()
+        svc.generate_with_tools.side_effect = _gen
+
+        loop = AgentLoop(
+            llm_service=svc,
+            tool_registry=_make_registry(),
+            max_iterations=3,
+            on_thinking=lambda t: None,
+        )
+        loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+
+        self.assertEqual(len(calls), 2)
+        nudge_call = calls[1]
+        self.assertIs(nudge_call["should_stop"], loop.should_stop)
+        self.assertIsNotNone(nudge_call["thinking_callback"])
+
+    def test_max_iterations_forced_call_receives_should_stop_and_thinking_callback(self):
+        """Same gap in the other forced-conclusion call site (loop exhausted
+        without a tool-free turn)."""
+        tc = ToolCall(id="t1", name="get_keywords", arguments={})
+        calls = []
+
+        def _gen(**kwargs):
+            calls.append(kwargs)
+            if kwargs.get("tools"):
+                return AgentResponse(content="", tool_calls=[tc])
+            return AgentResponse(content="Erzwungene Antwort.", tool_calls=[])
+
+        svc = MagicMock()
+        svc.generate_with_tools.side_effect = _gen
+
+        loop = AgentLoop(
+            llm_service=svc,
+            tool_registry=_make_registry(),
+            max_iterations=2,
+            on_thinking=lambda t: None,
+        )
+        loop.run(system_prompt="s", user_prompt="u", tools=["get_keywords"], provider="p", model="m")
+
+        forced_call = next(c for c in calls if not c.get("tools"))
+        self.assertIs(forced_call["should_stop"], loop.should_stop)
+        self.assertIsNotNone(forced_call["thinking_callback"])
+
     def test_max_iterations_forced_answer_is_streamed(self):
         """The forced final answer (max iterations, empty prose) must reach
         the stream so per-iteration bubble finalize doesn't lose it."""
