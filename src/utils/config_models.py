@@ -712,6 +712,16 @@ class UnifiedProviderConfig:
 
         for source, provider, model in candidate_fields:
             if provider:
+                # A named default surviving its provider being disabled or
+                # deleted used to still win here - the resolution table
+                # showed it as "configured" and the actual run then failed
+                # downstream in llm_service with "No client found". Treat an
+                # unusable named provider exactly like an unset one: fall
+                # through to the next candidate, same as the fallback branch
+                # below already does for "first enabled". - Claude Generated
+                candidate_obj = self.get_provider_by_name(provider)
+                if candidate_obj is None or not candidate_obj.enabled or not candidate_obj.is_usable:
+                    continue
                 if not model:
                     _, model = self.resolve_provider_model(provider)
                 return provider, model, source

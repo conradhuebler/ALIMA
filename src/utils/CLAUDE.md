@@ -49,6 +49,9 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): ein abgeschalteter Standard-Provider "gewann" trotzdem
+`explain_default_provider_model` prüfte je Kandidat nur `if provider:` (ein nicht-leerer Name) — egal ob `preferred_provider`/`pipeline_default_provider`/`agentic_default_provider`/`vision_default_provider` tatsächlich noch aktiviert oder überhaupt noch konfiguriert war. Nur der letzte Rückfall (`first_enabled`) prüfte `is_usable`. Einen Provider abschalten oder löschen, auf den ein Standard zeigt: die Tabelle zeigte ihn weiter als "konfiguriert", der Lauf scheiterte dann erst tief in `llm_service` ("No client found"). Jetzt prüft jeder Kandidat `enabled` und `is_usable`, bevor er gewinnt — ein nicht nutzbarer Name fällt genauso durch wie ein leerer. Tests: `tests/test_disabled_default_falls_through.py`.
+
 ### ✅ FIXED (Oct 2026): ein Provider-Problem konnte die ganze Konfiguration zurücksetzen
 `_parse_config` warf `ValueError` bei „keine Provider" oder „alle Provider aus" — gefangen
 vom umgebenden `except Exception`, dessen Fallback `AlimaConfig()` war: eine komplett leere
