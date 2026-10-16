@@ -44,6 +44,32 @@ def apply_cli_overrides(pipeline_config, args):
     return PipelineConfigBuilder.parse_and_apply_cli_args(builder, args)
 
 
+#: The sentinel SystemConfig.default_workflow carries for "classic, no
+#: agentic workflow" — canonically defined in
+#: src/ui/settings/workflow_list.py::CLASSIC_STEM. Duplicated here rather
+#: than imported, matching the existing src/webapp/routers/*.py pattern: the
+#: CLI must not depend on src/ui/. - Claude Generated
+_CLASSIC_WORKFLOW_SENTINEL = "__classic__"
+
+
+def agentic_mode_needs_an_explicit_workflow(pipeline_config, args) -> bool:
+    """True when --agentic was requested but no real workflow is resolvable.
+
+    Without --workflow/--custom-workflow, pipeline_config.workflow_name is
+    whatever create_from_provider_preferences() inherited from
+    SystemConfig.default_workflow - which can legitimately be the classic
+    sentinel (set via the Settings dialog's "⭐ Als Standard" on the classic
+    row). That is a contradiction together with --agentic: there is no
+    "__classic__.yaml" to load, and that internal sentinel leaking into a
+    "workflow not found" error would confuse an operator who never typed it.
+    - Claude Generated
+    """
+    return (
+        not getattr(args, 'custom_workflow', None)
+        and pipeline_config.workflow_name == _CLASSIC_WORKFLOW_SENTINEL
+    )
+
+
 def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService,
                    prompt_service: Any, logger: logging.Logger):
     """Handle 'pipeline' command - Execute complete ALIMA analysis pipeline.
@@ -224,6 +250,14 @@ def handle_pipeline(args, config_manager: ConfigManager, llm_service: LlmService
                 if getattr(args, 'custom_workflow', None):
                     updated_pipeline_config.custom_workflow_path = args.custom_workflow
                     logger.info(f"📋 Custom workflow: {args.custom_workflow}")
+
+                if agentic_mode_needs_an_explicit_workflow(updated_pipeline_config, args):
+                    logger.error(
+                        "❌ --agentic braucht einen Workflow, aber der Standard-Workflow "
+                        "ist auf die klassische Pipeline gesetzt. Bitte --workflow <name> "
+                        "angeben (siehe `alima workflows list`)."
+                    )
+                    return
 
                 # Single-step execution - Claude Generated
                 if getattr(args, 'only_step', None):

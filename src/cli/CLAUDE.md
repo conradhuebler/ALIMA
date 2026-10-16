@@ -12,6 +12,17 @@
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): `--agentic` ohne `--workflow` konnte den `__classic__`-Sentinel als Workflow-Namen leaken
+`PipelineConfig.create_from_provider_preferences()` übernimmt `SystemConfig.default_workflow`
+unconditionally als `workflow_name` — das kann legitim `"__classic__"` sein (der Sentinel, den
+`src/ui/settings/workflow_list.py::CLASSIC_STEM` schreibt, wenn die klassische Pipeline als
+Standard markiert ist). `handle_pipeline` setzte `enable_agentic_mode = True` für `--agentic`,
+ohne das zu prüfen — ohne `--workflow` lief ein solcher Aufruf auf einen Versuch,
+`__classic__.yaml` zu laden (gibt es nicht), mit einer Fehlermeldung, die den internen Sentinel
+nannte, den der Operator nie eingegeben hat. `agentic_mode_needs_an_explicit_workflow()`
+(`pipeline_cmd.py`) fängt den Widerspruch jetzt vorher ab und meldet klar: `--workflow <name>`
+angeben. Tests: `tests/test_cli_agentic_classic_sentinel.py`.
+
 ### Known Issues / Cleanup
 - **stdout convention (resolved — non-issue)**: `formatters/protocol_formatters.py` uses bare `print()` for display/export output (correct), `print_result` is for command result lines. `print_result` always writes stdout and only adds logging, so there's no quiet-handling gap to fix — the split is intentional.
 - `save-state` is deprecated but intentionally retained (operator decision, June 2026).
