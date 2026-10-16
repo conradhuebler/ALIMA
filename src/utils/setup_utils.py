@@ -152,10 +152,16 @@ class APIKeyValidator:
             return SetupResult(False, "Ungültiges API-Schlüssel-Format")
 
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content("test")
+            # google.generativeai does not exist under that name - the
+            # pinned/installed SDK is google-genai (module google.genai,
+            # Client() + client.models.*). Every validation attempt raised
+            # ModuleNotFoundError and was reported as an invalid key, even
+            # for a perfectly valid one. - Claude Generated
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            client.models.generate_content(
+                model="gemini-2.5-flash", contents="test",
+            )
             return SetupResult(True, "API-Schlüssel ist gültig")
         except Exception as e:
             return SetupResult(False, f"API-Schlüssel-Validierung fehlgeschlagen: {str(e)}")

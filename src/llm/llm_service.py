@@ -225,15 +225,27 @@ _ANTHROPIC_IMAGE_MEDIA_TYPES = {
     "WEBP": "image/webp",
 }
 
+#: Gemini's inline-data image support does not include GIF (unlike Anthropic).
+_GEMINI_IMAGE_MEDIA_TYPES = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "WEBP": "image/webp",
+}
 
-def _anthropic_image_block(img_bytes: bytes) -> Dict[str, Any]:
-    """Detect the real image format; the ``media_type`` was hardcoded to
-    "image/jpeg" regardless of what ``process_image`` actually returned (the
-    unmodified bytes of whatever file was picked - PNG is first in that
-    picker's filter and the webcam-capture path writes PNG). Anthropic
-    validates the declared type against the bytes and rejects a mismatch;
-    BMP/TIFF (also offered by the picker) aren't accepted at all and are
+
+def _detect_image_media_type(img_bytes: bytes, accepted: Dict[str, str]) -> "tuple[str, bytes]":
+    """Detect the real image format against one provider's accepted set.
+
+    ``media_type`` used to be hardcoded to "image/jpeg" regardless of what
+    ``process_image`` actually returned (the unmodified bytes of whatever file
+    was picked - PNG is first in that picker's filter and the webcam-capture
+    path writes PNG). Both providers validate the declared type against the
+    bytes and reject a mismatch; a format outside the provider's accepted set
+    (BMP/TIFF for both, GIF for Gemini - all offered by the same picker) is
     converted to PNG rather than left to fail. - Claude Generated
+
+    Returns (media_type, bytes) - the original bytes if the format was
+    already accepted, re-encoded PNG bytes otherwise.
     """
     import io
 
@@ -242,37 +254,37 @@ def _anthropic_image_block(img_bytes: bytes) -> Dict[str, Any]:
     try:
         with Image.open(io.BytesIO(img_bytes)) as im:
             fmt = (im.format or "").upper()
-            if fmt in _ANTHROPIC_IMAGE_MEDIA_TYPES:
-                return {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": _ANTHROPIC_IMAGE_MEDIA_TYPES[fmt],
-                        "data": base64.b64encode(img_bytes).decode(),
-                    },
-                }
+            if fmt in accepted:
+                return accepted[fmt], img_bytes
             buf = io.BytesIO()
             im.convert("RGB").save(buf, format="PNG")
-            return {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/png",
-                    "data": base64.b64encode(buf.getvalue()).decode(),
-                },
-            }
+            return "image/png", buf.getvalue()
     except Exception:
         # Detection itself failed (corrupt/unreadable bytes) - send as-is
-        # rather than silently drop the image; Anthropic's own error on an
+        # rather than silently drop the image; the provider's own error on an
         # actually-bad file is clearer than guessing. - Claude Generated
-        return {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": base64.b64encode(img_bytes).decode(),
-            },
-        }
+        return "image/jpeg", img_bytes
+
+
+def _anthropic_image_block(img_bytes: bytes) -> Dict[str, Any]:
+    """Build an Anthropic image content block with the real media_type."""
+    media_type, data = _detect_image_media_type(img_bytes, _ANTHROPIC_IMAGE_MEDIA_TYPES)
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": base64.b64encode(data).decode(),
+        },
+    }
+
+
+def _gemini_image_part(img_bytes: bytes) -> Any:
+    """Build a Gemini image Part with the real media_type."""
+    from google.genai import types as genai_types
+
+    media_type, data = _detect_image_media_type(img_bytes, _GEMINI_IMAGE_MEDIA_TYPES)
+    return genai_types.Part.from_bytes(data=data, mime_type=media_type)
 
 
 def _emit_thinking(callback: Optional[Callable[[str], None]], text: str) -> None:
@@ -447,9 +459,14 @@ class LlmService(QObject):
                 provider_key = provider.name  # Use original case to match get_available_providers() output - Claude Generated
 
                 if provider.provider_type == "gemini":
+                    # google.generativeai does not exist under that name - the
+                    # installed/pinned SDK is google-genai, module google.genai,
+                    # a different API (Client() + client.models.*, no module-level
+                    # configure()/GenerativeModel()). Was never ported when the
+                    # dependency changed, so every init hit ImportError. - Claude Generated
                     self.all_providers[provider_key] = {
-                        "module": "google.generativeai",
-                        "class": None,
+                        "module": "google.genai",
+                        "class": "Client",
                         "initializer": self._init_gemini,
                         "generator": self._generate_gemini,
                         "config": provider
@@ -1040,10 +1057,13 @@ class LlmService(QObject):
             # Simple provider type based model loading - Claude Generated
             self.logger.debug(f"Loading models for {provider} (type: {provider_config.provider_type})")
             if provider_config.provider_type == "gemini":
+                # google-genai: Client().models.list() (auto-paginating),
+                # not a module-level list_models() - that method does not
+                # exist on a Client. - Claude Generated
                 return [
                     model.name.split("/")[-1]
-                    for model in self.clients[client_key].list_models()
-                    if hasattr(model, "name")
+                    for model in self.clients[client_key].models.list()
+                    if model.name
                 ]
 
             elif provider_config.provider_type == "ollama":
@@ -1260,9 +1280,13 @@ class LlmService(QObject):
     def _init_gemini(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
     ):
-        """Initialize Gemini provider."""
-        module.configure(api_key=api_key)
-        self.clients[provider] = module
+        """Initialize Gemini provider - Claude Generated
+
+        google-genai has no module-level configure() - a real client object is
+        constructed per provider instance, same as every other provider here.
+        """
+        client_class = getattr(module, provider_info["class"])
+        self.clients[provider] = client_class(api_key=api_key)
 
     def _init_openai_compatible(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
@@ -1483,110 +1507,66 @@ class LlmService(QObject):
         system: Optional[str] = "",
         stream: bool = True,
     ) -> str:
-        """Generate response using Google Gemini."""
+        """Generate response using Google Gemini - Claude Generated
+
+        Ported to the google-genai SDK (Client().models.*), the installed/
+        pinned one - google.generativeai does not exist under that name. The
+        model string is passed through exactly as configured: it used to be
+        silently replaced with "gemini-1.5-flash" whenever it didn't start
+        with "gemini-" (a models/<alias> name, or any newer family, would
+        have run on the wrong model with no error).
+        """
+        # self.clients is keyed by the configured provider NAME, not the
+        # provider_type "gemini" - set by generate_response() just before
+        # this generator runs, the same reasoning as _generate_anthropic.
+        # - Claude Generated
+        provider = self.current_provider
+        if provider not in self.clients:
+            raise ValueError(f"Gemini provider '{provider}' not initialized in clients")
+
         try:
-            generation_config = {
+            from google.genai import types as genai_types
+
+            config_kwargs: Dict[str, Any] = {
                 "temperature": temperature,
                 "top_p": p_value,
             }
-
-            # Add JSON-mode response mime type - Claude Generated
+            if system:
+                config_kwargs["system_instruction"] = system
+            if seed is not None:
+                config_kwargs["seed"] = seed
             if self.current_output_format != "xml":
-                generation_config["response_mime_type"] = "application/json"
+                config_kwargs["response_mime_type"] = "application/json"
                 self.logger.info("🔧 Gemini JSON-Mode enabled")
 
-            # Fix für model_version Problem
-            if not model.startswith("models/"):
-                model_name = model
-                if not model_name.startswith("gemini-"):
-                    model_name = f"gemini-1.5-flash"  # Current valid Gemini model - Claude Generated
-
-                model = f"models/{model_name}"
-                self.logger.info(f"Verwende vollqualifiziertes Gemini Modell: {model}")
-                #TODO Altlast, hier ist noch zeugs, das muss aufgeräumt werden
-                
-            # Create model instance with system instruction if provided
-            system_instruction = system if system else None
-            model_instance = self.clients["gemini"].GenerativeModel(
-                model, system_instruction=system_instruction
-            )
-
-            # Vorbereiten des Inhalts
             if image:
                 img_bytes = self.process_image(image)
-                content = [prompt, {"mime_type": "image/jpeg", "data": img_bytes}]
+                contents: Any = [prompt, _gemini_image_part(img_bytes)]
             else:
-                content = prompt
+                contents = prompt
 
-            # Handle streaming option
+            client = self.clients[provider]
+
             if stream:
-                try:
-                    # Versuche die aktuelle Streaming-API zu verwenden
-                    response = model_instance.generate_content(
-                        content, generation_config=generation_config, stream=True
-                    )
-
-                    full_response = ""
-                    for chunk in response:
-                        # Prüfen auf Abbruchsignal
-                        if self.cancel_requested:
-                            self.logger.info("Gemini generation cancelled")
-                            break
-
-                        # In neueren Versionen ist chunk.text direkt verfügbar
-                        if hasattr(chunk, "text"):
-                            chunk_text = chunk.text
-                        # In älteren Versionen müssen wir es aus den parts extrahieren
-                        elif hasattr(chunk, "parts"):
-                            chunk_text = "".join(
-                                [
-                                    part.text
-                                    for part in chunk.parts
-                                    if hasattr(part, "text")
-                                ]
-                            )
-                        else:
-                            # Fallback für andere Formate
-                            try:
-                                chunk_text = chunk.candidates[0].content.parts[0].text
-                            except (AttributeError, IndexError):
-                                chunk_text = str(chunk)
-
-                        if chunk_text:
-                            full_response += chunk_text
-                            self.text_received.emit(self.current_request_id, chunk_text)
-
-                    return full_response
-
-                except (AttributeError, TypeError) as e:
-                    # Fallback für den Fall, dass das Streaming nicht funktioniert
-                    self.logger.warning(
-                        f"Streaming fehler: {e}, verwende nicht-streaming Methode"
-                    )
-                    response = model_instance.generate_content(
-                        content, generation_config=generation_config, stream=False
-                    )
-                    response_text = (
-                        response.text
-                        if hasattr(response, "text")
-                        else response.parts[0].text
-                    )
-                    self.text_received.emit(self.current_request_id, response_text)
-                    return response_text
+                full_response = ""
+                for chunk in client.models.generate_content_stream(
+                    model=model, contents=contents,
+                    config=genai_types.GenerateContentConfig(**config_kwargs),
+                ):
+                    if self.cancel_requested:
+                        self.logger.info("Gemini generation cancelled")
+                        break
+                    chunk_text = chunk.text or ""
+                    if chunk_text:
+                        full_response += chunk_text
+                        self.text_received.emit(self.current_request_id, chunk_text)
+                return full_response
             else:
-                # Nicht-Streaming-Variante
-                response = model_instance.generate_content(
-                    content, generation_config=generation_config
+                response = client.models.generate_content(
+                    model=model, contents=contents,
+                    config=genai_types.GenerateContentConfig(**config_kwargs),
                 )
-
-                # Je nach API-Version kann die Antwort unterschiedlich strukturiert sein
-                if hasattr(response, "text"):
-                    return response.text
-                elif hasattr(response, "parts") and response.parts:
-                    return response.parts[0].text
-                else:
-                    response.resolve()  # Für ältere API-Versionen
-                    return response.text
+                return response.text or ""
 
         except Exception as e:
             self.logger.error(f"Gemini error: {str(e)}")
@@ -2519,7 +2499,7 @@ class LlmService(QObject):
                 )
             elif provider_type == "gemini":
                 return self._generate_gemini_with_tools(
-                    model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
                     should_stop=should_stop,
                 )
             else:
@@ -3024,6 +3004,7 @@ class LlmService(QObject):
 
     def _generate_gemini_with_tools(
         self,
+        provider: str,
         model: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
@@ -3036,92 +3017,104 @@ class LlmService(QObject):
     ) -> "AgentResponse":
         """Tool-calling via Google Gemini API - Claude Generated
 
-        Note: token streaming with tools is not wired here (``stream_callback``
-        is accepted for signature parity but not invoked). Ollama, OpenAI, and
-        Anthropic stream intermediate text live; Gemini still delivers its text
-        only on completion. - Claude Generated
+        Ported to the google-genai SDK (Client().models.*).
+
+        Note: token streaming with tools is still not wired here
+        (``stream_callback`` is accepted for signature parity but not
+        invoked, unchanged from before the port) - Ollama, OpenAI, and
+        Anthropic stream intermediate text live; Gemini still delivers its
+        text only on completion.
+
+        ``provider`` is the configured instance NAME (e.g. a Gemini instance
+        could be named anything), not the provider_type "gemini" -
+        self.clients is keyed by name, the same fix already applied to the
+        Anthropic generators.
         """
         from src.core.data_models import AgentResponse, ToolCall, StopReason
+        from google.genai import types as genai_types
 
-        if "gemini" not in self.clients:
-            raise ValueError("Gemini client not initialized")
+        if provider not in self.clients:
+            raise ValueError(f"Gemini provider '{provider}' not initialized")
 
-        # Convert tools to Gemini function declaration format
-        function_declarations = []
-        for tool in tools:
-            params = tool.get("parameters", {"type": "object", "properties": {}})
-            function_declarations.append({
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": params,
-            })
+        # Convert tools to Gemini function declarations. parameters_json_schema
+        # (not the stricter `parameters: Schema` field) accepts the raw JSON
+        # Schema dict ALIMA's tools already use, the same shape passed to
+        # Anthropic/OpenAI - no schema-dialect conversion needed. - Claude Generated
+        function_declarations = [
+            genai_types.FunctionDeclaration(
+                name=tool["name"],
+                description=tool.get("description", ""),
+                parameters_json_schema=tool.get("parameters", {"type": "object", "properties": {}}),
+            )
+            for tool in tools
+        ]
 
         # Extract system message and build Gemini content
         system_text = ""
-        gemini_contents = []
+        gemini_contents: List[Any] = []
         for msg in messages:
             if msg["role"] == "system":
-                system_text = msg["content"]
+                system_text = msg.get("content", "") or ""
             elif msg["role"] == "user":
-                gemini_contents.append({"role": "user", "parts": [{"text": msg["content"]}]})
+                gemini_contents.append(genai_types.Content(
+                    role="user", parts=[genai_types.Part.from_text(text=msg.get("content", "") or "")],
+                ))
             elif msg["role"] == "assistant":
-                gemini_contents.append({"role": "model", "parts": [{"text": msg.get("content", "")}]})
+                gemini_contents.append(genai_types.Content(
+                    role="model", parts=[genai_types.Part.from_text(text=msg.get("content", "") or "")],
+                ))
             elif msg["role"] == "tool":
-                # Gemini expects function response format
-                gemini_contents.append({
-                    "role": "function",
-                    "parts": [{"functionResponse": {
-                        "name": msg.get("name", ""),
-                        "response": {"result": msg.get("content", "")},
-                    }}],
-                })
-
-        # Build model name
-        model_name = model
-        if not model_name.startswith("models/"):
-            if not model_name.startswith("gemini-"):
-                model_name = "gemini-1.5-flash"
-            model_name = f"models/{model_name}"
+                gemini_contents.append(genai_types.Content(
+                    role="function",
+                    parts=[genai_types.Part.from_function_response(
+                        name=msg.get("name", ""),
+                        response={"result": msg.get("content", "")},
+                    )],
+                ))
 
         try:
-            model_instance = self.clients["gemini"].GenerativeModel(
-                model_name,
-                system_instruction=system_text if system_text else None,
-                tools=[{"function_declarations": function_declarations}] if function_declarations else None,
-            )
-
-            generation_config = {
+            config_kwargs: Dict[str, Any] = {
                 "temperature": temperature,
                 "top_p": top_p,
                 "max_output_tokens": max_tokens,
             }
+            if system_text:
+                config_kwargs["system_instruction"] = system_text
             if seed is not None:
-                # Gemini SDK accepts `seed` in generation_config since 2024.
-                # Older SDKs raise on unknown keys; we try and fall back.
-                generation_config["seed"] = seed
+                config_kwargs["seed"] = seed
+            if function_declarations:
+                config_kwargs["tools"] = [genai_types.Tool(function_declarations=function_declarations)]
 
-            response = model_instance.generate_content(
-                gemini_contents,
-                generation_config=generation_config,
-                stream=False,
+            response = self.clients[provider].models.generate_content(
+                model=model, contents=gemini_contents,
+                config=genai_types.GenerateContentConfig(**config_kwargs),
             )
 
             content = ""
             tool_calls = []
 
-            if hasattr(response, "candidates") and response.candidates:
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, "text") and part.text:
-                        content += part.text
-                    elif hasattr(part, "function_call"):
-                        fc = part.function_call
-                        args = dict(fc.args) if hasattr(fc, "args") else {}
-                        tool_calls.append(ToolCall(
-                            id=f"gemini_{fc.name}",
-                            name=fc.name,
-                            arguments=args,
-                        ))
-
+            candidates = response.candidates or []
+            parts = candidates[0].content.parts if candidates and candidates[0].content else []
+            for i, part in enumerate(parts or []):
+                if part.text:
+                    content += part.text
+                elif part.function_call is not None:
+                    # part.function_call ALWAYS exists as an attribute (a
+                    # declared pydantic field) even when unset - the old code's
+                    # hasattr(part, "function_call") check was therefore always
+                    # True, including on plain text parts. Checking the VALUE,
+                    # not the attribute's existence, is what actually
+                    # discriminates the two. - Claude Generated
+                    fc = part.function_call
+                    # Enumerated, not just the name: two parallel calls to the
+                    # same tool in one turn produced the SAME id
+                    # ("gemini_{name}"), and Anthropic/OpenAI both require
+                    # call ids to be unique within a turn. - Claude Generated
+                    tool_calls.append(ToolCall(
+                        id=f"gemini_{i}_{fc.name}",
+                        name=fc.name,
+                        arguments=dict(fc.args) if fc.args else {},
+                    ))
 
             if should_stop and should_stop():
                 return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)

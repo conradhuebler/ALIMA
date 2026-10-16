@@ -90,10 +90,13 @@ class TestGenerateWithToolsSeedDispatch(unittest.TestCase):
             tools=[], temperature=0.5, top_p=0.9, max_tokens=128,
             seed=99,
         )
-        # gemini handler has different signature (no provider positional)
-        # model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback
+        # gemini signature: provider, model, messages, tools, temperature,
+        # top_p, max_tokens, seed, stream_callback - provider was added so
+        # self.clients is keyed by the configured instance name, not the
+        # literal "gemini" (same fix as Anthropic's tool-calling generator).
         args, _ = target.call_args
-        self.assertEqual(args[6], 99)
+        self.assertEqual(args[0], "fake")
+        self.assertEqual(args[7], 99)
 
     def test_anthropic_handler_does_not_receive_seed(self):
         """Anthropic SDK kennt kein seed — dispatch must omit it (P-η decision)."""
