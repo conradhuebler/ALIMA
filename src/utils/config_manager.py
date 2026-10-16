@@ -484,24 +484,25 @@ class ConfigManager:
                 self.logger.debug("📋 Modern configuration detected - parsing provider data")
                 unified_config = self._parse_modern_config(config_data)
 
-            # P0.4: Empty provider protection - Claude Generated
+            # Not configured yet, or every provider currently disabled: both are
+            # legitimate, representable states - log them so they are visible,
+            # but do not raise. Raising here fed the broad `except Exception`
+            # below, which replaced the WHOLE loaded config with a fresh empty
+            # AlimaConfig() - and the next save of anything (a font size, a
+            # checkbox) then wrote that empty providers list back to disk,
+            # permanently losing the real one. `first_run_completed` is the
+            # actual, non-destructive signal for "nothing configured yet"
+            # (checked at GUI/CLI startup to offer the wizard). - Claude Generated
             if not unified_config.providers:
-                error_msg = (
-                    "No LLM providers configured. ALIMA requires at least one provider to function.\n"
-                    "Please run the first-start wizard or add a provider in Settings > Providers.\n"
-                    "Use 'python alima_gui.py' (GUI) or 'python alima_cli.py wizard' (CLI) to configure."
+                self.logger.warning(
+                    "No LLM providers configured. Run the first-start wizard or "
+                    "add a provider in Settings > Providers."
                 )
-                self.logger.error(f"❌ {error_msg}")
-                raise ValueError(error_msg)
-
-            enabled_providers = unified_config.get_enabled_providers()
-            if not enabled_providers:
-                error_msg = (
-                    f"All {len(unified_config.providers)} provider(s) are disabled. "
-                    "Enable at least one provider in Settings > Providers."
+            elif not unified_config.get_enabled_providers():
+                self.logger.warning(
+                    f"All {len(unified_config.providers)} configured provider(s) "
+                    "are disabled. Enable at least one in Settings > Providers."
                 )
-                self.logger.error(f"❌ {error_msg}")
-                raise ValueError(error_msg)
 
             # Plugin instances (generic, all categories). If a config predates the
             # plugin model for a category, synthesise that category's instances from
@@ -582,6 +583,14 @@ class ConfigManager:
         unified_config.preferred_model = data.get("preferred_model", "")
         unified_config.model_chunking_thresholds = data.get("model_chunking_thresholds", {})
 
+        # Same bug, same fix, one field it had not yet been applied to: a Vision
+        # default chosen in the resolution table was never read back, so a
+        # restart silently reset it, and the next save then clobbered the
+        # on-disk value with that empty default (see save_config's preserve
+        # list). - Claude Generated
+        unified_config.vision_default_provider = data.get("vision_default_provider", "")
+        unified_config.vision_default_model = data.get("vision_default_model", "")
+
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
         unified_config.anthropic_api_key = data.get("anthropic_api_key", "")
@@ -589,10 +598,20 @@ class ConfigManager:
         unified_config.anthropic_preferred_model = data.get("anthropic_preferred_model", "")
 
         # Parse saved providers from config - Claude Generated
+        #
+        # Unknown keys are filtered rather than passed straight to the
+        # constructor (same pattern as plugin_migration.instance_from_dict):
+        # a future UnifiedProvider field removal (e.g. `id`) would otherwise
+        # TypeError on every provider dict on disk - each one individually
+        # caught and skipped below, but ALL of them failing leaves
+        # unified_config.providers empty, which used to trigger a full
+        # config reset (see the removed "P0.4" check above). - Claude Generated
+        known_provider_fields = {f.name for f in dataclass_fields(UnifiedProvider)}
         providers_data = data.get("providers", [])
         for provider_dict in providers_data:
             try:
-                provider = UnifiedProvider(**provider_dict)
+                filtered = {k: v for k, v in provider_dict.items() if k in known_provider_fields}
+                provider = UnifiedProvider(**filtered)
                 unified_config.providers.append(provider)
                 self.logger.debug(f"✅ Loaded provider: {provider.name}")
             except Exception as e:
@@ -789,7 +808,16 @@ class ConfigManager:
                         incoming_task_prefs = incoming_unified.get('task_preferences', {})
                         preserved_unified_config = current_config['unified_config'].copy()
 
-                        preserved_unified_config['providers'] = incoming_providers
+                        # An empty incoming list is never an intentional "delete
+                        # all providers" - there is no UI action that produces
+                        # that on purpose, only a config that failed to parse
+                        # (see _parse_unified_config) or a transient call that
+                        # built a bare AlimaConfig(). Only overwrite the
+                        # on-disk list when the incoming one is non-empty, the
+                        # same guard already applied to preferred_provider/
+                        # model below. - Claude Generated
+                        if incoming_providers:
+                            preserved_unified_config['providers'] = incoming_providers
                         if incoming_task_prefs:
                             preserved_unified_config['task_preferences'] = incoming_task_prefs
 
@@ -798,6 +826,8 @@ class ConfigManager:
                             'pipeline_default_model',
                             'agentic_default_provider',
                             'agentic_default_model',
+                            'vision_default_provider',
+                            'vision_default_model',
                             # Legacy gemini/anthropic mirror fields, kept in sync
                             # from the authoritative provider objects on save.
                             'gemini_api_key',
@@ -807,6 +837,11 @@ class ConfigManager:
                             # Per-model chunking thresholds are user-edited and must
                             # not be frozen to the on-disk value.
                             'model_chunking_thresholds',
+                            # Cleared in memory by apply_disabled_providers() when a
+                            # vetoed provider is switched back on - without copying
+                            # it here that clear never reached disk, so the veto
+                            # outlived every restart. - Claude Generated
+                            'disabled_providers',
                         ):
                             if key in incoming_unified:
                                 preserved_unified_config[key] = incoming_unified[key]

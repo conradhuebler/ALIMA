@@ -34,10 +34,12 @@ class RepetitionConfigRoundTripTest(unittest.TestCase):
     def _load(self, payload: dict):
         """Write a config and return its manager.
 
-        The provider block is not decoration: ``_parse_config`` raises "No LLM
-        providers configured" without it and its own ``except`` hands back a
-        default ``AlimaConfig()`` — a fixture without providers would exercise the
-        fallback instead of the parser and pass for the wrong reason.
+        The provider block is kept for realism, not because it is required —
+        ``_parse_config`` used to raise "No LLM providers configured" without
+        it and its own ``except`` handed back a default ``AlimaConfig()``,
+        silently discarding whatever else this fixture set; that fallback was
+        removed (see ``tests/test_provider_reset_does_not_persist.py``), so an
+        empty providers list no longer exercises it. - Claude Generated
         """
         payload = {"unified_config": {"providers": [], "gemini_api_key": "K"}, **payload}
         self.tmp.write_text(json.dumps(payload))

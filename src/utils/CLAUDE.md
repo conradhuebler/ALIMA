@@ -49,6 +49,19 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): ein Provider-Problem konnte die ganze Konfiguration zurücksetzen
+`_parse_config` warf `ValueError` bei „keine Provider" oder „alle Provider aus" — gefangen
+vom umgebenden `except Exception`, dessen Fallback `AlimaConfig()` war: eine komplett leere
+Konfiguration im Speicher. `save_config(preserve_unified=True)` überschreibt `providers`
+bedingungslos mit dem eingehenden Stand, also schrieb das nächste Speichern — egal wodurch
+ausgelöst — die leere Liste auf die Platte. Jetzt: beide Zustände sind gültig und werden nur
+geloggt, nicht mehr geworfen; `save_config` überschreibt `providers` nie mit einer leeren Liste
+(Verteidigung in der Tiefe, falls doch mal ein leeres Objekt ankommt);
+`vision_default_provider`/`-model` fehlten ganz in der Merge-Liste (nie gespeichert); ein
+unbekannter Schlüssel in einem Provider-Eintrag wird jetzt gefiltert statt den Konstruktor zu
+sprengen. Von einem Opus-Agenten gefunden, selbst am Code nachgerechnet vor der Behebung.
+Tests: `tests/test_provider_reset_does_not_persist.py`.
+
 ### Known state — API keys in plaintext
 `~/.config/alima/config.json` stores provider API keys unencrypted. Encryption/keyring is a separate (security, platform-dependent) package — recorded here so it is not mistaken for an oversight. Mitigation (July 6): plugin SECRET fields can be supplied per env var `ALIMA_PLUGIN_<INSTANCE_ID>_<KEY>` (runtime-only, never persisted); legacy mirror readers do not see env overrides.
 
