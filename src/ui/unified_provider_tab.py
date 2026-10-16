@@ -160,11 +160,6 @@ class UnifiedProviderTab(QWidget):
             self._cached_models = {}  # will be populated by background worker - Claude Generated
             self._start_background_model_fetch()
 
-            # Check if we need to migrate from legacy configuration
-            if not self.unified_config.providers and self.config:
-                self.logger.info("No unified providers found, attempting migration from legacy config")
-                self._migrate_from_legacy_config()
-            
             # Load providers into table
             self._populate_provider_table()
             
@@ -180,26 +175,6 @@ class UnifiedProviderTab(QWidget):
         except Exception as e:
             self.logger.error(f"Error loading unified provider configuration: {e}")
             QMessageBox.critical(self, "Loading Error", f"Failed to load configuration:\n\n{str(e)}")
-    
-    def _migrate_from_legacy_config(self):
-        """Migrate from legacy LLMConfig to UnifiedProviderConfig - Claude Generated (Refactoring)"""
-        try:
-            # Create unified config from legacy data using the already loaded config
-            self.unified_config = UnifiedProviderConfig.from_legacy_config(
-                self.config.unified_config,
-                self.unified_config  # Use existing unified_config instead of bridge
-            )
-
-            # Migration occurs in memory only - parent dialog will handle save
-            self.config_changed.emit()
-
-            self.logger.info(f"Successfully migrated {len(self.unified_config.providers)} providers from legacy config")
-
-        except Exception as e:
-            self.logger.error(f"Failed to migrate from legacy config: {e}")
-            # Create default config if migration fails
-            self.unified_config = UnifiedProviderConfig()
-            self.config_changed.emit()
     
     def _start_background_model_fetch(self):
         """Start background worker to fetch model lists without blocking the UI - Claude Generated"""

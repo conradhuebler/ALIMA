@@ -823,20 +823,19 @@ class UnifiedProviderConfig:
             if getattr(provider, "preferred_model", ""):
                 setattr(self, model_attr, provider.preferred_model)
 
-    @classmethod
-    def from_legacy_config(cls, legacy_data: Dict[str, Any]) -> 'UnifiedProviderConfig':
-        """Create UnifiedProviderConfig from legacy configuration - Claude Generated"""
-        config = cls()
-
-        # Migrate basic settings if present
-        if 'auto_fallback' in legacy_data:
-            config.auto_fallback = legacy_data['auto_fallback']
-        if 'prefer_faster_models' in legacy_data:
-            config.prefer_faster_models = legacy_data['prefer_faster_models']
-        if 'disabled_providers' in legacy_data:
-            config.disabled_providers = legacy_data['disabled_providers']
-
-        return config
+    # from_legacy_config() removed Oct 2026: its only caller
+    # (unified_provider_tab._migrate_from_legacy_config) passed it
+    # self.config.unified_config - already a parsed UnifiedProviderConfig
+    # object, never the Dict[str, Any] this method's signature promised, and
+    # the SAME object as self.unified_config (both come from
+    # config_to_edit.unified_config - see comprehensive_settings_dialog.py).
+    # TypeError on every call (two positional args for a one-arg method);
+    # the fallback it fell into replaced the tab's unified_config with a
+    # fresh empty one, detaching it from the copy the dialog would actually
+    # save. Removed with its one call site rather than fixed: a config file's
+    # own legacy migration already runs earlier, in ConfigManager's parsing -
+    # by the time this UI tab exists there is no legacy dict left to migrate
+    # from. - Claude Generated
 
 
 # ============================================================================

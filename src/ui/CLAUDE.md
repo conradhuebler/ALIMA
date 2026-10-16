@@ -40,6 +40,9 @@
 
 ## [Variable Section - Short-term Information]
 
+### ✅ FIXED (Oct 2026): toter Legacy-Migrationspfad in `UnifiedProviderTab`
+`_migrate_from_legacy_config` rief `UnifiedProviderConfig.from_legacy_config(self.config.unified_config, self.unified_config)` — zwei Positionsargumente für eine Methode, die eines nimmt. `self.config.unified_config` ist zudem dasselbe Objekt wie `self.unified_config` (beide aus `config_to_edit.unified_config`), also gab es nie etwas zu migrieren. Der TypeError-Fallback ersetzte `self.unified_config` durch ein frisches, leeres Objekt — ein danach im Dialog angelegter Provider landete auf dem abgetrennten Objekt, „Speichern" sah ihn nie. Auslöser (`providers` leer) war vorher durch den Config-Reset aus `3247a67` verdeckt. Entfernt statt repariert — keine andere Aufrufstelle, und die eigentliche Legacy-Migration läuft längst beim Parsen in `ConfigManager`. Tests: `tests/test_unified_provider_tab_no_dead_migration.py`.
+
 ### F-5 god-file split (June 30)
 - ✅ **`pipeline_chat_panel` 1923→698** — leaf widgets → `chat_input_widgets.py`; repetition bar → `repetition_warning_bar.py`; behavior → `PipelineLogMixin` / `ChatAgentMixin` / `BusEventMixin` (`_chat_panel_*.py`). Verbatim moves, reachable via MRO; `bus.subscribe` wiring stays in `__init__`.
 - **Mixin pattern** (new here): for a single god-*class* with no embeddable sub-widgets, split methods into behavioral mixins — zero call-site changes, existing stub tests pass unchanged.
