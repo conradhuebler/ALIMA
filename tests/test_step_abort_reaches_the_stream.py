@@ -230,8 +230,11 @@ class TheStreamIsClosedNotJustAbandoned(unittest.TestCase):
         source = inspect.getsource(llm_service)
         # Both explicit closers are present …
         self.assertEqual(source.count("best-effort close on user abort"), 2)
-        # … and the Anthropic stream is scoped by a context manager.
-        self.assertIn("with self.clients[\"anthropic\"].messages.stream(**params) as stream:", source)
+        # … and the Anthropic stream is scoped by a context manager. The
+        # client-dict key is the configured provider NAME (e.g. "claude"),
+        # not the literal "anthropic" - pin the context-manager shape, not
+        # the key. - Claude Generated
+        self.assertIn("with self.clients[provider].messages.stream(**params) as stream:", source)
 
 
 if __name__ == "__main__":

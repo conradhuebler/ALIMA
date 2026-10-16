@@ -215,6 +215,66 @@ def _extract_reasoning(obj: Any) -> str:
     return ""
 
 
+#: Anthropic's vision input accepts exactly these four. The file pickers in
+#: this codebase (unified_input_widget.py, image_analysis_tab.py) also list
+#: BMP and TIFF - real, pickable inputs that would otherwise 400.
+_ANTHROPIC_IMAGE_MEDIA_TYPES = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+    "GIF": "image/gif",
+    "WEBP": "image/webp",
+}
+
+
+def _anthropic_image_block(img_bytes: bytes) -> Dict[str, Any]:
+    """Detect the real image format; the ``media_type`` was hardcoded to
+    "image/jpeg" regardless of what ``process_image`` actually returned (the
+    unmodified bytes of whatever file was picked - PNG is first in that
+    picker's filter and the webcam-capture path writes PNG). Anthropic
+    validates the declared type against the bytes and rejects a mismatch;
+    BMP/TIFF (also offered by the picker) aren't accepted at all and are
+    converted to PNG rather than left to fail. - Claude Generated
+    """
+    import io
+
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(img_bytes)) as im:
+            fmt = (im.format or "").upper()
+            if fmt in _ANTHROPIC_IMAGE_MEDIA_TYPES:
+                return {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": _ANTHROPIC_IMAGE_MEDIA_TYPES[fmt],
+                        "data": base64.b64encode(img_bytes).decode(),
+                    },
+                }
+            buf = io.BytesIO()
+            im.convert("RGB").save(buf, format="PNG")
+            return {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.b64encode(buf.getvalue()).decode(),
+                },
+            }
+    except Exception:
+        # Detection itself failed (corrupt/unreadable bytes) - send as-is
+        # rather than silently drop the image; Anthropic's own error on an
+        # actually-bad file is clearer than guessing. - Claude Generated
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": base64.b64encode(img_bytes).decode(),
+            },
+        }
+
+
 def _emit_thinking(callback: Optional[Callable[[str], None]], text: str) -> None:
     """Hand one reasoning chunk to the live thinking sink. - Claude Generated
 
@@ -708,8 +768,15 @@ class LlmService(QObject):
             self.logger.debug(f"Successfully initialized {provider}")
 
         except ImportError as ie:
-            self.logger.warning(
-                f"Could not import {provider_info['module']} for {provider}: {str(ie)}"
+            # A missing dependency logged at warning looks exactly like "this
+            # provider just isn't configured". It cost months once already
+            # (rdflib/DNB, see error_visibility.py) - anthropic itself was
+            # missing from requirements.txt until this was found this way.
+            # - Claude Generated
+            from src.utils.error_visibility import log_caught
+            log_caught(
+                self.logger, ie,
+                f"Modul {provider_info['module']} für {provider} nicht importierbar",
             )
         except Exception as e:
             self.logger.error(f"Error initializing {provider}: {str(e)}")
@@ -1856,92 +1923,98 @@ class LlmService(QObject):
         system: Optional[str] = "",
         stream: bool = True,
     ) -> str:
-        """Generate response using Anthropic."""
+        """Generate response using Anthropic.
+
+        ``temperature``/``p_value``/``seed`` are accepted (every provider in this
+        dispatch table shares one call signature) but never forwarded to the API:
+
+        * ``temperature``/``top_p`` - Claude Opus 4.7+ rejects both unconditionally,
+          every current model 400s on sending both at once, and Sonnet 5.5 / Haiku
+          5.5 400 on any non-default value. ALIMA's low-temperature extraction
+          tuning is non-default on all of them. Anthropic's own migration guidance
+          is to omit both and steer from the prompt instead.
+        * ``seed`` - the Messages API has no such field; sending it 400s. The
+          tool-calling sibling (``_generate_anthropic_with_tools``) already
+          excludes it from its signature for the same reason (P-η).
+        - Claude Generated
+        """
+        # self.clients is keyed by the configured provider NAME (e.g. "claude"),
+        # not the provider_type "anthropic" - set by generate_response() just
+        # before this generator runs, the same way _generate_openai_compatible
+        # reads it. - Claude Generated
+        provider = self.current_provider
+        if provider not in self.clients:
+            raise ValueError(f"Anthropic provider '{provider}' not initialized in clients")
+
         try:
             # Anthropic has no native JSON-mode - relies on prompt instructions only - Claude Generated
             if self.current_output_format != "xml":
                 self.logger.info("🔧 Anthropic: JSON-Mode via Prompt-Instruktionen (kein nativer JSON-Mode)")
 
-            # Set up parameters
+            # 32768 matches the project's own default elsewhere (llm_agent_step.py,
+            # meta_agent.py, reflection_step.py). Anthropic's Messages API makes
+            # max_tokens mandatory, unlike Gemini/OpenAI-compatible in this same
+            # text path, which cap nothing - the previous 1024 silently truncated
+            # every non-trivial ALIMA output. - Claude Generated
             params = {
                 "model": model,
-                "max_tokens": 1024,
-                "temperature": temperature,
-                "top_p": p_value,
+                "max_tokens": 32768,
                 "messages": [],
-                "stream": stream,
             }
 
             # Add system message if provided
             if system:
                 params["system"] = system
 
-            # Add user message
+            # Add user message. Image + text go as plain content-block dicts -
+            # the SDK has no ImageContent/TextContent/ContentBlock classes (never
+            # did, under these names); the import always failed and silently fell
+            # back to text-only, so every Anthropic vision call answered blind.
+            # - Claude Generated
             if image:
                 img_bytes = self.process_image(image)
-
-                # Check if Anthropic supports image in the current version
-                try:
-                    from anthropic import ImageContent, ContentBlock, TextContent
-
-                    # Create content blocks
-                    content_blocks = [
-                        TextContent(text=prompt, type="text"),
-                        ImageContent(
-                            source={
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": base64.b64encode(img_bytes).decode(),
-                            },
-                            type="image",
-                        ),
-                    ]
-
-                    params["messages"].append(
-                        {"role": "user", "content": content_blocks}
-                    )
-                except (ImportError, AttributeError):
-                    # Fallback if the current Anthropic version doesn't support images
-                    self.logger.warning(
-                        "This version of Anthropic Python SDK might not support images. Sending text only."
-                    )
-                    params["messages"].append({"role": "user", "content": prompt})
+                params["messages"].append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        _anthropic_image_block(img_bytes),
+                    ],
+                })
             else:
                 params["messages"].append({"role": "user", "content": prompt})
 
-            # Add seed if provided
-            if seed is not None:
-                params["seed"] = seed
-
             # Handle streaming option
             if stream:
-                stream_response = self.clients["anthropic"].messages.create(**params)
-
-                # Speichere request_id für möglichen Abbruch
-                if hasattr(stream_response, "id"):
-                    self.current_request_id = stream_response.id
-                    self.logger.info(f"Anthropic request ID: {self.current_request_id}")
-
                 full_response = ""
-                for chunk in stream_response:
-                    # Aktualisiere den Zeitpunkt des letzten empfangenen Chunks
-                    self.last_chunk_time = time.time()
-
-                    # Prüfen auf Abbruchsignal
-                    if self.cancel_requested:
-                        self.logger.info("Anthropic generation cancelled")
-                        break
-
-                    if hasattr(chunk, "delta") and chunk.delta.text:
-                        chunk_text = chunk.delta.text
-                        full_response += chunk_text
-                        self.text_received.emit(self.current_request_id, chunk_text)
+                # stream.text_stream yields only text deltas. Every current model
+                # runs adaptive thinking by default and cannot disable it; the
+                # raw-event loop this replaced read `chunk.delta.text`
+                # unconditionally, which raises AttributeError on a ThinkingDelta
+                # (it has `.thinking`, not `.text`) - so it crashed on the first
+                # chunk of exactly the models this integration targets.
+                # - Claude Generated
+                with self.clients[provider].messages.stream(**params) as anthropic_stream:
+                    for text in anthropic_stream.text_stream:
+                        self.last_chunk_time = time.time()
+                        if self.cancel_requested:
+                            self.logger.info("Anthropic generation cancelled")
+                            break
+                        full_response += text
+                        self.text_received.emit(self.current_request_id, text)
+                    final_message = anthropic_stream.get_final_message()
+                    self.current_request_id = final_message.id
 
                 return full_response
             else:
-                # Non-streaming API call
-                message = self.clients["anthropic"].messages.create(**params)
-                return message.content[0].text
+                # Non-streaming API call. Only text blocks carry `.text` - a
+                # ThinkingBlock has `.thinking` instead and is commonly the first
+                # block, so `content[0].text` raised AttributeError on every
+                # current model too. - Claude Generated
+                params["stream"] = False
+                message = self.clients[provider].messages.create(**params)
+                return "".join(
+                    block.text for block in message.content if block.type == "text"
+                )
 
         except Exception as e:
             self.logger.error(f"Anthropic error: {str(e)}")
@@ -2433,8 +2506,8 @@ class LlmService(QObject):
             elif provider_type == "anthropic":
                 # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
                 return self._generate_anthropic_with_tools(
-                    model, messages, tools, temperature, top_p, max_tokens, stream_callback,
-                    should_stop=should_stop,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback,
+                    should_stop=should_stop, thinking_callback=thinking_callback,
                 )
             elif provider_type == "gemini":
                 return self._generate_gemini_with_tools(
@@ -2798,6 +2871,7 @@ class LlmService(QObject):
 
     def _generate_anthropic_with_tools(
         self,
+        provider: str,
         model: str,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
@@ -2806,12 +2880,28 @@ class LlmService(QObject):
         max_tokens: int,
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
+        thinking_callback: Optional[Callable[[str], None]] = None,
     ) -> "AgentResponse":
-        """Tool-calling via Anthropic API - Claude Generated"""
+        """Tool-calling via Anthropic API - Claude Generated
+
+        ``thinking_callback``, when given, turns on adaptive thinking with
+        ``display: "summarized"`` (the API default, ``"omitted"``, streams
+        thinking blocks with empty text - requesting it costs nothing extra,
+        it is billed either way, but without it there is nothing to show).
+        Every current model runs it by default and cannot disable it; only
+        the visibility changes. Not requested when no caller wants it, so an
+        older model that may reject ``{"type": "adaptive"}`` is unaffected.
+
+        ``provider`` is the configured instance NAME (e.g. "claude"), not the
+        provider_type "anthropic" - self.clients is keyed by name. Omitting
+        this parameter and hardcoding "anthropic" as the key was the actual
+        cause of "Anthropic client not initialized" for any instance not
+        named exactly that. - Claude Generated
+        """
         from src.core.data_models import AgentResponse, ToolCall, StopReason
 
-        if "anthropic" not in self.clients:
-            raise ValueError("Anthropic client not initialized")
+        if provider not in self.clients:
+            raise ValueError(f"Anthropic provider '{provider}' not initialized")
 
         # Convert tools to Anthropic format
         anthropic_tools = []
@@ -2822,44 +2912,26 @@ class LlmService(QObject):
                 "input_schema": tool.get("parameters", {"type": "object", "properties": {}}),
             })
 
-        # Separate system message from conversation messages
-        system_text = ""
-        anthropic_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system_text = msg["content"]
-            elif msg["role"] == "tool":
-                # Anthropic expects tool_result blocks
-                anthropic_messages.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": msg.get("tool_call_id", ""),
-                        "content": msg.get("content", ""),
-                        "is_error": msg.get("is_error", False),
-                    }],
-                })
-            elif msg["role"] == "assistant" and isinstance(msg.get("content"), list):
-                # Pass through assistant messages with tool_use blocks
-                anthropic_messages.append(msg)
-            else:
-                anthropic_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"],
-                })
+        system_text, anthropic_messages = self._convert_messages_for_anthropic(messages)
 
         try:
+            # No temperature/top_p: Claude Opus 4.7+ rejects them outright, every
+            # current model 400s on sending both at once, and Sonnet 5.5/Haiku 5.5
+            # 400 on any non-default value - ALIMA's fixed low-temperature knobs
+            # (tuned for deterministic extraction) are non-default on all of them.
+            # Anthropic's own guidance: omit and steer from the prompt instead.
+            # - Claude Generated
             params = {
                 "model": model,
                 "messages": anthropic_messages,
                 "max_tokens": max_tokens,
-                "temperature": temperature,
-                "top_p": top_p,
             }
             if system_text:
                 params["system"] = system_text
             if anthropic_tools:
                 params["tools"] = anthropic_tools
+            if thinking_callback is not None:
+                params["thinking"] = {"type": "adaptive", "display": "summarized"}
 
             # P-δ.5: stream text deltas when a stream_callback is provided so the
             # model's intermediate reasoning (the text it emits alongside tool
@@ -2867,23 +2939,44 @@ class LlmService(QObject):
             # messages.stream() supports tool-call deltas; get_final_message()
             # returns the complete Message (text + tool_use blocks + stop_reason),
             # which we treat as authoritative. - Claude Generated
+            #
+            # Iterated directly rather than via the narrower ``stream.text_stream``
+            # helper, so a thinking_delta is seen too - that convenience only
+            # yields text deltas (``__stream_text__`` filters everything else out
+            # internally, by the SDK's own source). - Claude Generated
             use_streaming = stream_callback is not None
             if use_streaming:
                 partial = ""
-                with self.clients["anthropic"].messages.stream(**params) as stream:
-                    for text in stream.text_stream:
+                reasoning = ""
+                with self.clients[provider].messages.stream(**params) as stream:
+                    for chunk in stream:
                         if should_stop and should_stop():
                             return AgentResponse(
                                 content=partial, tool_calls=[],
                                 stop_reason=StopReason.CANCELLED,
+                                reasoning=reasoning,
                             )
-                        if text:
-                            partial += text
-                            stream_callback(text)
+                        if chunk.type != "content_block_delta":
+                            continue
+                        delta_type = getattr(chunk.delta, "type", "")
+                        if delta_type == "text_delta":
+                            text = chunk.delta.text
+                            if text:
+                                partial += text
+                                stream_callback(text)
+                        elif delta_type == "thinking_delta":
+                            thinking = chunk.delta.thinking
+                            if thinking:
+                                reasoning += thinking
+                                _emit_thinking(thinking_callback, thinking)
                     response = stream.get_final_message()
             else:
                 params["stream"] = False
-                response = self.clients["anthropic"].messages.create(**params)
+                response = self.clients[provider].messages.create(**params)
+                reasoning = "".join(
+                    block.thinking for block in response.content
+                    if block.type == "thinking"
+                )
 
             content = ""
             tool_calls = []
@@ -2900,7 +2993,10 @@ class LlmService(QObject):
 
 
             if should_stop and should_stop():
-                return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)
+                return AgentResponse(
+                    content=content, tool_calls=[], stop_reason=StopReason.CANCELLED,
+                    reasoning=reasoning,
+                )
 
             if response.stop_reason == "tool_use":
                 stop_reason = StopReason.TOOL_USE
@@ -2909,7 +3005,10 @@ class LlmService(QObject):
             else:
                 stop_reason = StopReason.END_TURN
 
-            return AgentResponse(content=content, tool_calls=tool_calls, stop_reason=stop_reason)
+            return AgentResponse(
+                content=content, tool_calls=tool_calls, stop_reason=stop_reason,
+                reasoning=reasoning,
+            )
 
         except Exception as e:
             self.logger.error(f"Anthropic tool-calling error: {e}")
@@ -3175,6 +3274,88 @@ class LlmService(QObject):
                     "content": msg.get("content", "") if isinstance(msg.get("content"), str) else str(msg.get("content", "")),
                 })
         return ollama_msgs
+
+    def _convert_messages_for_anthropic(
+        self, messages: List[Dict[str, Any]]
+    ) -> "tuple[str, List[Dict[str, Any]]]":
+        """Convert generic messages to Anthropic format - Claude Generated
+
+        Two things the generic format needs converting for, found by actually
+        running a tool-calling turn against the real API:
+
+        * An assistant turn with tool calls is stored as
+          ``{"content": "<text>", "tool_calls": [{"id", "name", "arguments"}]}``
+          (``_build_assistant_tool_message`` - OpenAI's own wire shape, which
+          is why the Ollama/OpenAI converters each reconstruct their native
+          shape from it). There was no such reconstruction for Anthropic: the
+          old code checked ``isinstance(content, list)``, which this shape
+          never satisfies, so every tool_use block was silently dropped and
+          the model never saw its own tool call - the next turn's tool_result
+          then referenced a tool_use_id that appeared nowhere, 400ing with
+          "unexpected tool_use_id found in tool_result blocks".
+        * Anthropic requires EVERY tool_result for one assistant turn in a
+          SINGLE user message. ``AgentLoop`` appends one
+          ``{"role": "tool", ...}`` dict per call (valid for OpenAI/Ollama, one
+          message each) - for a parallel multi-tool turn the 2nd+ result was
+          orphaned from the assistant's tool_use blocks the same way. Merge
+          consecutive tool messages back into one user turn.
+        """
+        system_text = ""
+        anthropic_messages: List[Dict[str, Any]] = []
+        for msg in messages:
+            role = msg["role"]
+            if role == "system":
+                system_text = msg.get("content", "") or ""
+            elif role == "tool":
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                    "is_error": msg.get("is_error", False),
+                }
+                previous = anthropic_messages[-1] if anthropic_messages else None
+                if (
+                    previous is not None
+                    and previous["role"] == "user"
+                    and isinstance(previous["content"], list)
+                    and previous["content"]
+                    and all(b.get("type") == "tool_result" for b in previous["content"])
+                ):
+                    previous["content"].append(tool_result_block)
+                else:
+                    anthropic_messages.append({
+                        "role": "user",
+                        "content": [tool_result_block],
+                    })
+            elif role == "assistant" and msg.get("tool_calls"):
+                content_blocks: List[Dict[str, Any]] = []
+                text = msg.get("content", "") or ""
+                if text:
+                    content_blocks.append({"type": "text", "text": text})
+                for tc in msg["tool_calls"]:
+                    args = tc.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("name", ""),
+                        "input": args if isinstance(args, dict) else {},
+                    })
+                anthropic_messages.append({"role": "assistant", "content": content_blocks})
+            elif role == "assistant" and isinstance(msg.get("content"), list):
+                # Already in Anthropic's own block shape (e.g. echoed back
+                # from a previous response.content) - pass through as-is.
+                anthropic_messages.append(msg)
+            else:
+                anthropic_messages.append({
+                    "role": role,
+                    "content": msg.get("content", ""),
+                })
+        return system_text, anthropic_messages
 
     def _convert_messages_for_openai(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Convert generic messages to OpenAI chat format - Claude Generated"""

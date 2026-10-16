@@ -105,9 +105,12 @@ class TestGenerateWithToolsSeedDispatch(unittest.TestCase):
             seed=42,
         )
         args, _ = target.call_args
-        # anthropic signature: model, messages, tools, temperature, top_p, max_tokens, stream_callback
-        # length must be 7 positional + nothing for seed
-        self.assertEqual(len(args), 7, f"anthropic handler must NOT receive seed; got args={args}")
+        # anthropic signature: provider, model, messages, tools, temperature,
+        # top_p, max_tokens, stream_callback - provider was added so
+        # self.clients is keyed by the configured instance name, not the
+        # literal "anthropic" (see test_streaming_with_tools.py).
+        # length must be 8 positional + nothing for seed
+        self.assertEqual(len(args), 8, f"anthropic handler must NOT receive seed; got args={args}")
 
     def test_text_fallback_handler_receives_seed(self):
         svc = MagicMock(spec=self.LlmService)

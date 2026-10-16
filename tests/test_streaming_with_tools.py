@@ -353,7 +353,12 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
         self.assertIs(kwargs.get("should_stop"), cb)
 
     def test_anthropic_positional_arg_count_unchanged(self):
-        """Anthropic handler still receives exactly 7 positional args (no seed, should_stop via kwarg)."""
+        """Anthropic handler receives exactly 8 positional args: provider,
+        model, messages, tools, temperature, top_p, max_tokens, stream_callback
+        - no seed, should_stop via kwarg. ``provider`` was added after
+        "Anthropic client not initialized" turned out to mean the handler
+        hardcoded the literal "anthropic" as the self.clients key instead of
+        the configured instance name (e.g. "claude")."""
         svc, target = self._patched_service("_generate_anthropic", "_generate_anthropic_with_tools")
         svc.generate_with_tools(
             provider="fake", model="claude-3-opus",
@@ -362,8 +367,9 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
             seed=42, should_stop=lambda: False,
         )
         args, _ = target.call_args
-        self.assertEqual(len(args), 7,
+        self.assertEqual(len(args), 8,
                          f"anthropic must NOT receive seed; should_stop via kwarg; got args={args}")
+        self.assertEqual(args[0], "fake", "first positional arg must be the provider name")
 
 
 # ---------------------------------------------------------------------------
