@@ -274,6 +274,26 @@ class AgentLoop:
                 except Exception as e:
                     log_caught(logger, e, "on_thinking hook (reasoning channel)")
 
+            # A provider generator detects should_stop() mid-stream and returns
+            # this instead of raising - but nothing here ever checked for it,
+            # so a cancel hit before any content/tool_calls existed (streaming
+            # not yet started, or a reasoning-only turn) fell through to the
+            # "empty turn" handling below exactly like an ordinary empty
+            # response: the one-time nudge fired a SECOND, non-streaming LLM
+            # call (no stream_callback there either, so should_stop couldn't
+            # even interrupt IT promptly) instead of stopping. Any content that
+            # did stream already reached the UI via stream_callback per chunk -
+            # nothing to re-emit here. - Claude Generated
+            if response.stop_reason == StopReason.CANCELLED:
+                logger.info(f"Agent loop: LLM call cancelled at iteration {iteration}")
+                final_content = response.content or ""
+                final_stop_reason = StopReason.CANCELLED
+                if self._status_cb:
+                    self._status_cb("\n⏹ Agent-Abbruch durch Operator\n")
+                if final_content:
+                    messages.append({"role": "assistant", "content": strip_think_tags(final_content)})
+                break
+
             # Case 1: LLM wants to call tools
             if response.has_tool_calls:
                 # Show LLM's reasoning before tool calls (transparency).
@@ -444,6 +464,11 @@ class AgentLoop:
                         seed=seed, think=think,
                         should_stop=self.should_stop, thinking_callback=thinking_cb,
                     )
+                    if forced.stop_reason == StopReason.CANCELLED:
+                        final_stop_reason = StopReason.CANCELLED
+                        if self._status_cb:
+                            self._status_cb("\n⏹ Agent-Abbruch durch Operator\n")
+                        break
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     final_stop_reason = forced.stop_reason
                     if final_content:
@@ -526,6 +551,7 @@ class AgentLoop:
                     "role": "user",
                     "content": "Maximum iterations reached. Please provide your final answer now based on all information gathered so far.",
                 })
+                cancelled = False
                 try:
                     forced = self.llm_service.generate_with_tools(
                         provider=provider, model=model,
@@ -534,9 +560,10 @@ class AgentLoop:
                         seed=seed, think=think,
                         should_stop=self.should_stop, thinking_callback=thinking_cb,
                     )
+                    cancelled = forced.stop_reason == StopReason.CANCELLED
                     final_stop_reason = forced.stop_reason
                     final_content = forced.content or getattr(forced, "reasoning", "")
-                    if final_content:
+                    if final_content and not cancelled:
                         # Stream the forced answer too — otherwise it is the one
                         # final-content path the frontends never see live. - Claude Generated
                         final_content = self._emit_final(final_content)
@@ -546,8 +573,10 @@ class AgentLoop:
                     final_content = "Agent reached maximum iterations without conclusion."
                     run_error = final_content
                 # Some models (e.g. code models) call tools but never write a
-                # final answer → don't end on a silent empty bubble. - Claude Generated
-                if not final_content:
+                # final answer → don't end on a silent empty bubble. A cancel
+                # is not that case - don't overwrite it with a message blaming
+                # the model for something the operator asked to stop. - Claude Generated
+                if not final_content and not cancelled:
                     final_content = (
                         "⚠️ Das Modell hat nach mehreren Tool-Aufrufen keine finale "
                         "Textantwort geliefert. Dieses Modell schreibt im Tool-Modus "
@@ -556,6 +585,8 @@ class AgentLoop:
                     run_error = final_content
                     if self.stream_callback:
                         self.stream_callback(final_content)
+                elif cancelled and self._status_cb:
+                    self._status_cb("\n⏹ Agent-Abbruch durch Operator\n")
 
         # Extract only messages added during this run (new user prompt + tool calls + assistant)
         conv = [dict(m) for m in messages[history_len:]] if messages else []

@@ -52,6 +52,11 @@ Thinking wurde nicht live an `on_thinking` durchgereicht (fiel ohne Reasoning
 auf keinen Inhalt zurück). Beide Stellen bekommen jetzt dieselben zwei
 Parameter wie der Haupt-Loop-Call. Tests: `tests/test_agent_loop_hooks.py`.
 
+### ✅ FIXED (Oct 2026): Der Abbrechen-Knopf im Chat griff nicht
+`AgentLoop.run()` prüfte `stop_reason == CANCELLED` nie; ein Abbruch vor dem ersten Content
+startete über die Leer-Antwort-Nudge einen zweiten, nicht abbrechbaren Call. Jetzt Check nach
+dem Hauptcall und nach beiden Zwangsabschluss-Calls. Tests: `tests/test_agent_loop_cancellation.py`.
+
 ### ✅ FIXED (Oct 2026): DatabaseConfig.charset/ssl_disabled hatten keinen Leser
 `DatabaseManager.get_connection()`s MySQL/MariaDB-Zweige übergaben an
 `setConnectOptions` nur `MYSQL_OPT_CONNECT_TIMEOUT` - beide Felder hatten ein
