@@ -22,6 +22,11 @@
 - `batch_processing_dialog.py`: batch file/directory processing (QThread, progress, continue-on-error)
 - `ComprehensiveSettingsDialog`: **keine Tabs mehr** — `SettingsShell` (Seitenleiste + `QStackedWidget` + Suchfeld) mit fünf Seiten: Sprachmodelle, Erschließung und Workflows, Datenquellen, Daten und Speicher, Anwendung. Jede Gruppe ist ein `_build_*_group() -> QGroupBox`, jede Seite reine Komposition über `_page(...)`; jedes Bedienelement meldet sich über `self.index.add(...)` bei der Suche an. Die Bausteine liegen in `src/ui/settings/` (`shell`, `search`, `collapsible`, `resolution_view`, `provider_list`, `workflow_list`, `effective_models`). ⚠️ Laden und Speichern adressieren die Widgets über `self.<name>` — eine gebaute, aber nicht eingehängte Gruppe fällt erst dort auf; `tests/test_settings_dialog_state.py` hält das fest. ⚠️ Nichts auf einer Seite darf vertikal wachsen: eine umbrechende Hinweiszeile unter der Modelltabelle war das einzige Element, das beim Vergrößern mitwuchs. ⚠️ `resolution_view.py`s "Modell"-Spalte stand auf `ResizeToContents` — korrekt für den Modus, aber die Spalten- (und damit Tabellen-)breite wechselte sichtbar mit jeder Modellwahl (z. B. `"a1"` vs. ein langer Ollama-Tag). Jetzt fest (`Interactive`, 200px) + Tooltip für den vollen Namen; dieselbe Lektion gilt für jede feste-Zeilen-Tabelle mit variabler Modell-/Freitext-Spalte. Das Modell-Combobox in der "Ändern"-Spalte ist dort außerdem nicht mehr editierbar (`editable_model=False`) — der konfigurierte Wert steht ohnehin in der separaten "Modell"-Spalte.
 
+### ✅ FIXED (Oct 2026): `PipelineWorker` gab Callbacks nie zurück
+Die sieben `pm.set_callbacks`-Werte blieben nach dem Lauf an den fertigen Worker gebunden; der
+Chat-Agent leitete sie weiter (zweiter, wirkungsloser Stop-Button). `run()` restauriert sie jetzt
+im `finally` (wie `SingleStepWorker`). Tests: `tests/test_pipeline_worker_callback_cleanup.py`.
+
 ### ✅ ENTFERNT (Oct 2026): Bearbeiten → „Prompt-Konfiguration" + „Workflow-Editor"
 Zwei eigenständige Menüeinträge außerhalb des Einstellungsdialogs. „Workflow-Editor" war
 funktionierend, aber 100 % redundant — derselbe `WorkflowEditorDialog(initial_workflow=None)`-

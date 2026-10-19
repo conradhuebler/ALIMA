@@ -193,6 +193,28 @@ class PipelineWorker(StoppableWorker):
 
     def run(self):
         """Execute pipeline in background thread - Claude Generated"""
+        # Save whatever was registered before so it can be restored once this
+        # worker finishes - the same class of bug SingleStepWorker already
+        # guards against for stream_callback alone (see its run()). Without
+        # this, pm.step_started_callback/etc. stay bound to THIS worker's
+        # (now-finished) Qt signals forever: a later, unrelated caller using
+        # the same PipelineManager instance - e.g. the chat agent's
+        # run_pipeline/rerun_step tools, which run synchronously on the
+        # ChatAgentWorker thread and wrap+forward "the existing callback" -
+        # ends up re-emitting THIS dead worker's signals, firing this tab's
+        # on_step_started/on_step_completed slots (status label, tab jump,
+        # "Stop" button state, ...) for activity this worker had nothing to
+        # do with. - Claude Generated
+        pm = self.pipeline_manager
+        old_callbacks = {
+            "step_started": getattr(pm, "step_started_callback", None),
+            "step_completed": getattr(pm, "step_completed_callback", None),
+            "step_error": getattr(pm, "step_error_callback", None),
+            "pipeline_completed": getattr(pm, "pipeline_completed_callback", None),
+            "stream_callback": getattr(pm, "stream_callback", None),
+            "repetition_detected": getattr(pm, "repetition_detected_callback", None),
+            "agentic_context": getattr(pm, "agentic_context_callback", None),
+        }
         try:
             # Check for interruption before starting
             self.check_interruption()
@@ -230,6 +252,8 @@ class PipelineWorker(StoppableWorker):
         except Exception as e:
             self.logger.error(f"Pipeline worker error: {e}", exc_info=True)
             self.pipeline_error.emit(str(e))
+        finally:
+            self.pipeline_manager.set_callbacks(**old_callbacks)
 
 
 class DNBSyncWorker(QThread):
