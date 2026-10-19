@@ -2,8 +2,8 @@
 
 ``RulesDialog`` existed but only behind two entry points nobody finds without
 being told: a 📌 button in the chat panel header and a button inside the
-settings dialog. Personal rules decide what a run does, so they belong next to
-prompts and workflows in the Bearbeiten menu.
+settings dialog. Personal rules decide what a run does, so they belong in the
+Bearbeiten menu too.
 
 The menu is built on a stand-in rather than a real ``MainWindow`` (which brings
 up the whole application); only ``menuBar()`` is real, so the actions can be
@@ -56,14 +56,23 @@ class RulesMenuEntryTest(unittest.TestCase):
         action.trigger()
         window.show_rules_dialog.assert_called_once()
 
-    def test_it_sits_next_to_prompts_and_workflows(self):
-        # Same menu as the other configuration surfaces; a rule is one of them.
+    def test_it_sits_in_the_edit_menu(self):
         _window, menubar = self._menubar()
-        for needle in ("Prompt-Konfiguration", "Workflow-Editor", "Zusatzregeln"):
+        action = self._action(menubar, "Zusatzregeln")
+        self.assertIsNotNone(action)
+        self.assertEqual(action.parent().title(), "&Bearbeiten")
+
+    def test_prompt_konfiguration_and_workflow_editor_are_gone(self):
+        """Removed Oct 2026: "Workflow-Editor" was 100% redundant with
+        settings/workflow_list.py's "Neu…" button (same WorkflowEditorDialog
+        call); "Prompt-Konfiguration" (PromptEditorDialog) only ever touched
+        prompts.json, never prompts.yaml - and prompts.yaml's "default" entry
+        wins for every task the two files share, so an edit through it was
+        silently invisible at runtime for almost every model."""
+        _window, menubar = self._menubar()
+        for needle in ("Prompt-Konfiguration", "Workflow-Editor"):
             with self.subTest(needle=needle):
-                action = self._action(menubar, needle)
-                self.assertIsNotNone(action)
-                self.assertEqual(action.parent().title(), "&Bearbeiten")
+                self.assertIsNone(self._action(menubar, needle))
 
     def test_the_handler_exists_on_the_window(self):
         # The mixin that carries the other config dialogs carries this one too.

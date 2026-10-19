@@ -114,9 +114,8 @@ Bestätigte und abgelehnte Aufrufe hinterlassen eine Zeile in der Audit-Tabelle
 ## Oberflächen
 
 - **GUI**: Regeldialog (`src/ui/dialogs/rules_dialog.py`) — erreichbar über
-  **Bearbeiten → 📌 Zusatzregeln…** (neben Prompt-Konfiguration und
-  Workflow-Editor), über Einstellungen → System → Chat-Agent → „Zusatzregeln
-  verwalten…" und über 📌 in der Kopfzeile des Chat-Panels. Der Dialog listet
+  **Bearbeiten → 📌 Zusatzregeln…**, über Einstellungen → System → Chat-Agent →
+  „Zusatzregeln verwalten…" und über 📌 in der Kopfzeile des Chat-Panels. Der Dialog listet
   alle Regeln mit Wortlaut, Bedingung, Geltungsbereich und Herkunft, schaltet
   sie per Haken scharf oder stumm und legt neue an, bearbeitet, löscht,
   exportiert und importiert sie.

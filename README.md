@@ -442,7 +442,7 @@ python3 src/alima_cli.py workflows list
 python3 src/alima_cli.py workflow catalog_search --input-file anfrage.json --output bericht.json
 ```
 
-`workflow <name>` führt einen Workflow eigenständig aus, unabhängig von der Sacherschließungspipeline; `--only-step` beschränkt den Lauf auf einen Schritt. In der GUI liegt der Editor unter Bearbeiten → "📋 Workflow-Editor" und im Pipeline-Konfigurationsdialog. Die WebAPP liest die Liste über `GET /api/workflows`.
+`workflow <name>` führt einen Workflow eigenständig aus, unabhängig von der Sacherschließungspipeline; `--only-step` beschränkt den Lauf auf einen Schritt. In der GUI liegt der Editor unter Einstellungen → Erschließung und Workflows (Doppelklick auf einen Workflow, oder „➕ Neu…"). Die WebAPP liest die Liste über `GET /api/workflows`.
 
 Jede Datei trägt ein Feld `status`, das `workflows list` mit ausgibt. Vergeben wird es vom Betreiber:
 

@@ -128,14 +128,6 @@ class MainWindowMenuMixin:
         )
         wizard_action.triggered.connect(self.show_setup_wizard)
 
-        # Prompt-Konfiguration-Aktion
-        prompt_config_action = edit_menu.addAction("📝 &Prompt-Konfiguration")
-        prompt_config_action.triggered.connect(self.show_prompt_editor)
-
-        # Workflow-Editor-Aktion - Claude Generated
-        workflow_editor_action = edit_menu.addAction("📋 &Workflow-Editor")
-        workflow_editor_action.triggered.connect(self.show_workflow_editor)
-
         # Persönliche Zusatzregeln - Claude Generated
         rules_action = edit_menu.addAction("📌 &Zusatzregeln...")
         rules_action.setToolTip(

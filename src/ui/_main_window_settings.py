@@ -405,20 +405,6 @@ class MainWindowSettingsMixin:
     def show_help(self):
         """Zeigt den Hilfe-Dialog"""
 
-    def show_prompt_editor(self):
-        """Öffnet den Prompt-Editor-Dialog"""
-        from .prompt_editor_dialog import PromptEditorDialog
-
-        editor = PromptEditorDialog(self)
-        editor.exec()
-
-    def show_workflow_editor(self):
-        """Öffnet den Workflow-YAML-Editor - Claude Generated"""
-        from .workflow_editor_dialog import WorkflowEditorDialog
-
-        editor = WorkflowEditorDialog(self)
-        editor.exec()
-
     def show_rules_dialog(self):
         """Öffnet die persönlichen Zusatzregeln - Claude Generated
 
