@@ -159,6 +159,44 @@ class TheTableIsAlsoTheControlTest(unittest.TestCase):
         view._on_pick("vision", "B", "b-vision")
         self.assertEqual(seen, [])
 
+    def test_the_model_column_width_does_not_depend_on_the_model_name(self):
+        """The "Modell" column used ResizeToContents - correct behaviour for
+        that mode, but it meant the whole table visibly resized every time a
+        differently-sized model name was selected (e.g. "a1" vs. a long
+        Ollama tag like "deepseek-v4-flash:cloud"). Now fixed-width with a
+        tooltip for the full name, like the rest of this view."""
+        from src.utils.config_models import UnifiedProvider, UnifiedProviderConfig
+
+        def _cfg(model):
+            c = UnifiedProviderConfig(providers=[
+                UnifiedProvider(name="A", provider_type="ollama", enabled=True,
+                                preferred_model=model),
+            ])
+            c.preferred_provider = "A"
+            c.preferred_model = model
+            return c
+
+        view = self._view(_cfg("m1"))
+        widths_short = [view.table.columnWidth(c) for c in range(5)]
+
+        long_model = "a-very-much-longer-model-name-than-before:latest-cloud-edition-xl"
+        view.refresh(_cfg(long_model))
+        widths_long = [view.table.columnWidth(c) for c in range(5)]
+
+        self.assertEqual(widths_short, widths_long)
+        self.assertEqual(view.table.item(0, 2).toolTip(), long_model)
+
+    def test_the_model_picker_is_not_editable(self):
+        """An editable QComboBox sizes itself from its current text, not
+        from the full item list - picking a model with a different name
+        length visibly resized the column every time. A plain dropdown's
+        size hint comes from the widest item in the list, which does not
+        change when the selection does; the exact configured model is shown
+        regardless, in the separate "Modell" text column."""
+        view = self._view(_config(preferred_provider="A", preferred_model="a1"))
+        for scope, selector in view._selectors.items():
+            self.assertFalse(selector.model_combo.isEditable(), scope)
+
 
 class ItFitsAndItsPickersAreUsableTest(unittest.TestCase):
     """Defects found by actually using it. - Claude Generated"""

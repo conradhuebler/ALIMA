@@ -65,7 +65,15 @@ class ResolutionView(QGroupBox):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        # Model names vary wildly in length (e.g. "a1" vs. a full Ollama tag
+        # like "deepseek-v4-flash:cloud"), so ResizeToContents here made the
+        # whole table visibly resize every time a different model was
+        # selected - correct behaviour for that resize mode, wrong column for
+        # it. A fixed width + ellipsis (default item behaviour) + a tooltip
+        # for the full name keeps every column stable regardless of which
+        # model is in effect. - Claude Generated
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(2, 200)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.setShowGrid(False)
@@ -114,6 +122,11 @@ class ResolutionView(QGroupBox):
                 if not row.configured or (c == 3 and row.is_fallback):
                     item.setForeground(QBrush(muted))
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                if c == 2:
+                    # The model column has a fixed width now, so a long name
+                    # is elided (default item behaviour) - the tooltip is
+                    # where the full value stays reachable. - Claude Generated
+                    item.setToolTip(text)
                 self.table.setItem(r, c, item)
 
             self.table.setCellWidget(r, 4, self._selector_for(row, unified_config))
@@ -169,6 +182,15 @@ class ResolutionView(QGroupBox):
             selector = ProviderModelSelector(
                 allow_empty=empty_label is not None,
                 empty_provider_label=empty_label or "",
+                # Non-editable: an editable QComboBox sizes itself from its
+                # current text, not from the full item list, so the column
+                # visibly resized every time a different (shorter/longer)
+                # model name was picked. A plain dropdown's size hint comes
+                # from the widest item in the list, which doesn't change
+                # when the selection does. The exact configured model is
+                # shown regardless, in the separate "Modell" text column.
+                # - Claude Generated
+                editable_model=False,
             )
             selector.selectionChanged.connect(
                 lambda p, m, scope=row.scope: self._on_pick(scope, p, m)

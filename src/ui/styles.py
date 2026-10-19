@@ -443,7 +443,7 @@ def get_main_stylesheet():
         color: white;
     }}
     
-    QTreeWidget::item:hover {{
+    QTreeWidget::item:hover:!selected {{
         background-color: {get_colors()['background_light']};
     }}
     """
