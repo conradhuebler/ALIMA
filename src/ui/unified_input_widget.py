@@ -405,23 +405,7 @@ class UnifiedInputWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)  # Reduced from 15px - Claude Generated
 
-        # Header mit Titel
-        header_layout = QHBoxLayout()
-        title_label = QLabel("📥 INPUT")
-        title_font = QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        header_layout.addWidget(title_label)
-
-        header_layout.addStretch()
-
-        # Clear button
-        clear_button = QPushButton("🗑️ Leeren")
-        clear_button.clicked.connect(self.clear_input)
-        header_layout.addWidget(clear_button)
-
-        layout.addLayout(header_layout)
+        # The step header above already names this area; "Leeren" sits with the text it clears.
 
         # ═══ Main Splitter between Input Area and Text Display ═══
         self.main_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -430,7 +414,8 @@ class UnifiedInputWidget(QWidget):
         # Top: Input Area (Frames + Methods)
         input_area_widget = QWidget()
         input_area_layout = QVBoxLayout(input_area_widget)
-        input_area_layout.setContentsMargins(0, 0, 0, 0)
+        input_area_layout.setContentsMargins(0, 0, 0, 6)
+        input_area_layout.setSpacing(8)
 
         # Frames Area
         frames_layout = QHBoxLayout()
@@ -452,10 +437,11 @@ class UnifiedInputWidget(QWidget):
 
         self.main_splitter.addWidget(text_display_widget)
 
-        # Splitter ratio: 40% input area, 60% text display
-        self.main_splitter.setStretchFactor(0, 2)  # Input area
-        self.main_splitter.setStretchFactor(1, 3)  # Text display
-        self.main_splitter.setSizes([300, 450])  # Initial split bei 750px
+        # The input area keeps the height its controls need; every extra pixel
+        # goes to the text display (a stretched drop zone only wasted it).
+        self.main_splitter.setStretchFactor(0, 0)  # Input area
+        self.main_splitter.setStretchFactor(1, 1)  # Text display
+        self.main_splitter.setSizes([input_area_widget.sizeHint().height(), 450])
 
         layout.addWidget(self.main_splitter)
         # ═══ END Splitter ═══
@@ -470,114 +456,129 @@ class UnifiedInputWidget(QWidget):
 
 
     def create_drop_zone_compact(self, layout):
-        """Create compact drop zone - Claude Generated"""
-        drop_zone_group = QGroupBox("📤 Drag & Drop")
-        drop_zone_layout = QVBoxLayout(drop_zone_group)
+        """Drop zone: one frame, its caption inside - Claude Generated.
 
-        # Drop area
+        A group box with its own title repeated what the frame says and, with
+        the frame padding, left the hint text too little width.
+        """
         self.drop_frame = QFrame()
         self.drop_frame.setFrameStyle(QFrame.Shape.Box)
         self.drop_frame.setLineWidth(2)
-        self.drop_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
+        self.drop_frame.setMinimumHeight(72)
+        self.drop_frame.setMaximumHeight(110)  # zones stay compact; the text field gets the space
         # Colours and the drag state: QFrame#dropZone in the main stylesheet,
         # scoped by object name so the labels inside keep their own look.
         self.drop_frame.setObjectName("dropZone")
 
         frame_layout = QVBoxLayout(self.drop_frame)
         frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        frame_layout.setSpacing(2)
 
-        # Drop instruction
-        drop_label = QLabel("Dateien hier ablegen")
+        drop_label = QLabel("📤 Dateien hier ablegen")
         drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        drop_label.setWordWrap(True)
         set_tone(drop_label, "heading")
         frame_layout.addWidget(drop_label)
 
         supported_label = QLabel("PDF, Bilder, Text-Dateien")
         supported_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        supported_label.setWordWrap(True)
         set_tone(supported_label, "muted")
         frame_layout.addWidget(supported_label)
 
-        drop_zone_layout.addWidget(self.drop_frame)
-        layout.addWidget(drop_zone_group)
+        layout.addWidget(self.drop_frame, 1)
 
     def create_webcam_capture_frame(self, layout):
-        """Create webcam capture frame - Claude Generated (Webcam Feature)"""
-        webcam_group = QGroupBox("📷 Webcam Capture")
-        webcam_layout = QVBoxLayout(webcam_group)
-
-        # Clickable frame (similar to drop zone)
+        """Webcam zone: same shape as the drop zone - Claude Generated (Webcam Feature)"""
         self.webcam_frame = QFrame()
         self.webcam_frame.setFrameStyle(QFrame.Shape.Box)
         self.webcam_frame.setLineWidth(2)
-        self.webcam_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
+        self.webcam_frame.setMinimumHeight(72)
+        self.webcam_frame.setMaximumHeight(110)
         self.webcam_frame.setObjectName("webcamZone")  # colours: main stylesheet
+        self.webcam_frame.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Make frame clickable
         self.webcam_frame.mousePressEvent = lambda event: self.capture_from_webcam()
 
         frame_layout = QVBoxLayout(self.webcam_frame)
         frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        frame_layout.setSpacing(2)
 
-        # Icon + Text
-        webcam_label = QLabel("Klicken für Aufnahme")
+        webcam_label = QLabel("📷 Foto aufnehmen")
         webcam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        set_tone(webcam_label, "info")
-        webcam_label.setStyleSheet("font-weight: bold;")
+        webcam_label.setWordWrap(True)
+        set_tone(webcam_label, "heading")
         frame_layout.addWidget(webcam_label)
 
-        info_label = QLabel("Webcam-Bild aufnehmen")
+        info_label = QLabel("Bild von der Webcam")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_label.setWordWrap(True)
         set_tone(info_label, "muted")
         frame_layout.addWidget(info_label)
 
-        webcam_layout.addWidget(self.webcam_frame)
-        layout.addWidget(webcam_group)
+        layout.addWidget(self.webcam_frame, 1)
 
         # Set visibility based on config
         self._update_webcam_frame_visibility()
 
     def create_input_methods_horizontal(self, layout):
-        """Create horizontal input methods bar - Claude Generated (Webcam Feature)"""
-        methods_group = QGroupBox("🔧 Eingabemethoden")
-        methods_layout = QHBoxLayout(methods_group)
-        methods_layout.setSpacing(6)  # Reduced from 10px - Claude Generated
+        """Input methods in two rows - Claude Generated.
 
-        # File selection button
-        file_button = QPushButton("📁 Datei auswählen")
-        file_button.clicked.connect(self.select_file)
-        methods_layout.addWidget(file_button)
+        One row of five controls left the DOI/URL field a few characters wide
+        in the narrow left column. Row 1 is the field with its two actions,
+        row 2 the other ways in.
+        """
+        doi_row = QHBoxLayout()
+        doi_row.setSpacing(6)
 
-        # DOI/URL input with inline button
         self.doi_url_input = QLineEdit()
-        self.doi_url_input.setPlaceholderText("DOI oder URL eingeben...")
+        self.doi_url_input.setPlaceholderText("DOI oder URL eingeben …")
+        self.doi_url_input.setClearButtonEnabled(True)
         self.doi_url_input.returnPressed.connect(self.process_doi_url_input)
-        methods_layout.addWidget(self.doi_url_input)
+        doi_row.addWidget(self.doi_url_input, 1)
 
         resolve_button = QPushButton("🔍 Auflösen")
+        resolve_button.setToolTip("DOI oder URL auflösen und den Text übernehmen")
         resolve_button.clicked.connect(self.process_doi_url_input)
-        resolve_button.setMaximumWidth(100)
-        methods_layout.addWidget(resolve_button)
+        doi_row.addWidget(resolve_button)
 
         open_button = QPushButton("🌐 Öffnen")
         open_button.clicked.connect(self.open_doi_url_in_browser)
-        open_button.setMaximumWidth(90)
         open_button.setToolTip("DOI oder URL im Browser öffnen")
-        methods_layout.addWidget(open_button)
+        doi_row.addWidget(open_button)
 
-        # Paste button
-        paste_button = QPushButton("📋 Paste")
+        layout.addLayout(doi_row)
+
+        other_row = QHBoxLayout()
+        other_row.setSpacing(6)
+
+        file_button = QPushButton("📁 Datei auswählen")
+        file_button.clicked.connect(self.select_file)
+        other_row.addWidget(file_button)
+
+        paste_button = QPushButton("📋 Einfügen")
+        paste_button.setToolTip("Text aus der Zwischenablage einfügen")
         paste_button.clicked.connect(self.paste_from_clipboard)
-        paste_button.setMaximumWidth(100)
-        methods_layout.addWidget(paste_button)
+        other_row.addWidget(paste_button)
 
-        layout.addWidget(methods_group)
+        other_row.addStretch()
+        layout.addLayout(other_row)
 
     def create_text_display_content(self, layout):
         """Create text display content without GroupBox wrapper - Claude Generated"""
-        # Header Label statt GroupBox Title
+        # Header row: caption left, "Leeren" right (it clears this text and the source)
+        header_row = QHBoxLayout()
         header_label = QLabel("📄 Extrahierter Text")
         header_label.setStyleSheet("font-weight: bold; padding: 5px;")
-        layout.addWidget(header_label)
+        header_row.addWidget(header_label)
+        header_row.addStretch()
+
+        clear_button = QPushButton("🗑️ Leeren")
+        clear_button.setToolTip("Eingabe und extrahierten Text verwerfen")
+        clear_button.clicked.connect(self.clear_input)
+        header_row.addWidget(clear_button)
+        layout.addLayout(header_row)
 
         # Append mode checkbox - Claude Generated (Multi-Image OCR feature)
         append_layout = QHBoxLayout()
@@ -1047,20 +1048,15 @@ class UnifiedInputWidget(QWidget):
             config_manager = ConfigManager()
             ui_config = config_manager.get_ui_config()
 
-            # Set frame visibility (frame is inside a group box, so hide the parent)
+            # The frame stands on its own now: hide it, never its parent (the whole input area)
             if hasattr(self, 'webcam_frame'):
-                # Find parent QGroupBox
-                parent = self.webcam_frame.parent()
-                if parent:
-                    parent.setVisible(ui_config.enable_webcam_input)
-                    self.logger.debug(f"Webcam frame visibility: {ui_config.enable_webcam_input}")
+                self.webcam_frame.setVisible(ui_config.enable_webcam_input)
+                self.logger.debug(f"Webcam frame visibility: {ui_config.enable_webcam_input}")
         except Exception as e:
             self.logger.error(f"Error updating webcam frame visibility: {e}")
             # Default to hidden on error
             if hasattr(self, 'webcam_frame'):
-                parent = self.webcam_frame.parent()
-                if parent:
-                    parent.setVisible(False)
+                self.webcam_frame.setVisible(False)
 
     def webcam_enabled(self) -> bool:
         """Whether webcam capture may run at all - Claude Generated.

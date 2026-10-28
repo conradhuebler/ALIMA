@@ -582,8 +582,8 @@ def get_main_stylesheet():
 
     /* Splitters */
     QSplitter::handle {{
-        background-color: {c['background_dark']};
-        border: 1px solid {c['border_light']};
+        background-color: {c['border_light']};
+        border: none;
     }}
 
     QSplitter::handle:hover {{
@@ -591,11 +591,11 @@ def get_main_stylesheet():
     }}
 
     QSplitter::handle:horizontal {{
-        width: 2px;
+        width: 3px;
     }}
 
     QSplitter::handle:vertical {{
-        height: 2px;
+        height: 3px;
     }}
 
     /* Scrollbars */
@@ -726,12 +726,14 @@ def _component_rules(c: dict, fs: int) -> str:
         f'QFrame#pipelineStep[state="error"] {{ border-color: {c["error"]}; background-color: {c["error_bg"]}; }}',
         # Drop / capture zones in the input step
         f'QFrame#dropZone {{ border: 2px dashed {c["border"]}; border-radius: 8px; '
-        f'background-color: {c["background_light"]}; padding: 20px; }}',
+        f'background-color: {c["background_light"]}; padding: 8px 10px; }}',
         f'QFrame#dropZone:hover {{ border-color: {c["indicator"]}; background-color: {c["hover_tint"]}; }}',
         f'QFrame#dropZone[state="drag"] {{ border: 2px solid {c["success"]}; background-color: {c["success_bg"]}; }}',
-        f'QFrame#webcamZone {{ border: 2px dashed {c["secondary"]}; border-radius: 8px; '
-        f'background-color: {c["info_bg"]}; padding: 20px; }}',
-        f'QFrame#webcamZone:hover {{ border-color: {c["secondary_pressed"]}; background-color: {c["secondary_tint"]}; }}',
+        # Same look as the drop zone: neither competes for attention, the hover
+        # shows which one is about to act.
+        f'QFrame#webcamZone {{ border: 2px dashed {c["border"]}; border-radius: 8px; '
+        f'background-color: {c["background_light"]}; padding: 8px 10px; }}',
+        f'QFrame#webcamZone:hover {{ border-color: {c["indicator"]}; background-color: {c["hover_tint"]}; }}',
         f'QFrame#optionsStrip {{ background-color: {c["background_dark"]}; border-radius: 6px; padding: 4px; }}',
         # Panel strips (toolbars, chat header/input, status strips)
         f'QFrame#panelStrip {{ background-color: {c["background_light"]}; border: none; '

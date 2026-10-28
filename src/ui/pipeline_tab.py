@@ -247,7 +247,7 @@ class PipelineTab(
         input_step_widget = PipelineStepWidget(input_step)
         input_step_widget.set_content(input_widget)
         self.step_widgets["input"] = input_step_widget
-        self.pipeline_tabs.addTab(input_step_widget, "📥 Input & Datenquellen")
+        self.pipeline_tabs.addTab(input_step_widget, "📥 Input && Datenquellen")
 
         # Step 2: Initialisation
         init_provider, init_model = self._get_pipeline_default_provider_model()

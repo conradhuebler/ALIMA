@@ -134,7 +134,7 @@ class ComprehensiveSettingsDialog(QDialog):
         self.export_preset_button.setToolTip("Aktuelle Einstellungen als alima_presets.json exportieren")
         self.export_preset_button.clicked.connect(self._export_as_preset)
 
-        self.save_button = QPushButton("💾 Save & Close")
+        self.save_button = QPushButton("💾 Save && Close")
         self.save_button.clicked.connect(self._save_and_close)
 
         self.cancel_button = QPushButton("❌ Cancel")

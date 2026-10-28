@@ -1064,7 +1064,7 @@ class DatabaseSetupPage(QWizardPage):
         # ===== SHARED DATABASE TEST BUTTON =====
         # Placed after both SQLite and MariaDB groups, visible for both
         test_layout = QHBoxLayout()
-        self.test_db_btn = QPushButton("🔍 Datenbank testen & GND prüfen")
+        self.test_db_btn = QPushButton("🔍 Datenbank testen && GND prüfen")
         self.test_db_btn.clicked.connect(self._test_database_connection)
         test_layout.addWidget(self.test_db_btn)
         test_layout.addStretch()

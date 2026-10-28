@@ -439,7 +439,7 @@ class AbstractTab(QWidget):
         right_config_layout = QVBoxLayout()
         right_config_layout.setSpacing(LAYOUT["inner_spacing"])
 
-        provider_model_group = QGroupBox("Provider & Modell")
+        provider_model_group = QGroupBox("Provider && Modell")
         provider_model_layout = QGridLayout(provider_model_group)
         provider_model_layout.setSpacing(LAYOUT["inner_spacing"])
         provider_model_layout.addWidget(QLabel("Provider:"), 0, 0)
