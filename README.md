@@ -48,7 +48,7 @@ Hinweis zum Mehrbenutzerbetrieb:
 ### Voraussetzungen
 
 *   Python 3.11 oder 3.12. Die Untergrenze stammt aus den Pins in `requirements.txt` (`numpy` verlangt >= 3.11, `fastapi`/`uvicorn`/`Crawl4AI` >= 3.10). Unter Python 3.13 schlägt das Auslesen von Webseiten über crawl4ai fehl.
-*   PyQt6
+*   PyQt6 mit WebEngine (`PyQt6-WebEngine`, in `requirements.txt` enthalten). Die GUI importiert `QtWebEngineWidgets` beim Start und läuft ohne dieses Paket nicht. Wer PyQt6 einzeln installiert, muss es mitinstallieren.
 *   diverse Pakete (openai, ollama, crawl4ai, playwright) siehe requirements.txt
 
 ### Installationsschritte
