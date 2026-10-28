@@ -56,8 +56,7 @@ from .styles import (
     get_status_label_styles,
     get_scaled_font,
     LAYOUT,
-    COLORS,
-    DARK_COLORS,
+    all_scheme_values,
     get_colors,
 )
 
@@ -129,9 +128,9 @@ def _tone(name: str) -> QColor:
 
 def _is_manual_row_ground(color: QColor) -> bool:
     """Manual additions keep their info ground when a selection is toggled
-    off. Both themes count, so a theme switch in between does not strip it.
+    off. Every scheme and theme counts, so a switch in between does not strip it.
     - Claude Generated"""
-    return color.name() in (COLORS["info_bg"], DARK_COLORS["info_bg"])
+    return color.name() in all_scheme_values("info_bg")
 
 _CACHE_STATUS_ICONS = {"cache": "💾", "new": "🌐", "outdated": "⚠️"}
 _CACHE_STATUS_TOOLTIPS = {

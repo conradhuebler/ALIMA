@@ -500,7 +500,7 @@ body {
 .step-node.is-done .step-dot {
     background: var(--clr-grad);
     border-color: transparent;
-    color: var(--clr-on-solid);
+    color: var(--clr-on-grad, var(--clr-on-solid));
     font-size: 0;
 }
 .step-node.is-done .step-dot::before {
@@ -1167,7 +1167,7 @@ body {
 /* Primary: logo gradient */
 .btn-primary {
     background: var(--clr-grad);
-    color: var(--clr-on-solid);
+    color: var(--clr-on-grad, var(--clr-on-solid));
     border-color: transparent;
 }
 .btn-primary:hover:not(:disabled) {
@@ -1441,7 +1441,6 @@ body {
 .btn-theme-toggle {
     width: 36px;
     height: 36px;
-    margin-left: auto;
     border-radius: var(--r-pill);
     background: var(--clr-surface);
     border: 1px solid var(--clr-border-2);
@@ -1570,6 +1569,271 @@ body {
     --clr-reconnect-text:       #f9cdb0;
     --clr-card-success-border:  #24442f;
     --clr-card-success-bg-from: #13251b;
+}
+
+/* ═══════════════════════════════════════════════════
+   COLOUR SCHEME "NEUTRAL" (<html data-scheme="neutral">)
+   Blue-grey greys, one quiet blue accent, flat fills.
+   Light values first, dark values in two equal blocks.
+   The selectors carry data-scheme, so they outrank the
+   ALIMA blocks above. Contrast: docs/design_refresh.md.
+   ═══════════════════════════════════════════════════ */
+:root[data-scheme="neutral"] {
+    --clr-primary:        #3a5f8f;
+    --clr-primary-hover:  #2f4f78;
+    --clr-primary-light:  rgba(58, 95, 143, 0.08);
+    --clr-primary-ring:   rgba(58, 95, 143, 0.26);
+    --clr-on-solid:       #ffffff;
+    --clr-grad:           #3a5f8f;
+    --clr-grad-soft:      #9fb3cc;
+    --clr-focus:          #3a5f8f;
+    --clr-cool:           #34557f;
+    --clr-glow:           rgba(0, 0, 0, 0);
+    --clr-bg:        #f3f5f7;
+    --clr-surface:   #fbfcfd;
+    --clr-surface-2: #eef1f4;
+    --clr-surface-3: #e3e7ec;
+    --clr-stream-bg:    #fbfcfd;
+    --clr-dark-line:    #dce1e7;
+    --clr-stream-text:  #34557f;
+    --clr-stream-muted: #596473;
+    --clr-text:      #1c2330;
+    --clr-muted:     #596473;
+    --clr-subtle:    #5f6a78;
+    --clr-border:    #dce1e7;
+    --clr-border-2:  #7f8995;
+    --clr-step-line: #c8cfd7;
+    --clr-success:        #256b45;
+    --clr-success-bg:     rgba(37, 107, 69, 0.08);
+    --clr-warning:        #7a5600;
+    --clr-warning-bg:     rgba(122, 86, 0, 0.08);
+    --clr-error:          #a82a2a;
+    --clr-error-bg:       rgba(168, 42, 42, 0.07);
+    --clr-info:           #34557f;
+    --clr-info-bg:        rgba(52, 85, 127, 0.07);
+    --clr-scroll-thumb:       #b6bec8;
+    --clr-scroll-thumb-hover: #3a5f8f;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1L6 7L11 1' stroke='%23596473' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    --shadow-xs: 0 1px 2px rgba(20, 30, 45, 0.06);
+    --shadow-sm: 0 1px 4px rgba(20, 30, 45, 0.07), 0 1px 2px rgba(20, 30, 45, 0.04);
+    --shadow-md: 0 4px 14px rgba(20, 30, 45, 0.09), 0 2px 4px rgba(20, 30, 45, 0.04);
+    --shadow-lg: 0 12px 32px rgba(20, 30, 45, 0.11), 0 4px 8px rgba(20, 30, 45, 0.05);
+    --shadow-fab: 0 6px 18px rgba(58, 95, 143, 0.22);
+    --clr-header-glass:   rgba(251, 252, 253, 0.88);
+    --clr-footer-glass:   rgba(251, 252, 253, 0.95);
+    --clr-tab-hover-bg:   rgba(255, 255, 255, 0.7);
+    --clr-reconnect-bg-from:    #eef2f7;
+    --clr-reconnect-bg-to:      #e3eaf3;
+    --clr-reconnect-border:     #c3cfdd;
+    --clr-reconnect-text:       #2f4f78;
+    --clr-card-success-border:  #bfe0cc;
+    --clr-card-success-bg-from: #edf6f0;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root[data-scheme="neutral"]:not([data-theme="light"]) {
+        --clr-primary:        #93b9e8;
+        --clr-primary-hover:  #a9c7ee;
+        --clr-primary-light:  rgba(147, 185, 232, 0.10);
+        --clr-primary-ring:   rgba(147, 185, 232, 0.30);
+        --clr-on-solid:       #10141a;
+        --clr-grad:           #93b9e8;
+        --clr-grad-soft:      #5d7aa0;
+        --clr-focus:          #93b9e8;
+        --clr-cool:           #a3c2e8;
+        --clr-glow:           rgba(0, 0, 0, 0);
+        --clr-bg:        #0f1216;
+        --clr-surface:   #171a20;
+        --clr-surface-2: #1d2128;
+        --clr-surface-3: #262b33;
+        --clr-stream-bg:    #14171c;
+        --clr-dark-line:    #2b313a;
+        --clr-stream-text:  #a3c2e8;
+        --clr-stream-muted: #b0b8c3;
+        --clr-text:      #e7eaef;
+        --clr-muted:     #b3bbc6;
+        --clr-subtle:    #9ca5b0;
+        --clr-border:    #2b313a;
+        --clr-border-2:  #6c7582;
+        --clr-step-line: #39404a;
+        --clr-success:        #7cc89d;
+        --clr-success-bg:     rgba(124, 200, 157, 0.10);
+        --clr-warning:        #e3bd68;
+        --clr-warning-bg:     rgba(227, 189, 104, 0.10);
+        --clr-error:          #f28b8b;
+        --clr-error-bg:       rgba(242, 139, 139, 0.10);
+        --clr-info:           #a3c2e8;
+        --clr-info-bg:        rgba(163, 194, 232, 0.10);
+        --clr-scroll-thumb:       #4a525e;
+        --clr-scroll-thumb-hover: #93b9e8;
+        --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1L6 7L11 1' stroke='%23b3bbc6' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+        --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
+        --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.2);
+        --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.25);
+        --shadow-fab: 0 6px 22px rgba(147, 185, 232, 0.30);
+        --clr-header-glass:   rgba(15, 18, 22, 0.86);
+        --clr-footer-glass:   rgba(23, 26, 32, 0.95);
+        --clr-tab-hover-bg:   rgba(255, 255, 255, 0.05);
+        --clr-reconnect-bg-from:    #1a2230;
+        --clr-reconnect-bg-to:      #1f2a3a;
+        --clr-reconnect-border:     #34465e;
+        --clr-reconnect-text:       #a3c2e8;
+        --clr-card-success-border:  #24442f;
+        --clr-card-success-bg-from: #13251b;
+    }
+}
+
+:root[data-scheme="neutral"][data-theme="dark"] {
+    --clr-primary:        #93b9e8;
+    --clr-primary-hover:  #a9c7ee;
+    --clr-primary-light:  rgba(147, 185, 232, 0.10);
+    --clr-primary-ring:   rgba(147, 185, 232, 0.30);
+    --clr-on-solid:       #10141a;
+    --clr-grad:           #93b9e8;
+    --clr-grad-soft:      #5d7aa0;
+    --clr-focus:          #93b9e8;
+    --clr-cool:           #a3c2e8;
+    --clr-glow:           rgba(0, 0, 0, 0);
+    --clr-bg:        #0f1216;
+    --clr-surface:   #171a20;
+    --clr-surface-2: #1d2128;
+    --clr-surface-3: #262b33;
+    --clr-stream-bg:    #14171c;
+    --clr-dark-line:    #2b313a;
+    --clr-stream-text:  #a3c2e8;
+    --clr-stream-muted: #b0b8c3;
+    --clr-text:      #e7eaef;
+    --clr-muted:     #b3bbc6;
+    --clr-subtle:    #9ca5b0;
+    --clr-border:    #2b313a;
+    --clr-border-2:  #6c7582;
+    --clr-step-line: #39404a;
+    --clr-success:        #7cc89d;
+    --clr-success-bg:     rgba(124, 200, 157, 0.10);
+    --clr-warning:        #e3bd68;
+    --clr-warning-bg:     rgba(227, 189, 104, 0.10);
+    --clr-error:          #f28b8b;
+    --clr-error-bg:       rgba(242, 139, 139, 0.10);
+    --clr-info:           #a3c2e8;
+    --clr-info-bg:        rgba(163, 194, 232, 0.10);
+    --clr-scroll-thumb:       #4a525e;
+    --clr-scroll-thumb-hover: #93b9e8;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1L6 7L11 1' stroke='%23b3bbc6' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5), 0 4px 8px rgba(0, 0, 0, 0.25);
+    --shadow-fab: 0 6px 22px rgba(147, 185, 232, 0.30);
+    --clr-header-glass:   rgba(15, 18, 22, 0.86);
+    --clr-footer-glass:   rgba(23, 26, 32, 0.95);
+    --clr-tab-hover-bg:   rgba(255, 255, 255, 0.05);
+    --clr-reconnect-bg-from:    #1a2230;
+    --clr-reconnect-bg-to:      #1f2a3a;
+    --clr-reconnect-border:     #34465e;
+    --clr-reconnect-text:       #a3c2e8;
+    --clr-card-success-border:  #24442f;
+    --clr-card-success-bg-from: #13251b;
+}
+
+/* ═══════════════════════════════════════════════════
+   COLOUR SCHEME "DESKTOP" (<html data-scheme="desktop">)
+   CSS system colours; light or dark as the system prefers
+   (color-scheme), the page toggle is off in this scheme.
+   Their contrast depends on browser and system and is not
+   measured. Signal colours use light-dark() where known.
+   ═══════════════════════════════════════════════════ */
+:root[data-scheme="desktop"] {
+    color-scheme: light dark;
+    --clr-primary:        LinkText;
+    --clr-primary-hover:  LinkText;
+    --clr-primary-light:  color-mix(in srgb, Highlight 12%, transparent);
+    --clr-primary-ring:   color-mix(in srgb, Highlight 40%, transparent);
+    --clr-on-solid:       Canvas;
+    --clr-on-grad:        HighlightText;
+    --clr-grad:           Highlight;
+    --clr-grad-soft:      color-mix(in srgb, Highlight 45%, Canvas);
+    --clr-focus:          Highlight;
+    --clr-cool:           LinkText;
+    --clr-glow:           rgba(0, 0, 0, 0);
+    --clr-bg:        color-mix(in srgb, CanvasText 4%, Canvas);
+    --clr-surface:   Canvas;
+    --clr-surface-2: color-mix(in srgb, CanvasText 6%, Canvas);
+    --clr-surface-3: color-mix(in srgb, CanvasText 11%, Canvas);
+    --clr-stream-bg:    Canvas;
+    --clr-dark-line:    color-mix(in srgb, CanvasText 15%, Canvas);
+    --clr-stream-text:  LinkText;
+    --clr-stream-muted: color-mix(in srgb, CanvasText 72%, Canvas);
+    --clr-text:      CanvasText;
+    --clr-muted:     color-mix(in srgb, CanvasText 72%, Canvas);
+    --clr-subtle:    color-mix(in srgb, CanvasText 66%, Canvas);
+    --clr-border:    color-mix(in srgb, CanvasText 15%, Canvas);
+    --clr-border-2:  color-mix(in srgb, CanvasText 55%, Canvas);
+    --clr-step-line: color-mix(in srgb, CanvasText 25%, Canvas);
+    --clr-success:        #256b45;
+    --clr-success-bg:     rgba(37, 107, 69, 0.10);
+    --clr-warning:        #7a5600;
+    --clr-warning-bg:     rgba(122, 86, 0, 0.10);
+    --clr-error:          #a82a2a;
+    --clr-error-bg:       rgba(168, 42, 42, 0.10);
+    --clr-info:           LinkText;
+    --clr-info-bg:        color-mix(in srgb, LinkText 10%, transparent);
+    --clr-scroll-thumb:       color-mix(in srgb, CanvasText 30%, Canvas);
+    --clr-scroll-thumb-hover: Highlight;
+    --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1L6 7L11 1' stroke='%23808080' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.12);
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.14), 0 1px 2px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.18), 0 2px 4px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.22), 0 4px 8px rgba(0, 0, 0, 0.1);
+    --shadow-fab: 0 6px 18px rgba(0, 0, 0, 0.2);
+    --clr-header-glass:   Canvas;
+    --clr-footer-glass:   Canvas;
+    --clr-tab-hover-bg:   color-mix(in srgb, CanvasText 6%, Canvas);
+    --clr-reconnect-bg-from:    color-mix(in srgb, Highlight 12%, Canvas);
+    --clr-reconnect-bg-to:      color-mix(in srgb, Highlight 18%, Canvas);
+    --clr-reconnect-border:     color-mix(in srgb, Highlight 40%, Canvas);
+    --clr-reconnect-text:       CanvasText;
+    --clr-card-success-border:  color-mix(in srgb, #256b45 35%, Canvas);
+    --clr-card-success-bg-from: color-mix(in srgb, #256b45 8%, Canvas);
+}
+@supports (color: light-dark(white, black)) {
+    :root[data-scheme="desktop"] {
+        --clr-success: light-dark(#256b45, #7cc89d);
+        --clr-warning: light-dark(#7a5600, #e3bd68);
+        --clr-error:   light-dark(#a82a2a, #f28b8b);
+    }
+}
+
+/* Scheme picker in the header */
+.scheme-select {
+    margin-left: auto;
+    min-height: 36px;
+    padding: 4px 26px 4px 10px;
+    border: 1px solid var(--clr-border-2);
+    border-radius: var(--r-pill);
+    background-color: var(--clr-surface);
+    background-image: var(--select-arrow);
+    background-repeat: no-repeat;
+    background-position: right 9px center;
+    color: var(--clr-text);
+    font-family: var(--font-body);
+    font-size: 0.8rem;
+    font-weight: 600;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.scheme-select:hover { border-color: var(--clr-primary); }
+.scheme-select option { background: var(--clr-surface); color: var(--clr-text); }
+.btn-theme-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Narrow phones: brand, scheme picker, theme toggle and queue badge do not
+   fit one 60-px row; the header grows and wraps instead of squeezing the
+   name under the picker. */
+@media (max-width: 480px) {
+    .site-header { height: auto; min-height: var(--header-h); }
+    .header-inner { flex-wrap: wrap; row-gap: 6px; padding-top: 10px; padding-bottom: 10px; }
 }
 
 /* WP12: shared render region (#log). Colours come from the --alima-*

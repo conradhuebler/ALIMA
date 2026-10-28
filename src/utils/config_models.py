@@ -935,6 +935,11 @@ class SystemConfig:
     default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
 
 
+#: Colour schemes the GUI knows (mirrors src/ui/styles.COLOR_SCHEMES; kept
+#: here so the config layer stays free of Qt imports). - Claude Generated
+UI_COLOR_SCHEMES = ("alima", "neutral", "desktop")
+
+
 @dataclass
 class UIConfig:
     """UI-specific configuration - Claude Generated"""
@@ -945,6 +950,21 @@ class UIConfig:
     # panel's DE/EN toggle (LLM answer language) is a separate axis. Read by
     # src/utils/i18n.py on config load. - Claude Generated
     ui_language: str = "de"
+    # Colour scheme of the Qt GUI: "alima" (logo colours), "neutral"
+    # (blue-grey, flat) or "desktop" (system palette). Read by the main
+    # window (src/ui/styles.py). - Claude Generated
+    color_scheme: str = "alima"
+
+    def __post_init__(self):
+        """An unknown colour scheme in the file falls back to "alima" with a
+        log entry instead of failing the whole config. - Claude Generated"""
+        value = str(self.color_scheme or "").strip().lower()
+        if value not in UI_COLOR_SCHEMES:
+            logging.getLogger(__name__).warning(
+                f"ui_config.color_scheme {self.color_scheme!r} unbekannt, verwende 'alima'"
+            )
+            value = "alima"
+        self.color_scheme = value
 
 
 @dataclass

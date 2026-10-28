@@ -61,20 +61,63 @@ def _set_palette_roles(palette: QPalette, c: dict, dark: bool) -> None:
         palette.setColor(disabled, r, QColor(c["text_muted"]))
 
 
-def _apply_dark_app_palette(app: QApplication):
-    """Apply the dark (logo ground) QPalette to the application — Claude Generated"""
-    from src.ui.styles import DARK_COLORS
-    palette = QPalette()
-    _set_palette_roles(palette, DARK_COLORS, dark=True)
+#: The operating system's palette as it was before ALIMA changed anything
+#: (taken in ``main`` right after the QApplication exists). The Desktop colour
+#: scheme restores it and derives its tokens from it. - Claude Generated
+_DESKTOP_PALETTE: QPalette | None = None
+
+
+def _system_prefers_dark(app: QApplication, palette: QPalette) -> bool:
+    """The system's light/dark choice: Qt's colour-scheme hint when it knows
+    one, otherwise the brightness of the window colour. - Claude Generated"""
+    try:
+        scheme = app.styleHints().colorScheme()
+        if scheme == Qt.ColorScheme.Dark:
+            return True
+        if scheme == Qt.ColorScheme.Light:
+            return False
+    except AttributeError:  # Qt < 6.5 has no colour-scheme hint
+        pass
+    return palette.color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def take_desktop_snapshot(app: QApplication) -> None:
+    """Remember the system palette and hand it to styles.py (Desktop scheme).
+    Must run before ``setStyle("Fusion")`` and before any ALIMA palette.
+    - Claude Generated"""
+    global _DESKTOP_PALETTE
+    from src.ui.styles import palette_roles, set_desktop_palette
+
+    _DESKTOP_PALETTE = QPalette(app.palette())
+    set_desktop_palette(palette_roles(_DESKTOP_PALETTE),
+                        _system_prefers_dark(app, _DESKTOP_PALETTE))
+
+
+def _apply_scheme_palette(app: QApplication, dark: bool) -> None:
+    """QPalette for the active colour scheme: ALIMA and Neutral from their
+    token tables, Desktop by restoring the system palette. - Claude Generated"""
+    from src.ui.styles import get_color_scheme, scheme_colors
+
+    scheme = get_color_scheme()
+    if scheme == "desktop":
+        if _DESKTOP_PALETTE is not None:
+            app.setPalette(QPalette(_DESKTOP_PALETTE))
+        else:
+            app.setPalette(app.style().standardPalette())
+        return
+    palette = QPalette() if dark else app.style().standardPalette()
+    _set_palette_roles(palette, scheme_colors(scheme, dark), dark=dark)
     app.setPalette(palette)
+
+
+def _apply_dark_app_palette(app: QApplication):
+    """Apply the dark QPalette of the active colour scheme — Claude Generated"""
+    _apply_scheme_palette(app, dark=True)
 
 
 def _apply_light_app_palette(app: QApplication):
-    """Apply the warm light QPalette (same tokens as the light stylesheet) — Claude Generated"""
-    from src.ui.styles import COLORS
-    palette = app.style().standardPalette()
-    _set_palette_roles(palette, COLORS, dark=False)
-    app.setPalette(palette)
+    """Apply the light QPalette of the active colour scheme — Claude Generated"""
+    _apply_scheme_palette(app, dark=False)
 
 
 def _app_icon_path() -> str:
@@ -109,6 +152,9 @@ def main():
     # loaded (the config load itself must be able to log). - Claude Generated
     setup_logging(level=1, log_file="alima.log")
     app = QApplication(sys.argv)
+    # The system palette, before Fusion and ALIMA's own palettes replace it
+    # (Desktop colour scheme). - Claude Generated
+    take_desktop_snapshot(app)
     _ = AlimaStateBus()  # Force singleton creation on main thread before workers spawn
     app.setOrganizationName("TU Bergakademie Freiberg")
     app.setApplicationName("AlIma")

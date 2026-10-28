@@ -30,8 +30,12 @@ from ..utils.pipeline_defaults import get_autosave_dir
 from .comprehensive_settings_dialog import ComprehensiveSettingsDialog
 from .styles import (
     DEFAULT_FONT_FAMILY,
+    get_color_scheme,
     get_font_size,
     get_main_stylesheet,
+    is_dark_mode,
+    normalize_color_scheme,
+    set_color_scheme,
     set_dark_mode,
     set_font_size,
 )
@@ -129,6 +133,14 @@ class MainWindowSettingsMixin:
             if hasattr(self, 'pipeline_tab'):
                 self.pipeline_tab.restore_splitter_state(self.settings)
 
+        # Colour scheme from the config: only sets the token tables; the
+        # stylesheet pass below applies it together with theme and font, so
+        # start-up keeps a single pass. - Claude Generated
+        scheme = self._configured_color_scheme()
+        scheme_changes = scheme != get_color_scheme()
+        set_color_scheme(scheme)
+        self._sync_color_scheme_controls()
+
         # Load dark mode preference — Claude Generated
         from src.alima_gui import is_system_dark_mode
         app = QApplication.instance()
@@ -147,7 +159,9 @@ class MainWindowSettingsMixin:
         font_changes = saved_fs is not None and not (
             only_changes and int(saved_fs) == get_font_size()
         )
-        theme_changes = not (only_changes and dark == getattr(self, "_dark_mode", None))
+        theme_changes = scheme_changes or not (
+            only_changes and dark == getattr(self, "_dark_mode", None)
+        )
 
         # One stylesheet pass when both change: apply_font_size restyles
         # everything under the already-set palette and mode.
@@ -176,7 +190,9 @@ class MainWindowSettingsMixin:
         self._dark_mode = dark
         set_dark_mode(dark)
         app = QApplication.instance()
-        if dark:
+        # In the Desktop scheme the system decides; ``dark`` stays the stored
+        # preference for the other schemes.
+        if is_dark_mode():
             _apply_dark_app_palette(app)
         else:
             _apply_light_app_palette(app)
@@ -185,10 +201,65 @@ class MainWindowSettingsMixin:
                 app.setStyleSheet(get_main_stylesheet())
             self.setStyleSheet(get_main_stylesheet())
             self._reapply_tab_stylesheets()
-        label = "☀️ Helles Design" if dark else "🌙 Dunkles Design"
-        if hasattr(self, '_theme_action'):
-            self._theme_action.setText(label)
+        self._update_theme_action()
         self.settings.setValue("dark_mode", dark)
+
+    def _update_theme_action(self) -> None:
+        """Label and availability of the light/dark menu entry. In the Desktop
+        scheme the system decides, so the entry is disabled. - Claude Generated"""
+        action = getattr(self, "_theme_action", None)
+        if action is None:
+            return
+        desktop = get_color_scheme() == "desktop"
+        action.setText("☀️ Helles Design" if is_dark_mode() else "🌙 Dunkles Design")
+        action.setEnabled(not desktop)
+        action.setToolTip(
+            "Im Farbschema „Desktop“ bestimmt das Betriebssystem hell oder dunkel."
+            if desktop else ""
+        )
+
+    def _configured_color_scheme(self) -> str:
+        """``UIConfig.color_scheme`` (unknown values fall back to "alima").
+        - Claude Generated"""
+        if not self.config_manager:
+            return get_color_scheme()
+        try:
+            return normalize_color_scheme(
+                self.config_manager.load_config().ui_config.color_scheme
+            )
+        except Exception as e:
+            self.logger.debug(f"color_scheme not readable, keeping {get_color_scheme()}: {e}")
+            return get_color_scheme()
+
+    def _sync_color_scheme_controls(self) -> None:
+        """Tick the active scheme in the menu. - Claude Generated"""
+        actions = getattr(self, "_scheme_actions", None) or {}
+        active = get_color_scheme()
+        for name, action in actions.items():
+            try:
+                action.setChecked(name == active)
+            except RuntimeError:
+                pass  # menu already torn down - Claude Generated
+        self._update_theme_action()
+
+    def apply_color_scheme(self, scheme: str) -> None:
+        """Switch the colour scheme at run time and store it in
+        ``UIConfig.color_scheme``; restyles every widget like a theme switch.
+        - Claude Generated"""
+        scheme = normalize_color_scheme(scheme)
+        if self.config_manager:
+            try:
+                config = self.config_manager.load_config()
+                if config.ui_config.color_scheme != scheme:
+                    config.ui_config.color_scheme = scheme
+                    self.config_manager.save_config(config)
+            except Exception as e:
+                self.logger.warning(f"Farbschema nicht gespeichert: {e}")
+        changed = scheme != get_color_scheme()
+        set_color_scheme(scheme)
+        self._sync_color_scheme_controls()
+        if changed:
+            self.apply_theme(getattr(self, "_dark_mode", False))
 
     def apply_font_size(self, pt: int) -> None:
         """Set global font size and refresh all stylesheets.

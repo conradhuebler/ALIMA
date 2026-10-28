@@ -49,6 +49,7 @@
   --alima-info-border: rgba(154, 166, 242, 0.30);
   --alima-grad: linear-gradient(180deg, #f9cdb0 0%, #f27a7a 55%, #ea5b73 100%);
   --alima-mark-opacity: 0.32;
+  --alima-mark-filter: none;
 
   display: flex; flex-direction: column;
   box-sizing: border-box; padding: 8px;
@@ -75,7 +76,7 @@
         --alima-stream-live: #46387f; --alima-info: #3446b0;
         --alima-info-bg: rgba(52, 70, 176, 0.07); --alima-info-border: rgba(52, 70, 176, 0.25);
         --alima-grad: linear-gradient(180deg, #b8483a 0%, #a8284c 55%, #8c2e63 100%);
-        --alima-mark-opacity: 0.55;
+        --alima-mark-opacity: 0.55; --alima-mark-filter: none;
     }
 }
 [data-theme="light"] #log {
@@ -91,7 +92,97 @@
     --alima-stream-live: #46387f; --alima-info: #3446b0;
     --alima-info-bg: rgba(52, 70, 176, 0.07); --alima-info-border: rgba(52, 70, 176, 0.25);
     --alima-grad: linear-gradient(180deg, #b8483a 0%, #a8284c 55%, #8c2e63 100%);
-    --alima-mark-opacity: 0.55;
+    --alima-mark-opacity: 0.55; --alima-mark-filter: none;
+}
+
+/* Colour scheme "Neutral" (<html data-scheme="neutral">): blue-grey grounds,
+   one quiet blue accent, no gradient, the empty-state mark in grey. Dark
+   values first, the light ones in two equal blocks as above. The selectors
+   carry :root and data-scheme, so they outrank the ALIMA blocks.
+   - Claude Generated */
+:root[data-scheme="neutral"] #log {
+    --alima-bg: #14171c; --alima-fg: #e7eaef; --alima-body: #dde1e7;
+    --alima-muted: #a9b1bc; --alima-muted-strong: #9ea7b2; --alima-meta: #a2aab5;
+    --alima-ts: #93a8c8; --alima-accent: #a3c2e8; --alima-purple: #aab3de;
+    --alima-green: #7cc89d; --alima-yellow: #e3bd68; --alima-orange: #e8a46a;
+    --alima-error: #f28b8b; --alima-error-soft: #f6b8b8;
+    --alima-link: #9cbdf0; --alima-link-ext: #e3bd68;
+    --alima-surface: #1d2128; --alima-surface-deep: #181b21; --alima-surface-alt: #1a1e24;
+    --alima-border: #363d47; --alima-border-soft: #2a3039;
+    --alima-user-bubble: #24344a; --alima-system: #7cc89d;
+    --alima-stream-live: #cfd6df; --alima-info: #b8c9e6;
+    --alima-info-bg: rgba(147, 185, 232, 0.12); --alima-info-border: rgba(147, 185, 232, 0.30);
+    --alima-grad: linear-gradient(180deg, #93b9e8 0%, #93b9e8 100%);
+    --alima-mark-opacity: 0.3; --alima-mark-filter: grayscale(1);
+}
+@media (prefers-color-scheme: light) {
+    :root[data-scheme="neutral"]:not([data-theme="dark"]) #log {
+        --alima-bg: #fbfcfd; --alima-fg: #1c2330; --alima-body: #262e3a;
+        --alima-muted: #596473; --alima-muted-strong: #586371; --alima-meta: #5c6774;
+        --alima-ts: #3f5577; --alima-accent: #34557f; --alima-purple: #4a5487;
+        --alima-green: #1f6340; --alima-yellow: #6f4e00; --alima-orange: #8a4512;
+        --alima-error: #a82a2a; --alima-error-soft: #8a2020;
+        --alima-link: #2f4f8a; --alima-link-ext: #8a4512;
+        --alima-surface: #f1f4f7; --alima-surface-deep: #e8ecf0; --alima-surface-alt: #f5f7f9;
+        --alima-border: #d0d6dd; --alima-border-soft: #e1e5ea;
+        --alima-user-bubble: #e1e9f3; --alima-system: #1f6340;
+        --alima-stream-live: #3a4658; --alima-info: #2f4f8a;
+        --alima-info-bg: rgba(47, 79, 138, 0.07); --alima-info-border: rgba(47, 79, 138, 0.25);
+        --alima-grad: linear-gradient(180deg, #3a5f8f 0%, #3a5f8f 100%);
+        --alima-mark-opacity: 0.5; --alima-mark-filter: grayscale(1);
+    }
+}
+:root[data-scheme="neutral"][data-theme="light"] #log {
+    --alima-bg: #fbfcfd; --alima-fg: #1c2330; --alima-body: #262e3a;
+    --alima-muted: #596473; --alima-muted-strong: #586371; --alima-meta: #5c6774;
+    --alima-ts: #3f5577; --alima-accent: #34557f; --alima-purple: #4a5487;
+    --alima-green: #1f6340; --alima-yellow: #6f4e00; --alima-orange: #8a4512;
+    --alima-error: #a82a2a; --alima-error-soft: #8a2020;
+    --alima-link: #2f4f8a; --alima-link-ext: #8a4512;
+    --alima-surface: #f1f4f7; --alima-surface-deep: #e8ecf0; --alima-surface-alt: #f5f7f9;
+    --alima-border: #d0d6dd; --alima-border-soft: #e1e5ea;
+    --alima-user-bubble: #e1e9f3; --alima-system: #1f6340;
+    --alima-stream-live: #3a4658; --alima-info: #2f4f8a;
+    --alima-info-bg: rgba(47, 79, 138, 0.07); --alima-info-border: rgba(47, 79, 138, 0.25);
+    --alima-grad: linear-gradient(180deg, #3a5f8f 0%, #3a5f8f 100%);
+    --alima-mark-opacity: 0.5; --alima-mark-filter: grayscale(1);
+}
+
+/* Colour scheme "Desktop" in the browser: CSS system colours, light or dark
+   as the system prefers (color-scheme). Their contrast depends on the
+   browser and the system and is not measured. The Qt log sets these
+   variables inline from the Qt tokens instead (WebLogView.set_scheme).
+   Signal colours use light-dark() where supported. - Claude Generated */
+:root[data-scheme="desktop"] #log {
+    --alima-bg: Canvas; --alima-fg: CanvasText; --alima-body: CanvasText;
+    --alima-muted: color-mix(in srgb, CanvasText 72%, Canvas);
+    --alima-muted-strong: color-mix(in srgb, CanvasText 72%, Canvas);
+    --alima-meta: color-mix(in srgb, CanvasText 72%, Canvas);
+    --alima-ts: LinkText; --alima-accent: LinkText; --alima-purple: LinkText;
+    --alima-green: #1f6340; --alima-yellow: #6f4e00; --alima-orange: #8a4512;
+    --alima-error: #a82a2a; --alima-error-soft: #a82a2a;
+    --alima-link: LinkText; --alima-link-ext: #8a4512;
+    --alima-surface: color-mix(in srgb, CanvasText 5%, Canvas);
+    --alima-surface-deep: color-mix(in srgb, CanvasText 9%, Canvas);
+    --alima-surface-alt: color-mix(in srgb, CanvasText 3%, Canvas);
+    --alima-border: color-mix(in srgb, CanvasText 22%, Canvas);
+    --alima-border-soft: color-mix(in srgb, CanvasText 12%, Canvas);
+    --alima-user-bubble: color-mix(in srgb, Highlight 20%, Canvas);
+    --alima-system: #1f6340;
+    --alima-stream-live: color-mix(in srgb, CanvasText 85%, Canvas);
+    --alima-info: LinkText;
+    --alima-info-bg: color-mix(in srgb, LinkText 10%, transparent);
+    --alima-info-border: color-mix(in srgb, LinkText 35%, transparent);
+    --alima-grad: linear-gradient(180deg, Highlight 0%, Highlight 100%);
+    --alima-mark-opacity: 0.45; --alima-mark-filter: grayscale(1);
+}
+@supports (color: light-dark(white, black)) {
+    :root[data-scheme="desktop"] #log {
+        --alima-green: light-dark(#1f6340, #7cc89d); --alima-yellow: light-dark(#6f4e00, #e3bd68);
+        --alima-orange: light-dark(#8a4512, #e8a46a); --alima-error: light-dark(#a82a2a, #f28b8b);
+        --alima-error-soft: light-dark(#a82a2a, #f6b8b8); --alima-link-ext: light-dark(#8a4512, #e3bd68);
+        --alima-system: light-dark(#1f6340, #7cc89d);
+    }
 }
 
 /* Empty log: a quiet logo mark in the middle instead of a blank area. */
@@ -99,6 +190,7 @@
 #log:empty::before {
   content: ""; position: absolute; inset: 0;
   opacity: var(--alima-mark-opacity);
+  filter: var(--alima-mark-filter, none);
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none' stroke-linecap='round' stroke-linejoin='round' stroke-width='2.4'%3E%3Cdefs%3E%3ClinearGradient id='lm-w' x1='0' y1='8' x2='0' y2='54' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f9dcc4'/%3E%3Cstop offset='.45' stop-color='%23f8907c'/%3E%3Cstop offset='1' stop-color='%23e8385f'/%3E%3C/linearGradient%3E%3ClinearGradient id='lm-t' x1='0' y1='9' x2='0' y2='50' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f6dccb'/%3E%3Cstop offset='.5' stop-color='%23a99ad6'/%3E%3Cstop offset='1' stop-color='%235b8de0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg stroke='url(%23lm-w)'%3E%3Cpath d='M4 51h23.5q1.5 0 2.2 2.6h4.6q.7-2.6 2.2-2.6H60'/%3E%3Cpath d='M29.5 48.5C22 44.5 13 43.8 7 44.2V36.5M34.5 48.5c7.5-4 16.5-4.7 22.5-4.3v-7.7'/%3E%3Cpath d='M30 45C25 41.3 18.5 40.6 12.5 40.8V31M34 45c5-3.7 11.5-4.4 17.5-4.2V31'/%3E%3Cpath d='M32 37C24.5 37 18 31.5 16.6 25M32 37c7.5 0 14-5.5 15.4-12M32 28.5c-5 0-8.5-4-9.3-9.8M32 28.5c5 0 8.5-4 9.3-9.8'/%3E%3Ccircle cx='15.8' cy='22.2' r='2.7'/%3E%3Ccircle cx='48.2' cy='22.2' r='2.7'/%3E%3Ccircle cx='22' cy='15.6' r='2.7'/%3E%3Ccircle cx='42' cy='15.6' r='2.7'/%3E%3C/g%3E%3Cg stroke='url(%23lm-t)'%3E%3Cpath d='M32 47.5V18q0-2.6-2.4-4.4M32 18q0-2.6 2.4-4.4'/%3E%3Ccircle cx='28' cy='11.2' r='2.7'/%3E%3Ccircle cx='36' cy='11.2' r='2.7'/%3E%3C/g%3E%3C/svg%3E") center / auto min(72px, 70%) no-repeat;
 }
 #log .block { margin: 1px 0; word-wrap: break-word; }

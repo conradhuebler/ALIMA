@@ -114,6 +114,65 @@ def webapp_tokens() -> dict:
     }
 
 
+def neutral_webapp_tokens() -> dict:
+    """The Neutral scheme's blocks (``data-scheme="neutral"``). - Claude Generated"""
+    css = STYLES_CSS.read_text(encoding="utf-8")
+    render = RENDER_CSS.read_text(encoding="utf-8")
+    n = ':root[data-scheme="neutral"]'
+    return {
+        "light": _tokens(_block(css, n)),
+        "dark": _tokens(_block(css, n + '[data-theme="dark"]')),
+        "dark_media": _tokens(_block(css, n + ':not([data-theme="light"])')),
+        "log_dark": _tokens(_block(render, n + " #log")),
+        "log_light": _tokens(_block(render, n + '[data-theme="light"] #log')),
+        "log_light_media": _tokens(_block(render, n + ':not([data-theme="dark"]) #log')),
+    }
+
+
+def desktop_webapp_tokens() -> dict:
+    """The browser's Desktop blocks (CSS system colours, not measurable).
+    - Claude Generated"""
+    css = STYLES_CSS.read_text(encoding="utf-8")
+    render = RENDER_CSS.read_text(encoding="utf-8")
+    d = ':root[data-scheme="desktop"]'
+    return {"page": _tokens(_block(css, d)), "log": _tokens(_block(render, d + " #log"))}
+
+
+#: Synthetic system palettes for the Desktop scheme: ordinary light and dark
+#: desktops plus awkward ones (pale accent with white text, near-black accent
+#: with black text, everything mid grey). - Claude Generated
+DESKTOP_PALETTES = {
+    "Breeze hell": (False, dict(
+        window="#eff0f1", window_text="#232627", base="#fcfcfc", alternate_base="#eff0f1",
+        text="#232627", button="#eff0f1", button_text="#232627", highlight="#3daee9",
+        highlighted_text="#fcfcfc", link="#2980b9", mid="#a0a3a6", placeholder_text="#7f8c8d")),
+    "Breeze dunkel": (True, dict(
+        window="#31363b", window_text="#eff0f1", base="#232629", alternate_base="#31363b",
+        text="#eff0f1", button="#31363b", button_text="#eff0f1", highlight="#3daee9",
+        highlighted_text="#eff0f1", link="#1d99f3", mid="#4d5257", placeholder_text="#7f8c8d")),
+    "Adwaita hell": (False, dict(
+        window="#f6f5f4", window_text="#000000", base="#ffffff", text="#000000",
+        button="#f6f5f4", highlight="#3584e4", highlighted_text="#ffffff", link="#1b6acb",
+        mid="#c0bfbc", placeholder_text="#8a8a8a")),
+    "hell, sehr heller Akzent": (False, dict(
+        window="#f5f5f5", window_text="#202020", base="#ffffff", text="#202020",
+        button="#ececec", highlight="#fff3a0", highlighted_text="#ffffff", link="#ffe680",
+        mid="#d0d0d0", placeholder_text="#c0c0c0")),
+    "dunkel, sehr dunkler Akzent": (True, dict(
+        window="#1e1e1e", window_text="#dddddd", base="#151515", text="#dddddd",
+        button="#2a2a2a", highlight="#0b0b2a", highlighted_text="#000000", link="#10103a",
+        mid="#333333", placeholder_text="#444444")),
+    "mittleres Grau": (False, dict(
+        window="#808080", window_text="#767676", base="#8c8c8c", text="#7a7a7a",
+        button="#858585", highlight="#909090", highlighted_text="#888888", link="#7f7f7f",
+        mid="#828282", placeholder_text="#8a8a8a")),
+    "hell, kräftiger Akzent": (False, dict(
+        window="#fafafa", window_text="#1a1a1a", base="#ffffff", text="#1a1a1a",
+        button="#f0f0f0", highlight="#ff00aa", highlighted_text="#ffffff", link="#00a2ff",
+        mid="#bdbdbd", placeholder_text="#9e9e9e")),
+}
+
+
 def _is_colour_token(value: str) -> bool:
     return bool(re.match(r"(#|rgba\(|linear-gradient\(|url\()", value))
 
@@ -254,11 +313,41 @@ QT_PAIRS = [
 ]
 
 
-def measure_all() -> list:
-    """Every pair → (scope, theme, label, fg, bg, ratio, threshold)."""
-    from src.ui.styles import COLORS, DARK_COLORS
+def _qt_and_log_rows(scope_theme: str, colours: dict) -> list:
+    """Qt pairs plus the log pairs of ``styles.log_css_vars`` (the Desktop
+    log is coloured from the Qt tokens). - Claude Generated"""
+    from src.ui.styles import log_css_vars
 
-    t = webapp_tokens()
+    rows = []
+    for label, fg, bg, need in QT_PAIRS:
+        rows.append(("Qt", scope_theme, label, colours[fg], colours[bg],
+                     contrast(colours[fg], colours[bg]), need))
+    log = log_css_vars(colours)
+    for label, fg, bg, need, *base in LOG_PAIRS:
+        r = contrast(log[fg], log[bg], log[base[0]] if base else None)
+        rows.append(("Log", scope_theme, label, log[fg], log[bg], r, need))
+    for label, fg, alpha in LOG_BADGES:
+        r = contrast(log[fg], "", base=log["--alima-surface"], alpha=alpha)
+        rows.append(("Log", scope_theme, label, log[fg], f"{int(alpha * 100)}% über Karte", r, 4.5))
+    return rows
+
+
+def measure_desktop() -> list:
+    """The Desktop derivation over every synthetic palette. - Claude Generated"""
+    from src.ui.styles import derive_desktop_colors
+
+    rows = []
+    for name, (dark, roles) in DESKTOP_PALETTES.items():
+        rows += _qt_and_log_rows(name, derive_desktop_colors(roles, dark))
+    return rows
+
+
+def measure_all(scheme: str = "alima") -> list:
+    """Every pair → (scope, theme, label, fg, bg, ratio, threshold) for the
+    ALIMA or Neutral scheme (Desktop: ``measure_desktop``). - Claude Generated"""
+    from src.ui.styles import scheme_colors
+
+    t = webapp_tokens() if scheme == "alima" else neutral_webapp_tokens()
     rows = []
     for theme in ("light", "dark"):
         tok = t[theme]
@@ -275,7 +364,7 @@ def measure_all() -> list:
         for label, fg, alpha in LOG_BADGES:
             r = contrast(log[fg], "", base=log["--alima-surface"], alpha=alpha)
             rows.append(("Log", theme, label, log[fg], f"{int(alpha * 100)}% über Karte", r, 4.5))
-        colours = COLORS if theme == "light" else DARK_COLORS
+        colours = scheme_colors(scheme, theme == "dark")
         for label, fg, bg, need in QT_PAIRS:
             r = contrast(colours[fg], colours[bg])
             rows.append(("Qt", theme, label, colours[fg], colours[bg], r, need))
@@ -306,6 +395,41 @@ class TokenParityTest(unittest.TestCase):
         self.assertEqual(set(COLORS), set(DARK_COLORS))
 
 
+class SchemeParityTest(unittest.TestCase):
+    """Every scheme and brightness has the same token names. - Claude Generated"""
+
+    def test_qt_tables_share_keys_across_schemes(self):
+        from src.ui.styles import (
+            COLORS, DARK_COLORS, NEUTRAL_COLORS, NEUTRAL_DARK_COLORS, derive_desktop_colors,
+        )
+
+        keys = set(COLORS)
+        for name, table in (("ALIMA dunkel", DARK_COLORS), ("Neutral hell", NEUTRAL_COLORS),
+                            ("Neutral dunkel", NEUTRAL_DARK_COLORS)):
+            self.assertEqual(set(table), keys, name)
+        for name, (dark, roles) in DESKTOP_PALETTES.items():
+            self.assertEqual(set(derive_desktop_colors(roles, dark)), keys, name)
+
+    def test_neutral_webapp_blocks_match_alima(self):
+        alima, neutral = webapp_tokens(), neutral_webapp_tokens()
+        self.assertEqual(neutral["dark"], neutral["dark_media"])
+        self.assertEqual(neutral["log_light"], neutral["log_light_media"])
+        for part in ("light", "dark"):
+            self.assertEqual(set(neutral[part]), set(alima["dark"]), part)
+        for part in ("log_light", "log_dark"):
+            self.assertEqual(set(neutral[part]), set(alima["log_dark"]), part)
+
+    def test_desktop_webapp_blocks_cover_every_token(self):
+        alima, desktop = webapp_tokens(), desktop_webapp_tokens()
+        self.assertEqual(set(alima["dark"]) - set(desktop["page"]), set())
+        self.assertEqual(set(alima["log_dark"]) - set(desktop["log"]), set())
+
+    def test_log_css_vars_cover_every_log_token(self):
+        from src.ui.styles import COLORS, log_css_vars
+
+        self.assertEqual(set(log_css_vars(COLORS)), set(webapp_tokens()["log_dark"]))
+
+
 class ContrastTest(unittest.TestCase):
     def test_measured_pairs_meet_thresholds(self):
         failures = [
@@ -314,6 +438,34 @@ class ContrastTest(unittest.TestCase):
             if ratio < need
         ]
         self.assertEqual(failures, [])
+
+    def test_neutral_pairs_meet_thresholds(self):
+        failures = [
+            f"{scope}/{theme}: {label} {fg} on {bg} = {ratio:.2f} < {need}"
+            for scope, theme, label, fg, bg, ratio, need in measure_all("neutral")
+            if ratio < need
+        ]
+        self.assertEqual(failures, [])
+
+    def test_desktop_derivation_meets_thresholds_for_every_palette(self):
+        failures = [
+            f"{scope}/{palette}: {label} {fg} on {bg} = {ratio:.2f} < {need}"
+            for scope, palette, label, fg, bg, ratio, need in measure_desktop()
+            if ratio < need
+        ]
+        self.assertEqual(failures, [])
+
+    def test_desktop_derivation_is_needed(self):
+        """Without the contrast repair some palette fails: the palettes above
+        are hard enough to need it (guards the test's own sensitivity)."""
+        from unittest.mock import patch
+
+        from src.ui import styles
+
+        with patch.object(styles, "DESKTOP_CONTRAST_RULES", ()), \
+                patch.object(styles, "DESKTOP_BADGE_RULES", ()):
+            failing = [r for r in measure_desktop() if r[5] < r[6]]
+        self.assertTrue(failing)
 
     def test_contrast_helper_matches_known_values(self):
         self.assertAlmostEqual(contrast("#ffffff", "#000000"), 21.0, places=2)

@@ -11,11 +11,18 @@ import os
 import sys
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QActionGroup
 from PyQt6.QtWidgets import QMessageBox, QProgressDialog
 
 from ..core.gitupdate import GitUpdateWorker
 from .commit_selector_dialog import CommitSelectorDialog
-from .styles import get_font_size
+from .styles import (
+    COLOR_SCHEME_LABELS,
+    COLOR_SCHEME_TOOLTIPS,
+    COLOR_SCHEMES,
+    get_color_scheme,
+    get_font_size,
+)
 
 
 class MainWindowMenuMixin:
@@ -48,6 +55,23 @@ class MainWindowMenuMixin:
         # Dark/light theme toggle — Claude Generated
         self._theme_action = tools_menu.addAction("🌙 Dunkles Design")
         self._theme_action.triggered.connect(self._toggle_theme)
+
+        # Colour scheme: ALIMA / Neutral / Desktop, one ticked. The settings
+        # page "Anwendung" edits the same UIConfig.color_scheme. - Claude Generated
+        scheme_menu = tools_menu.addMenu("🎨 Farbschema")
+        scheme_menu.setToolTipsVisible(True)
+        scheme_group = QActionGroup(scheme_menu)
+        scheme_group.setExclusive(True)
+        self._scheme_actions = {}
+        for name in COLOR_SCHEMES:
+            action = scheme_menu.addAction(COLOR_SCHEME_LABELS[name])
+            action.setCheckable(True)
+            action.setChecked(name == get_color_scheme())
+            action.setToolTip(COLOR_SCHEME_TOOLTIPS[name])
+            scheme_group.addAction(action)
+            action.triggered.connect(lambda checked, n=name: self.apply_color_scheme(n))
+            self._scheme_actions[name] = action
+        self._scheme_menu = scheme_menu
 
         # Font size submenu — Claude Generated
         font_menu = tools_menu.addMenu("🔠 Schriftgröße")

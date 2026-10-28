@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="de" data-scheme="alima">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -26,6 +26,12 @@
                     <span class="brand-tagline">Schlagwörter & Klassifikationen mit KI</span>
                 </div>
             </div>
+
+            <select id="scheme-select" class="scheme-select" aria-label="Farbschema" title="Farbschema">
+                <option value="alima" title="Farben aus dem ALIMA-Logo, hell oder dunkel.">ALIMA</option>
+                <option value="neutral" title="Zurückhaltende Grautöne mit einem ruhigen blauen Akzent, ohne Verlauf.">Neutral</option>
+                <option value="desktop" title="Farben und Hell/Dunkel aus den Systemeinstellungen.">Desktop</option>
+            </select>
 
             <button id="theme-toggle" class="btn-theme-toggle" aria-label="Theme wechseln" title="Theme wechseln">🌙</button>
 

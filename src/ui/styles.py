@@ -46,11 +46,20 @@ def get_scaled_font(size_delta: int = 0, *, monospace: bool = False, bold: bool 
 
 
 def get_colors() -> dict:
-    return DARK_COLORS if _dark_mode else COLORS
+    """Token table of the active colour scheme and brightness. - Claude Generated"""
+    return scheme_colors(_color_scheme, is_dark_mode())
 
 
 def is_dark_mode() -> bool:
-    """Current theme as set by ``set_dark_mode``. - Claude Generated"""
+    """Effective brightness: the user's choice (``set_dark_mode``), except in
+    the Desktop scheme, where the system decides. - Claude Generated"""
+    if _color_scheme == "desktop":
+        return _desktop_dark
+    return _dark_mode
+
+
+def dark_mode_preference() -> bool:
+    """The user's own light/dark choice, independent of the scheme. - Claude Generated"""
     return _dark_mode
 
 
@@ -251,6 +260,466 @@ DARK_COLORS = {
     "comparison_only_b_text": "#f9e2af",
 }
 
+# ---------------------------------------------------------------------------
+# Colour schemes. "alima" (above, the default), "neutral" (below) and
+# "desktop" (derived from the operating system's palette at start-up). Every
+# table has exactly the keys of COLORS (tests/test_design_tokens.py), so any
+# widget code works under every scheme. - Claude Generated
+# ---------------------------------------------------------------------------
+
+COLOR_SCHEMES = ("alima", "neutral", "desktop")
+DEFAULT_COLOR_SCHEME = "alima"
+
+#: Menu / settings labels and tooltips (German UI chrome).
+COLOR_SCHEME_LABELS = {
+    "alima": "ALIMA",
+    "neutral": "Neutral",
+    "desktop": "Desktop",
+}
+COLOR_SCHEME_TOOLTIPS = {
+    "alima": "Farben aus dem ALIMA-Logo, hell oder dunkel.",
+    "neutral": "Zurückhaltende Grautöne mit einem ruhigen blauen Akzent, ohne Verlauf.",
+    "desktop": "Farben und Hell/Dunkel aus den Systemeinstellungen des Rechners.",
+}
+
+# Neutral: blue-grey greys, one quiet blue accent, flat fills (the gradient
+# stops are all the same colour). Semantic colours keep distinct hues plus
+# their symbols. - Claude Generated
+NEUTRAL_COLORS = dict(COLORS)
+NEUTRAL_COLORS.update({
+    "primary": "#3a5f8f", "primary_hover": "#2f4f78", "primary_pressed": "#26405f",
+    "secondary": "#4f5d6e", "secondary_hover": "#424f5e", "secondary_pressed": "#36414e",
+    "accent": "#dde3ea", "accent_hover": "#cfd7e1", "accent_pressed": "#b8c2ce",
+    "background": "#fbfcfd", "background_light": "#f3f5f7", "background_dark": "#e3e7ec",
+    "text": "#1c2330", "text_light": "#465161", "text_muted": "#596473",
+    "error": "#a82a2a", "error_hover": "#8f2222",
+    "success": "#256b45", "success_hover": "#1d5838",
+    "warning": "#7a5600", "warning_hover": "#654700",
+    "border": "#7f8995", "border_light": "#dce1e7", "border_dark": "#596473",
+    "shadow": "rgba(20, 30, 45, 0.10)",
+    "on_primary": "#ffffff", "on_secondary": "#ffffff", "on_accent": "#1c2330",
+    "on_success": "#ffffff", "on_warning": "#ffffff", "on_error": "#ffffff",
+    "on_gradient": "#ffffff",
+    "focus": "#3a5f8f", "indicator": "#3a5f8f",
+    "surface_raised": "#edf0f3", "hover_tint": "#e6ebf1",
+    "secondary_tint": "#e4eaf2", "scroll_handle": "#b6bec8",
+    "accent_text": "#34557f", "violet": "#4a5487",
+    "success_bg": "#e7f1eb", "warning_bg": "#f5efe1", "error_bg": "#f7e7e7", "info_bg": "#e8edf4",
+    "grad_start": "#3a5f8f", "grad_mid": "#3a5f8f", "grad_end": "#3a5f8f",
+    "progress_start": "#b9cbe2", "progress_mid": "#b9cbe2", "progress_end": "#b9cbe2",
+})
+
+NEUTRAL_DARK_COLORS = dict(DARK_COLORS)
+NEUTRAL_DARK_COLORS.update({
+    "primary": "#3c6aa6", "primary_hover": "#4776b3", "primary_pressed": "#345d92",
+    "secondary": "#93abc8", "secondary_hover": "#a8bdd6", "secondary_pressed": "#7f99ba",
+    "accent": "#c8d1dc", "accent_hover": "#d7dee7", "accent_pressed": "#b6c1ce",
+    "background": "#14171c", "background_light": "#1b1f26", "background_dark": "#0e1014",
+    "text": "#e7eaef", "text_light": "#bcc4ce", "text_muted": "#9ca5b0",
+    "error": "#f28b8b", "error_hover": "#f5a3a3",
+    "success": "#7cc89d", "success_hover": "#95d4b0",
+    "warning": "#e3bd68", "warning_hover": "#ead08f",
+    "border": "#6c7582", "border_light": "#2b313a", "border_dark": "#8b949f",
+    "shadow": "rgba(0, 0, 0, 0.45)",
+    "on_primary": "#ffffff", "on_secondary": "#10141a", "on_accent": "#10141a",
+    "on_success": "#10141a", "on_warning": "#10141a", "on_error": "#10141a",
+    "on_gradient": "#10141a",
+    "focus": "#93b9e8", "indicator": "#93b9e8",
+    "surface_raised": "#232830", "hover_tint": "#262c35",
+    "secondary_tint": "#1f2836", "scroll_handle": "#4a525e",
+    "accent_text": "#a3c2e8", "violet": "#aab3de",
+    "success_bg": "#16251d", "warning_bg": "#2a2416", "error_bg": "#2c1a1b", "info_bg": "#1d2533",
+    "grad_start": "#93b9e8", "grad_mid": "#93b9e8", "grad_end": "#93b9e8",
+    "progress_start": "#33557f", "progress_mid": "#33557f", "progress_end": "#33557f",
+})
+
+_color_scheme = DEFAULT_COLOR_SCHEME
+_desktop_tables: dict = {}   # {"light": {...}, "dark": {...}} once a snapshot exists
+_desktop_dark = False        # the system's own light/dark choice
+
+
+def normalize_color_scheme(name) -> str:
+    """Known scheme name or the default. - Claude Generated"""
+    name = str(name or "").strip().lower()
+    return name if name in COLOR_SCHEMES else DEFAULT_COLOR_SCHEME
+
+
+def set_color_scheme(name) -> str:
+    """Select the colour scheme; unknown names fall back to "alima".
+    Returns the scheme now active. Call get_main_stylesheet() afterwards.
+    - Claude Generated"""
+    global _color_scheme
+    _color_scheme = normalize_color_scheme(name)
+    return _color_scheme
+
+
+def get_color_scheme() -> str:
+    """Active colour scheme ("alima" | "neutral" | "desktop"). - Claude Generated"""
+    return _color_scheme
+
+
+def scheme_colors(scheme: str, dark: bool) -> dict:
+    """Token table of one scheme and brightness. Desktop without a palette
+    snapshot (tests, headless tools) falls back to Neutral. - Claude Generated"""
+    scheme = normalize_color_scheme(scheme)
+    if scheme == "neutral":
+        return NEUTRAL_DARK_COLORS if dark else NEUTRAL_COLORS
+    if scheme == "desktop":
+        table = _desktop_tables.get("dark" if dark else "light")
+        if table:
+            return table
+        return NEUTRAL_DARK_COLORS if dark else NEUTRAL_COLORS
+    return DARK_COLORS if dark else COLORS
+
+
+def all_scheme_values(key: str) -> set:
+    """Every value a token can take across schemes and brightness (used to
+    recognise a colour set earlier under another theme). - Claude Generated"""
+    tables = [COLORS, DARK_COLORS, NEUTRAL_COLORS, NEUTRAL_DARK_COLORS, *_desktop_tables.values()]
+    return {t[key].lower() for t in tables if key in t}
+
+
+# --- colour arithmetic (pure Python; usable without a QApplication) --------
+
+def _rgb(hex_color: str) -> tuple:
+    h = hex_color.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _hex(rgb) -> str:
+    return "#%02x%02x%02x" % tuple(max(0, min(255, round(v))) for v in rgb)
+
+
+def _mix(a: str, b: str, t: float) -> str:
+    """``t`` of the way from colour ``a`` to colour ``b``."""
+    ra, rb = _rgb(a), _rgb(b)
+    return _hex(tuple(ra[i] + (rb[i] - ra[i]) * t for i in range(3)))
+
+
+def luminance(hex_color: str) -> float:
+    """WCAG relative luminance. - Claude Generated"""
+    def lin(v):
+        v /= 255
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+    r, g, b = _rgb(hex_color)
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    """WCAG contrast ratio of two opaque colours. - Claude Generated"""
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def best_text_on(bg: str) -> str:
+    """Black or white, whichever reads better on ``bg`` (always >= 4.58:1)."""
+    return "#000000" if contrast_ratio("#000000", bg) >= contrast_ratio("#ffffff", bg) else "#ffffff"
+
+
+def _push_apart(color: str, against, minimum: float) -> str:
+    """Move ``color`` towards black or white, whichever separates it from all
+    colours in ``against``, until every pair reaches ``minimum``. Keeps the
+    hue as long as possible; ends at pure black/white if nothing else works.
+    - Claude Generated"""
+    against = [against] if isinstance(against, str) else list(against)
+
+    def worst(c):
+        return min(contrast_ratio(c, x) for x in against)
+
+    if worst(color) >= minimum:
+        return color
+    best = None
+    for pole in ("#000000", "#ffffff"):
+        for step in range(1, 21):
+            cand = _mix(color, pole, step / 20)
+            if worst(cand) >= minimum:
+                if best is None or step / 20 < best[0]:
+                    best = (step / 20, cand)
+                break
+    if best:
+        return best[1]
+    return max(("#000000", "#ffffff"), key=worst)
+
+
+def _tinted(fg: str, ground: str, alpha: float) -> str:
+    """``fg`` laid over ``ground`` at ``alpha`` (badge chips in the log)."""
+    return _mix(ground, fg, alpha)
+
+
+def _fit_badge(color: str, card: str, page: str, alpha: float) -> str:
+    """Raise the contrast of a badge colour to its grounds step by step until
+    the chip (the colour on a tint of itself over the card) reads at 4.5:1.
+    - Claude Generated"""
+    if contrast_ratio(color, _tinted(color, card, alpha)) >= 4.5:
+        return color
+    for target in (5.0, 5.5, 6.0, 6.5, 7.0, 8.0, 9.0, 10.0, 12.0, 15.0, 21.0):
+        cand = _push_apart(color, [card, page], target)
+        if contrast_ratio(cand, _tinted(cand, card, alpha)) >= 4.5:
+            return cand
+    return best_text_on(card)
+
+
+#: Pairs every Desktop table must satisfy, in repair order:
+#: (foreground key, background key, minimum ratio, side to adjust).
+#: Covers the Qt pairs measured in tests/test_design_tokens.py and the log
+#: pairs of ``log_css_vars``; the badge pairs leave room for the tinted chip
+#: ground. - Claude Generated
+DESKTOP_CONTRAST_RULES = (
+    ("text", "background", 4.5, "fg"),
+    ("text", "background_light", 4.5, "fg"),
+    ("text", "surface_raised", 4.5, "bg"),
+    ("text", "hover_tint", 4.5, "bg"),
+    ("text", "secondary_tint", 4.5, "bg"),
+    ("text", "background_dark", 4.5, "bg"),
+    ("text", "success_bg", 4.5, "bg"),
+    ("text", "warning_bg", 4.5, "bg"),
+    ("text", "error_bg", 4.5, "bg"),
+    ("text", "info_bg", 4.5, "bg"),
+    ("text", "progress_start", 4.5, "bg"),
+    ("text", "progress_mid", 4.5, "bg"),
+    ("text", "progress_end", 4.5, "bg"),
+    ("text_light", "background_light", 4.5, "fg"),
+    ("text_light", "background", 4.5, "fg"),
+    ("text_muted", "background_light", 4.5, "fg"),
+    ("text_muted", "background", 4.5, "fg"),
+    ("text_muted", "warning_bg", 4.5, "fg"),
+    ("text_muted", "info_bg", 4.5, "fg"),
+    ("secondary", "background", 4.5, "fg"),
+    ("secondary", "background_light", 4.5, "fg"),
+    ("secondary", "info_bg", 4.5, "fg"),
+    ("accent_text", "background", 4.5, "fg"),
+    ("accent_text", "background_light", 4.5, "fg"),
+    ("accent_text", "background_dark", 4.5, "fg"),
+    ("violet", "background", 4.5, "fg"),
+    ("violet", "background_light", 4.5, "fg"),
+    ("success", "background", 4.5, "fg"),
+    ("success", "background_light", 4.5, "fg"),
+    ("success", "success_bg", 4.5, "fg"),
+    ("warning", "background", 4.5, "fg"),
+    ("warning", "background_light", 4.5, "fg"),
+    ("warning", "warning_bg", 4.5, "fg"),
+    ("error", "background", 4.5, "fg"),
+    ("error", "background_light", 4.5, "fg"),
+    ("error", "error_bg", 4.5, "fg"),
+    ("border", "background", 3.0, "fg"),
+    ("border", "background_light", 3.0, "fg"),
+    ("focus", "background", 3.0, "fg"),
+    ("focus", "background_light", 3.0, "fg"),
+    ("indicator", "background", 3.0, "fg"),
+    ("primary", "background", 3.0, "fg"),
+)
+
+#: Badge chips in the log: colour on a tint of itself over the card ground.
+DESKTOP_BADGE_RULES = (
+    ("accent_text", 0.16), ("warning", 0.16), ("violet", 0.16),
+    ("success", 0.14), ("error", 0.14),
+)
+
+#: Text on solid fills: the "on" colour is chosen per fill, black or white
+#: when the system's own text colour does not reach 4.5:1.
+_FILL_PAIRS = (
+    ("on_primary", ("primary", "primary_hover", "primary_pressed")),
+    ("on_secondary", ("secondary", "secondary_hover")),
+    ("on_accent", ("accent", "accent_hover")),
+    ("on_success", ("success", "success_hover")),
+    ("on_warning", ("warning",)),
+    ("on_error", ("error", "error_hover")),
+    ("on_gradient", ("grad_start", "grad_mid", "grad_end")),
+)
+
+
+def _away(color: str, from_color: str, t: float) -> str:
+    """Shade ``color`` by ``t`` away from ``from_color`` (hover states keep or
+    raise the contrast to their text)."""
+    pole = "#000000" if luminance(from_color) > luminance(color) else "#ffffff"
+    if luminance(from_color) == luminance(color):
+        pole = "#000000"
+    return _mix(color, pole, t)
+
+
+def derive_desktop_colors(roles: dict, dark: bool) -> dict:
+    """Token table from an operating-system palette.
+
+    ``roles`` maps lower-case QPalette role names (window, window_text, base,
+    alternate_base, text, button, button_text, highlight, highlighted_text,
+    link, mid, placeholder_text) to hex colours. Grounds, text and the accent
+    come from the system; success/warning/error keep the Neutral hues. Every
+    pair in ``DESKTOP_CONTRAST_RULES``, every fill/"on" pair and every badge
+    is then checked, and a colour that falls short is moved towards black or
+    white until it passes: a readable pair wins over the system's exact
+    shade. - Claude Generated
+    """
+    ref = NEUTRAL_DARK_COLORS if dark else NEUTRAL_COLORS
+    g = {k: str(v).lower() for k, v in roles.items() if v}
+    window = g.get("window", ref["background_light"])
+    base = g.get("base", window)
+    wtext = g.get("window_text", g.get("text", ref["text"]))
+    text = g.get("text", wtext)
+    button = g.get("button", window)
+    highlight = g.get("highlight", ref["primary"])
+    hl_text = g.get("highlighted_text", best_text_on(highlight))
+    link = g.get("link", highlight)
+    mid = g.get("mid", _mix(window, wtext, 0.45))
+    placeholder = g.get("placeholder_text", _mix(wtext, window, 0.4))
+
+    c = dict(ref)
+    c.update({
+        "background": base,
+        "background_light": window,
+        "background_dark": _mix(window, wtext, 0.08),
+        "surface_raised": button,
+        "hover_tint": _mix(button, highlight, 0.15),
+        "text": text,
+        "text_light": _mix(wtext, window, 0.25),
+        "text_muted": placeholder,
+        "border": mid,
+        "border_light": _mix(window, wtext, 0.15),
+        "primary": highlight,
+        "secondary": link,
+        "accent": _mix(highlight, base, 0.75),
+        "focus": highlight,
+        "indicator": highlight,
+        "secondary_tint": _mix(base, link, 0.12),
+        "scroll_handle": mid,
+        "accent_text": highlight,
+        "violet": link,
+        "success_bg": _mix(base, ref["success"], 0.12),
+        "warning_bg": _mix(base, ref["warning"], 0.12),
+        "error_bg": _mix(base, ref["error"], 0.12),
+        "info_bg": _mix(base, link, 0.12),
+        "progress_start": _mix(highlight, base, 0.5),
+        "shadow": "rgba(0, 0, 0, 0.45)" if dark else "rgba(0, 0, 0, 0.12)",
+    })
+    c["progress_mid"] = c["progress_end"] = c["progress_start"]
+
+    for _ in range(4):
+        for fg, bg, minimum, side in DESKTOP_CONTRAST_RULES:
+            if contrast_ratio(c[fg], c[bg]) >= minimum:
+                continue
+            if side == "fg":
+                c[fg] = _push_apart(c[fg], c[bg], minimum)
+            else:
+                c[bg] = _push_apart(c[bg], c[fg], minimum)
+        for key, alpha in DESKTOP_BADGE_RULES:
+            c[key] = _fit_badge(c[key], c["background_light"], c["background"], alpha)
+            if contrast_ratio(c[key], _tinted(c[key], c["background_light"], alpha)) < 4.5:
+                # No colour reads on this card ground (mid grey): move the
+                # ground itself away from the badge colour.
+                pole = "#ffffff" if luminance(c[key]) < 0.18 else "#000000"
+                for step in range(1, 21):
+                    cand = _mix(c["background_light"], pole, step / 20)
+                    if contrast_ratio(c[key], _tinted(c[key], cand, alpha)) >= 4.5:
+                        c["background_light"] = cand
+                        break
+        c["progress_mid"] = c["progress_end"] = c["progress_start"]
+
+    # Hover / pressed shades of the fills, then the text on each fill.
+    c["grad_start"] = c["grad_mid"] = c["grad_end"] = c["primary"]
+    system_on = {"on_primary": hl_text, "on_gradient": hl_text}
+    for on_key, fills in _FILL_PAIRS:
+        base_fill = c[fills[0]]
+        on = system_on.get(on_key) or best_text_on(base_fill)
+        if contrast_ratio(on, base_fill) < 4.5:
+            on = best_text_on(base_fill)
+        c[on_key] = on
+    c["primary_hover"] = _away(c["primary"], c["on_primary"], 0.12)
+    c["primary_pressed"] = _away(c["primary"], c["on_primary"], 0.22)
+    c["secondary_hover"] = _away(c["secondary"], c["on_secondary"], 0.12)
+    c["secondary_pressed"] = _away(c["secondary"], c["on_secondary"], 0.22)
+    c["accent_hover"] = _away(c["accent"], c["on_accent"], 0.08)
+    c["accent_pressed"] = _away(c["accent"], c["on_accent"], 0.16)
+    for k in ("success", "warning", "error"):
+        c[k + "_hover"] = _away(c[k], c["on_" + k], 0.12)
+    # The "on" colour must hold for the shaded fills as well.
+    for on_key, fills in _FILL_PAIRS:
+        for f in fills:
+            if contrast_ratio(c[on_key], c[f]) < 4.5:
+                c[f] = _push_apart(c[f], c[on_key], 4.5)
+    c["border_dark"] = c["text_muted"]
+    return c
+
+
+def set_desktop_palette(roles: dict, dark: bool) -> None:
+    """Store the system palette (taken before ALIMA changes anything) and
+    derive the Desktop tables from it. ``dark`` is the system's own choice;
+    the other brightness is derived from the same roles for completeness.
+    - Claude Generated"""
+    global _desktop_dark
+    _desktop_dark = bool(dark)
+    table = derive_desktop_colors(roles, dark)
+    _desktop_tables.clear()
+    _desktop_tables["dark" if dark else "light"] = table
+    _desktop_tables["light" if dark else "dark"] = table
+
+
+def desktop_is_dark() -> bool:
+    """The system's light/dark choice from the snapshot. - Claude Generated"""
+    return _desktop_dark
+
+
+def has_desktop_palette() -> bool:
+    """True once ``set_desktop_palette`` ran. - Claude Generated"""
+    return bool(_desktop_tables)
+
+
+def palette_roles(palette) -> dict:
+    """Hex colours of the QPalette roles ``derive_desktop_colors`` reads.
+    - Claude Generated"""
+    from PyQt6.QtGui import QPalette
+
+    r = QPalette.ColorRole
+    names = {
+        "window": r.Window, "window_text": r.WindowText, "base": r.Base,
+        "alternate_base": r.AlternateBase, "text": r.Text, "button": r.Button,
+        "button_text": r.ButtonText, "highlight": r.Highlight,
+        "highlighted_text": r.HighlightedText, "link": r.Link, "mid": r.Mid,
+        "placeholder_text": r.PlaceholderText,
+    }
+    return {k: palette.color(QPalette.ColorGroup.Active, role).name() for k, role in names.items()}
+
+
+def log_css_vars(c: dict) -> dict:
+    """The shared log's ``--alima-*`` variables from a Qt token table (the
+    Desktop scheme sets them at run time; ALIMA and Neutral have them in
+    alima_render.css). - Claude Generated"""
+    flat = f"linear-gradient(180deg, {c['primary']} 0%, {c['primary']} 100%)"
+    return {
+        "--alima-bg": c["background"],
+        "--alima-fg": c["text"],
+        "--alima-body": c["text"],
+        "--alima-muted": c["text_muted"],
+        "--alima-muted-strong": c["text_muted"],
+        "--alima-meta": c["text_muted"],
+        "--alima-ts": c["violet"],
+        "--alima-accent": c["accent_text"],
+        "--alima-purple": c["violet"],
+        "--alima-green": c["success"],
+        "--alima-yellow": c["warning"],
+        "--alima-orange": c["warning"],
+        "--alima-error": c["error"],
+        "--alima-error-soft": c["error"],
+        "--alima-link": c["secondary"],
+        "--alima-link-ext": c["warning"],
+        "--alima-surface": c["background_light"],
+        "--alima-surface-deep": c["background_dark"],
+        "--alima-surface-alt": c["background_light"],
+        "--alima-border": c["border_light"],
+        "--alima-border-soft": c["border_light"],
+        "--alima-user-bubble": c["info_bg"],
+        "--alima-system": c["success"],
+        "--alima-stream-live": c["text_light"],
+        "--alima-info": c["secondary"],
+        "--alima-info-bg": c["info_bg"],
+        "--alima-info-border": c["secondary"],
+        "--alima-grad": flat,
+        "--alima-mark-opacity": "0.4",
+        "--alima-mark-filter": "grayscale(1)",
+    }
+
+
 # Standard layout constants (static values; for font size use get_font_size())
 LAYOUT = {
     "margin": 15,
@@ -283,8 +752,12 @@ def _gradient(c: dict, shift: int = 100) -> str:
     dark mode), so contrast never drops below the resting state. - Claude Generated"""
     stops = (c["grad_start"], c["grad_mid"], c["grad_end"])
     if shift != 100:
-        factor = shift if _dark_mode else int(10000 / shift)
+        # Light text on the fill: darken on hover; dark text: lighten.
+        light_text = luminance(c["on_gradient"]) > 0.5
+        factor = int(10000 / shift) if light_text else shift
         stops = tuple(_shade(s, factor) for s in stops)
+    if stops[0] == stops[1] == stops[2]:
+        return stops[0]  # flat fill (Neutral, Desktop)
     return (
         "qlineargradient(x1:0, y1:0, x2:1, y2:0, "
         f"stop:0 {stops[0]}, stop:0.55 {stops[1]}, stop:1 {stops[2]})"
@@ -302,8 +775,16 @@ def get_main_stylesheet():
     fs = _font_size          # base
     fs1 = _font_size + 1     # inputs / group box titles
     c = get_colors()
-    combo_arrow = _asset_url("ui-chevron.svg")  # #8c7c88, >= 3:1 on both grounds
-    check_mark = _asset_url("ui-check.svg")  # white, on the primary fill
+    if _color_scheme == "alima":
+        combo_arrow = _asset_url("ui-chevron.svg")  # #8c7c88, >= 3:1 on both grounds
+    else:
+        # black or white, whichever separates from the field ground
+        dark_arrow = contrast_ratio("#000000", c["background"]) >= contrast_ratio("#ffffff", c["background"])
+        combo_arrow = _asset_url("ui-chevron-black.svg" if dark_arrow else "ui-chevron-white.svg")
+    # check mark on the primary fill: white unless black reads better
+    check_mark = _asset_url(
+        "ui-check-dark.svg" if best_text_on(c["primary"]) == "#000000" else "ui-check.svg"
+    )
     return f"""
     /* Main application styles */
     QWidget {{

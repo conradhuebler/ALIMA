@@ -29,7 +29,13 @@ from .settings import (
     workflow_entries,
 )
 from ..utils.logging_utils import LOG_LEVEL_CHOICES
-from .styles import set_tone
+from .styles import (
+    COLOR_SCHEME_LABELS,
+    COLOR_SCHEME_TOOLTIPS,
+    COLOR_SCHEMES,
+    normalize_color_scheme,
+    set_tone,
+)
 
 
 class DatabaseTestWorker(QThread):
@@ -359,6 +365,18 @@ class ComprehensiveSettingsDialog(QDialog):
         self.font_size_spin.setToolTip("Basis-Schriftgröße für alle Bedienelemente (8–16 pt)")
         form.addRow("Schriftgröße:", self.font_size_spin)
 
+        # Same setting as Extras ▸ Farbschema (UIConfig.color_scheme).
+        # - Claude Generated
+        self.color_scheme_combo = QComboBox()
+        for i, name in enumerate(COLOR_SCHEMES):
+            self.color_scheme_combo.addItem(COLOR_SCHEME_LABELS[name], name)
+            self.color_scheme_combo.setItemData(i, COLOR_SCHEME_TOOLTIPS[name], Qt.ItemDataRole.ToolTipRole)
+        self.color_scheme_combo.setToolTip(
+            "ALIMA: Farben aus dem Logo. Neutral: Grautöne mit ruhigem Blau. "
+            "Desktop: Farben und Hell/Dunkel aus den Systemeinstellungen."
+        )
+        form.addRow("Farbschema:", self.color_scheme_combo)
+
         self.log_level = QComboBox()
         for value, label in LOG_LEVEL_CHOICES:
             self.log_level.addItem(label, value)
@@ -620,6 +638,10 @@ class ComprehensiveSettingsDialog(QDialog):
                        synonyms=["log", "debug", "logdatei", "support"])
         self.index.add(self.PAGE_APPLICATION, "Schriftgröße",
                        widget=self.font_size_spin, synonyms=["font size", "schrift"])
+        self.index.add(self.PAGE_APPLICATION, "Farbschema",
+                       widget=self.color_scheme_combo,
+                       synonyms=["farben", "theme", "design", "dunkel", "hell",
+                                 "neutral", "desktop", "color scheme"])
         self.index.add(self.PAGE_APPLICATION, "Kamera-Aufnahmen zulassen",
                        widget=self.enable_webcam_input,
                        synonyms=["webcam", "kamera", "datenschutz"])
@@ -763,6 +785,10 @@ class ComprehensiveSettingsDialog(QDialog):
         # UI settings - Claude Generated
         self.enable_webcam_input.setChecked(config.ui_config.enable_webcam_input)
         self.font_size_spin.setValue(getattr(config.ui_config, "font_size", 10))
+        scheme_idx = self.color_scheme_combo.findData(
+            normalize_color_scheme(getattr(config.ui_config, "color_scheme", "alima"))
+        )
+        self.color_scheme_combo.setCurrentIndex(max(0, scheme_idx))
 
         # Repetition Detection settings - Claude Generated
         rep_config = getattr(config, 'repetition_config', None)
@@ -960,6 +986,7 @@ class ComprehensiveSettingsDialog(QDialog):
 
         config.ui_config.enable_webcam_input = self.enable_webcam_input.isChecked()
         config.ui_config.font_size = self.font_size_spin.value()
+        config.ui_config.color_scheme = normalize_color_scheme(self.color_scheme_combo.currentData())
 
         # Repetition Detection — the six widgeted values; ngram_size, window_size,
         # window_similarity_threshold, min_windows, check_interval and

@@ -65,8 +65,10 @@ def _load_render_asset(name: str) -> str:
 # safely loaded into the multi-element webapp page; these page-level rules are
 # not, so they live here. - Claude Generated
 # Page ground and scrollbars per theme. The values come from styles.py
-# (background = --alima-bg, scroll_handle, indicator), so the page around #log
-# matches the log in both themes; <html data-theme> switches them. - Claude Generated
+# (background = --alima-bg, scroll_handle, indicator) of the active colour
+# scheme, so the page around #log matches the log; <html data-theme> switches
+# them and ``set_scheme`` overrides them inline after a scheme switch.
+# - Claude Generated
 _DOC_CHROME_CSS = """
 html {{ --doc-bg: {dark_bg}; --doc-thumb: {dark_thumb}; --doc-thumb-hover: {dark_hover}; }}
 html[data-theme="light"] {{ --doc-bg: {light_bg}; --doc-thumb: {light_thumb}; --doc-thumb-hover: {light_hover}; }}
@@ -80,7 +82,7 @@ body > #log:empty {{ min-height: 100vh; }}
 
 _SCAFFOLD_TEMPLATE = (
     "<!DOCTYPE html>\n"
-    '<html data-theme="{theme}"><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
+    '<html data-theme="{theme}" data-scheme="{scheme}"><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
     '<body><div id="log"></div>\n'
     # Same-window links: keeps _ensureLinksNewTab from stamping
     # target="_blank" (a Chromium popup request the GUI never fulfils —
@@ -99,21 +101,24 @@ def _build_scaffold_html(base_font_pt: int, dark: Optional[bool] = None) -> str:
     light #log palette in alima_render.css keys on it.
     """
     from ..utils.i18n import catalog_for_js
-    from .styles import COLORS, DARK_COLORS, is_dark_mode
+    from .styles import get_color_scheme, is_dark_mode, scheme_colors
 
     fs = max(8, int(base_font_pt))
     if dark is None:
         dark = is_dark_mode()
+    scheme = get_color_scheme()
+    dark_c, light_c = scheme_colors(scheme, True), scheme_colors(scheme, False)
     return _SCAFFOLD_TEMPLATE.format(
         theme="dark" if dark else "light",
+        scheme=scheme,
         doc_css=_DOC_CHROME_CSS.format(
             fs=fs,
-            dark_bg=DARK_COLORS["background"],
-            dark_thumb=DARK_COLORS["scroll_handle"],
-            dark_hover=DARK_COLORS["indicator"],
-            light_bg=COLORS["background"],
-            light_thumb=COLORS["scroll_handle"],
-            light_hover=COLORS["indicator"],
+            dark_bg=dark_c["background"],
+            dark_thumb=dark_c["scroll_handle"],
+            dark_hover=dark_c["indicator"],
+            light_bg=light_c["background"],
+            light_thumb=light_c["scroll_handle"],
+            light_hover=light_c["indicator"],
         ),
         css=_load_render_asset("alima_render.css"),
         js=_load_render_asset("alima_render.js"),
@@ -186,6 +191,12 @@ class WebLogView(QWidget):
             _build_scaffold_html(base_font_pt),
             QUrl("about:blank"),
         )
+        # Desktop colours are not in the stylesheet; set them once the page
+        # is there (queued until load). - Claude Generated
+        from .styles import get_color_scheme
+
+        if get_color_scheme() == "desktop":
+            self.refresh_styles()
 
     # -- JS plumbing -----------------------------------------------------
 
@@ -284,12 +295,44 @@ class WebLogView(QWidget):
         theme = "dark" if dark else "light"
         self._run_js(f"document.documentElement.setAttribute('data-theme', '{theme}');")
 
-    def refresh_styles(self) -> None:
-        """Follow the GUI theme (called by the main window on a theme switch).
-        - Claude Generated"""
-        from .styles import is_dark_mode
+    def set_scheme(self, scheme: str, dark: bool, colors: dict) -> None:
+        """Switch colour scheme and brightness without rebuilding the document.
 
-        self.set_theme(is_dark_mode())
+        ALIMA and Neutral take their ``--alima-*`` values from
+        alima_render.css (``data-scheme``); Desktop gets them inline on #log,
+        computed from the Qt tokens (``styles.log_css_vars``). The page ground
+        and scrollbars follow ``colors`` in every scheme. - Claude Generated
+        """
+        from .styles import log_css_vars
+
+        log_vars = log_css_vars(colors)
+        payload = {
+            "theme": "dark" if dark else "light",
+            "scheme": scheme,
+            "doc": {
+                "--doc-bg": colors["background"],
+                "--doc-thumb": colors["scroll_handle"],
+                "--doc-thumb-hover": colors["indicator"],
+            },
+            "log": log_vars if scheme == "desktop" else {},
+            "clear": list(log_vars),
+        }
+        self._run_js(
+            "(function(p){var r=document.documentElement;"
+            "r.setAttribute('data-theme',p.theme);r.setAttribute('data-scheme',p.scheme);"
+            "for(var k in p.doc){r.style.setProperty(k,p.doc[k]);}"
+            "var log=document.getElementById('log');if(!log){return;}"
+            "p.clear.forEach(function(k){log.style.removeProperty(k);});"
+            "for(var k2 in p.log){log.style.setProperty(k2,p.log[k2]);}"
+            f"}})({json.dumps(payload)});"
+        )
+
+    def refresh_styles(self) -> None:
+        """Follow the GUI theme and colour scheme (called by the main window
+        on a switch). - Claude Generated"""
+        from .styles import get_color_scheme, get_colors, is_dark_mode
+
+        self.set_scheme(get_color_scheme(), is_dark_mode(), get_colors())
 
     def set_font_pt(self, pt: int) -> None:
         """Update the base font size (pt) of the log document (--alima-fs var)."""

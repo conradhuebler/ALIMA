@@ -223,3 +223,4 @@ Then visit `http://localhost:8000` in browser.
 
 ## Gestaltung (Oct 2026)
 Farbwelt aus `alima.png` (Aubergine/Blauschwarz, Pfirsich→Koralle→Rosa-Rot, kühles Blau-Violett als Gegenakzent), hell und dunkel, ohne externe Schriften. Tokens, Kontrast-Tabelle und Entscheidungen: [`docs/design_refresh.md`](../../docs/design_refresh.md); `tests/test_design_tokens.py` misst die Kontrastpaare an den echten Dateien. `alima_render.css` ist die gemeinsame Quelle für Webapp und Qt-Log; die Marke liegt als `static/alima-mark.svg`.
+Farbschemata ALIMA/Neutral/Desktop über `data-scheme` am `<html>` (Auswahl `#scheme-select` in der Kopfzeile, `SchemeManager` in `app.js`, je Betrachter in `localStorage` mit Rückfall ohne Speicher). Neutral: eigene Tokens in `styles.css`/`alima_render.css`; Desktop: CSS-Systemfarben, hell/dunkel folgt dem System, Kontraste nicht messbar. Der Qt-Log setzt im Desktop-Schema die `--alima-*`-Variablen zur Laufzeit.

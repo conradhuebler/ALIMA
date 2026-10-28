@@ -44,6 +44,63 @@ const ThemeManager = {
     },
 };
 
+/**
+ * SchemeManager — colour scheme (ALIMA / Neutral / Desktop) as data-scheme on
+ * <html>, remembered per viewer in localStorage. Storage may be unavailable
+ * (private mode, blocked site data): the choice then lasts for this page.
+ * In "desktop" the system decides light/dark, so the theme toggle is off.
+ * — Claude Generated
+ */
+const SchemeManager = {
+    STORAGE_KEY: 'alima_scheme',
+    SCHEMES: ['alima', 'neutral', 'desktop'],
+
+    read() {
+        try {
+            const v = window.localStorage.getItem(this.STORAGE_KEY);
+            return this.SCHEMES.includes(v) ? v : 'alima';
+        } catch (e) {
+            return 'alima';
+        }
+    },
+
+    write(scheme) {
+        try {
+            window.localStorage.setItem(this.STORAGE_KEY, scheme);
+        } catch (e) {
+            /* storage blocked: the choice lasts for this page only */
+        }
+    },
+
+    apply(scheme) {
+        if (!this.SCHEMES.includes(scheme)) scheme = 'alima';
+        document.documentElement.setAttribute('data-scheme', scheme);
+        const select = document.getElementById('scheme-select');
+        if (select && select.value !== scheme) select.value = scheme;
+        const btn = document.getElementById('theme-toggle');
+        if (btn) {
+            const desktop = scheme === 'desktop';
+            btn.disabled = desktop;
+            btn.title = desktop
+                ? 'Im Farbschema „Desktop“ bestimmt das System hell oder dunkel.'
+                : 'Theme wechseln';
+        }
+    },
+
+    init() {
+        this.apply(this.read());
+        const select = document.getElementById('scheme-select');
+        if (select) {
+            select.addEventListener('change', () => {
+                this.write(select.value);
+                this.apply(select.value);
+            });
+        }
+    },
+};
+
+SchemeManager.init();
+
 // Run synchronously — prevents flash of wrong theme
 ThemeManager.init();
 

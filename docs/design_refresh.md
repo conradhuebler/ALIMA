@@ -17,7 +17,9 @@ was geprüft ist und was nicht.
 | Kontrast gemessen (`tests/test_design_tokens.py`, 239 Paare) | erledigt |
 | Wächter gegen neue Farbliterale (`tests/test_no_hardcoded_colors.py`) | erledigt |
 | Gerenderte Prüfung Webapp und Qt (alle Tabs, Dialoge), hell und dunkel | erledigt (offscreen) |
-| HTML-Inhalte und Tabellenzellen nach einem Themenwechsel neu einfärben | offen, siehe „Grenzen“ |
+| Farbschemata ALIMA / Neutral / Desktop (Qt und Webapp), siehe „Farbschemata“ | erledigt |
+| Schemawechsel erreicht alle Widgets unter dem Hauptfenster; ALIMA pixelgleich zum Stand davor (Hauptfenster, Log, Anbieter-Dialog) | erledigt (per Skript und Test geprüft) |
+| HTML-Inhalte und Tabellenzellen nach einem Themen- oder Schemawechsel neu einfärben | offen, siehe „Grenzen“ |
 
 ## Farben im Logo
 
@@ -359,6 +361,104 @@ Vollständige Tabelle (hell / dunkel; mehrere Werte = je Verlaufsstopp):
 | Warnung / Eingabe | 4.5 | 5.91 | 11.79 |
 | Trennlinie / Eingabe | 3 | 3.84 | 3.85 |
 
+## Farbschemata
+
+Drei Schemata, gewählt über `UIConfig.color_scheme` (Qt) bzw. die Auswahl in der Kopfzeile
+(Webapp, je Betrachter in `localStorage`). Standard ist „ALIMA“; bestehende Konfigurationen
+ohne den Schlüssel bleiben dabei. Ein unbekannter Wert in `config.json` fällt mit einem
+Log-Eintrag auf „alima“ zurück.
+
+| Schema | Qt | Webapp |
+|---|---|---|
+| **ALIMA** | `COLORS`/`DARK_COLORS` wie oben, unverändert | wie oben |
+| **Neutral** | `NEUTRAL_COLORS`/`NEUTRAL_DARK_COLORS` | `:root[data-scheme="neutral"]` in `styles.css`, Log in `alima_render.css` |
+| **Desktop** | aus der Systempalette abgeleitet (`derive_desktop_colors`) | CSS-Systemfarben (`Canvas`, `CanvasText`, `LinkText`, `Highlight`, `color-scheme: light dark`) |
+
+Alle Tabellen haben dieselben Schlüssel wie `COLORS` (Test). Umschalten: **Extras ▸ 🎨
+Farbschema** (drei Einträge, einer mit Häkchen) und **Einstellungen ▸ Anwendung ▸
+Farbschema**; beide schreiben dieselbe Einstellung und folgen einander. Ein Wechsel läuft wie
+der Hell/Dunkel-Wechsel durch alle Widgets (`apply_color_scheme` → `apply_theme` →
+`_reapply_tab_stylesheets`), ohne Neustart. Beim Start setzt `load_settings` das Schema vor
+dem einen Stylesheet-Durchgang; gemessen `load_settings` 1,11 s gegenüber 1,12 s am Stand
+davor (Median aus je 3 Läufen, offscreen, leere Konfiguration), also kein messbarer Zuwachs.
+
+### Neutral
+
+Abgestufte Grautöne mit leichtem Blaugrau-Stich, ein ruhiges Blau als einziger Akzent,
+flache Füllungen statt Verlauf, die Marke im leeren Log in Grau. Erfolg/Warnung/Fehler
+behalten eigene Farbtöne und ihre Symbole.
+
+| Token (Qt) | Hell | Dunkel |
+|---|---|---|
+| `background` / `background_light` / `background_dark` | `#fbfcfd` / `#f3f5f7` / `#e3e7ec` | `#14171c` / `#1b1f26` / `#0e1014` |
+| `text` / `text_light` / `text_muted` | `#1c2330` / `#465161` / `#596473` | `#e7eaef` / `#bcc4ce` / `#9ca5b0` |
+| `border` / `border_light` | `#7f8995` / `#dce1e7` | `#6c7582` / `#2b313a` |
+| `primary` (Füllung, Schrift `on_primary`) | `#3a5f8f` / weiß | `#3c6aa6` / weiß |
+| `focus` / `indicator` / `accent_text` | `#3a5f8f` / `#3a5f8f` / `#34557f` | `#93b9e8` / `#93b9e8` / `#a3c2e8` |
+| `secondary` (Schiefer) | `#4f5d6e` | `#93abc8` |
+| Verlauf (`grad_*`) | flach `#3a5f8f`, Schrift weiß | flach `#93b9e8`, Schrift `#10141a` |
+| `success` / `warning` / `error` | `#256b45` / `#7a5600` / `#a82a2a` | `#7cc89d` / `#e3bd68` / `#f28b8b` |
+
+Webapp (`--clr-*`): hell Seite `#f3f5f7`, Fläche `#fbfcfd`, Text `#1c2330`, Akzent `#3a5f8f`;
+dunkel Seite `#0f1216`, Fläche `#171a20`, Text `#e7eaef`, Akzent `#93b9e8`.
+
+### Desktop
+
+**Qt.** `alima_gui.main` nimmt direkt nach dem Anlegen der `QApplication`, vor
+`setStyle("Fusion")` und vor jeder eigenen Palette, einen Schnappschuss der Systempalette
+(`take_desktop_snapshot`). Hell oder dunkel liefert `QStyleHints.colorScheme()`, sonst die
+Helligkeit der Fensterfarbe; der Menüeintrag „Dunkles Design“ ist in diesem Schema gesperrt
+(Tooltip nennt den Grund), die gespeicherte Wahl gilt wieder für die anderen Schemata. Das
+Schema stellt die Systempalette wieder her; das Stylesheet behält alle Layout- und
+Größenregeln, nur die Farben kommen aus `derive_desktop_colors`:
+
+- Gründe: `background` = Base, `background_light` = Window, `surface_raised` = Button,
+  Trennlinien und Hover als Mischung aus Window/Text bzw. Button/Highlight.
+- Text: `text` = Text, `text_light` = 75 % WindowText über Window, `text_muted` =
+  PlaceholderText, `border` = Mid.
+- Akzent: `primary`, `focus`, `indicator`, `accent_text` = Highlight; `secondary`, `violet` =
+  Link; der Verlauf ist flach in der Highlight-Farbe.
+- Erfolg/Warnung/Fehler: die Neutral-Farbtöne (das System hat dafür keine Rolle), getönte
+  Gründe als 12 % davon über Base.
+- **Kontrastreparatur**: danach wird jedes Paar aus `DESKTOP_CONTRAST_RULES` (alle Qt-Paare
+  dieser Tabelle und die Log-Paare) geprüft; was die Schwelle verfehlt, wird schrittweise zu
+  Schwarz oder Weiß hin verschoben, bis es passt (ein lesbares Paar geht vor dem exakten
+  Systemton). Text auf Füllungen (`on_*`) übernimmt HighlightedText nur, wenn es 4,5:1
+  erreicht, sonst Schwarz oder Weiß (eines von beiden erreicht immer ≥ 4,58:1). Badges im Log
+  (Farbe auf 14–16 % ihrer selbst) werden mit eigenen Schritten nachgezogen; wo selbst
+  Schwarz nicht reicht (mittelgraue Fenster), rückt der Kartengrund ein Stück ab.
+- Das GUI-Log bekommt im Desktop-Schema seine `--alima-*`-Variablen zur Laufzeit aus diesen
+  Tokens (`styles.log_css_vars`, `WebLogView.set_scheme`), ohne Neuaufbau.
+
+Ohne Schnappschuss (Tests, Werkzeuge ohne `alima_gui.main`) nutzt „Desktop“ die
+Neutral-Tabellen.
+
+**Webapp.** CSS-Systemfarben mit `color-scheme: light dark`; hell/dunkel folgt
+`prefers-color-scheme`, der Schalter in der Kopfzeile ist in diesem Schema gesperrt.
+Erfolg/Warnung/Fehler über `light-dark()` (wo der Browser es kennt, sonst die hellen
+Neutral-Werte). **Die Kontraste der Systemfarben lassen sich nicht vorab messen**: sie hängen
+von Browser, Betriebssystem und Einstellung ab. Für die Webapp im Desktop-Schema gibt es
+deshalb keine Zahl.
+
+### Kontrast je Schema
+
+Gemessen wie oben (`tests/test_design_tokens.py`; `measure_all("neutral")`,
+`measure_desktop()`). Keines der Paare liegt unter der Schwelle.
+
+| Schema | Paare | kleinster Text-Wert (4,5) | kleinster Nicht-Text-Wert (3) |
+|---|---|---|---|
+| Neutral hell | 117 | 4,85: Webapp-Hinweis `#5f6a78` auf `#eef1f4` | 3,13: Webapp-Bedienrand `#7f8995` auf `#eef1f4` |
+| Neutral dunkel | 117 | 4,66: Qt weiß auf `primary_hover` `#4776b3` | 3,25: Qt-Checkbox `#3c6aa6` auf `#14171c` |
+| Desktop (Qt + GUI-Log), 7 Testpaletten | 609 | 4,52: „mittleres Grau“, Fortschrittstext `#161616` auf `#7f7f7f` | 3,04: „mittleres Grau“, Tab-Markierung `#414141` auf `#8c8c8c` |
+| Desktop (Webapp) | – | nicht messbar (Systemfarben) | nicht messbar |
+
+Testpaletten für Desktop: Breeze hell und dunkel, Adwaita hell, hell mit sehr hellem Akzent
+(`#fff3a0` mit weißer Schrift), dunkel mit fast schwarzem Akzent (`#0b0b2a` mit schwarzer
+Schrift), alles mittelgrau, hell mit kräftigem Magenta-Akzent. Ohne die Reparatur verfehlen
+Paare in diesen Paletten die Schwelle (eigener Test hält das fest), ebenso wenn die
+Systemschrift auf dem Akzent ungeprüft übernommen wird oder die Badge-Anpassung fehlt
+(Mutationsprüfung, je ein Test schlägt fehl).
+
 ## Prüfung (Methode)
 
 Offscreen gerendert (`QT_QPA_PLATFORM=offscreen`, QtWebEngine mit `--no-sandbox
@@ -382,6 +482,16 @@ leeren temporären `HOME`, also ohne Anfragen an äußere Dienste:
   eigenem Stylesheet eine Farbe, die nur im anderen Thema vorkommt, und keine Farbe außerhalb
   beider Paletten; alle drei Log-Ansichten meldeten das passende `data-theme`.
 
+- **Farbschemata**: Hauptfenster (Pipeline-Tab mit Eingabebereich und gefülltem Log),
+  Einstellungen (Seite „Anwendung“ mit dem Feld „Farbschema“) und Anbieter-Dialog in ALIMA und
+  Neutral je hell und dunkel sowie Desktop mit zwei künstlich gesetzten Systempaletten (Breeze
+  dunkel, hell mit kräftigem Magenta-Akzent), alle über `apply_color_scheme` zur Laufzeit
+  umgeschaltet. Nach jedem Wechsel trug kein Widget-Stylesheet eine Farbe, die nur in der
+  vorherigen Tabelle vorkommt. ALIMA hell und dunkel sind pixelgleich zum Stand vor den
+  Schemata (Hauptfenster 1539 × 900, Log, Anbieter-Dialog; 0 abweichende Pixel). Webapp je
+  Schema hell und dunkel bei 1400 px und 390 px, Desktop zusätzlich mit erzwungenem
+  System-Dunkelmodus (`--force-dark-mode`); kein horizontales Überlaufen in allen Aufnahmen.
+
 Gefunden und behoben dabei: abgeschnittener Tab „Kamera“ in der Webapp, Listenpunkte außerhalb
 der Assistentenblase, Rollbalken im leeren Log, auf 390 px unlesbar gestauchte Auswahllisten,
 fehlende Häkchen und Pfeile in Qt (`data:`-URIs), weiße Textfelder und Flächen im dunklen
@@ -398,13 +508,18 @@ und UB-Katalog, schwarze gesperrte Knöpfe, fehlendes Fenster-Icon im Einrichtun
   neu gerendert, die übrigen nicht.
 - **Dialoge außerhalb des Hauptfensters** (Kamera, Libero-Anmeldung, Commit-Auswahl) übernehmen
   das Thema beim Öffnen; ein Wechsel, während sie offen sind, ist nicht geprüft.
-- **Wiederholungsleiste im Ruhezustand**: ihre Knöpfe sind unsichtbar, aber anklickbar.
-  „Abbrechen“ war dort vorher sichtbar (rot) und ebenfalls anklickbar; ob der Knopf im
-  Ruhezustand ausgeblendet oder gesperrt werden soll, ist eine Verhaltensfrage und nicht
-  entschieden.
 - **Nicht geprüft**: echte Browser außer QtWebEngine (6.10.2, Chromium 134), echte Bildschirme
   und HiDPI, Hover- und Tastaturzustände in Qt per Pixel (offscreen nicht verlässlich, siehe
   `tests/test_provider_list_selection_contrast.py`), der Splash im echten Start, der
   Einrichtungsassistent gerendert.
 - `color-mix()` (Badge-Gründe im Log) braucht Chromium ≥ 111; ältere Browser zeigen die Badges
   ohne getönten Grund.
+- **Farbschemata**: Der Desktop-Schnappschuss wird beim Start genommen; ändert sich die
+  Systempalette während ALIMA läuft, folgt die GUI erst nach einem Neustart. Ein HTML-Inhalt
+  oder eine Tabellenzelle behält nach einem Schemawechsel die alten Farben bis zum nächsten
+  Füllen (wie beim Themenwechsel). Der Einrichtungsassistent beim ersten Start erscheint
+  immer in ALIMA, weil er vor dem Laden der Einstellungen läuft. Logo, Favicon und die
+  Zuschnittmarke im Kameradialog bleiben in allen Schemata in den Logo-Farben. Die
+  Kontraste der Webapp im Desktop-Schema sind nicht gemessen (Systemfarben); echte
+  Desktop-Paletten (KDE, GNOME, Windows, macOS) sind nur über die synthetischen Testpaletten
+  nachgebildet, nicht an echten Systemen geprüft.
