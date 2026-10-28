@@ -102,8 +102,29 @@ class WizardMergesOntoAnExistingConfigTest(unittest.TestCase):
     def test_the_wizards_own_answers_are_applied(self):
         """Preserving must not mean "the wizard does nothing"."""
         out = self._merged(_configured_installation())
-        self.assertEqual([p.name for p in out.unified_config.providers], ["neu"])
+        self.assertIn("neu", [p.name for p in out.unified_config.providers])
         self.assertEqual(out.unified_config.preferred_provider, "neu")
+
+    def test_configured_providers_are_kept_and_the_wizards_is_added(self):
+        """Ergänzen, nicht ersetzen: ein erneuter Lauf lässt die anderen
+        Anbieter in Ruhe."""
+        out = self._merged(_configured_installation())
+        self.assertEqual(
+            [p.name for p in out.unified_config.providers],
+            ["gwdg", "alt-ollama", "neu"],
+        )
+
+    def test_a_provider_with_the_same_name_is_replaced_in_place(self):
+        from src.utils.config_models import UnifiedProvider
+
+        existing = _configured_installation()
+        existing.unified_config.providers.insert(
+            1, UnifiedProvider(name="Neu", provider_type="ollama", host="alt.example"))
+        out = self._merged(existing)
+        names = [p.name for p in out.unified_config.providers]
+        self.assertEqual(names, ["gwdg", "neu", "alt-ollama"])  # Position bleibt
+        replaced = out.unified_config.providers[1]
+        self.assertNotEqual(replaced.host, "alt.example")  # Wizard-Eintrag gewinnt
 
     def test_a_genuine_first_run_uses_the_wizard_config(self):
         """Nothing to preserve — the fresh config is the right answer there."""

@@ -80,13 +80,33 @@ class FirstStartWizard(QWizard):
 
     #: Sections the wizard actually asks about. Everything else on an existing
     #: config is left alone. - Claude Generated
+    # "providers" is deliberately not in this list: the wizard adds its provider
+    # to the configured ones (see _merge_providers) instead of replacing them.
     _WIZARD_OWNED_PROVIDER_FIELDS = (
-        "providers", "preferred_provider", "preferred_model",
+        "preferred_provider", "preferred_model",
         "pipeline_default_provider", "pipeline_default_model",
         "vision_default_provider", "vision_default_model",
         "gemini_api_key", "anthropic_api_key",
         "gemini_preferred_model", "anthropic_preferred_model",
     )
+
+    @staticmethod
+    def _merge_providers(existing: list, from_wizard: list) -> list:
+        """Add the wizard's providers to the configured ones - Claude Generated.
+
+        A provider with the same name (case-insensitive) is replaced in place by
+        the wizard's entry; every other configured provider stays untouched and
+        keeps its position, new ones are appended.
+        """
+        merged = list(existing)
+        for new in from_wizard:
+            for i, old in enumerate(merged):
+                if old.name.lower() == new.name.lower():
+                    merged[i] = new
+                    break
+            else:
+                merged.append(new)
+        return merged
 
     def _apply_onto_existing(self, wizard_config):
         """Merge the wizard's answers into the configuration already on disk.
@@ -105,6 +125,10 @@ class FirstStartWizard(QWizard):
             return wizard_config
 
         logger.info("Wizard auf bestehender Konfiguration: nur die abgefragten Bereiche werden ersetzt")
+        existing.unified_config.providers = self._merge_providers(
+            list(existing.unified_config.providers),
+            list(wizard_config.unified_config.providers),
+        )
         for field in self._WIZARD_OWNED_PROVIDER_FIELDS:
             if hasattr(wizard_config.unified_config, field):
                 setattr(
