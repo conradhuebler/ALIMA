@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import time
 
 from PyQt6.QtGui import QFont
@@ -46,8 +47,11 @@ class MainWindowSettingsMixin:
             dialog = ComprehensiveSettingsDialog(alima_manager=self.alima_manager, parent=self)
             dialog.config_changed.connect(self._on_config_changed)
             if dialog.exec():
-                # Einstellungen wurden gespeichert
-                self.load_settings()
+                # Einstellungen wurden gespeichert. Nur Theme/Schrift nachziehen,
+                # und nur wenn sie sich geändert haben: die vollständige
+                # Neuanwendung kostete mehrere Sekunden UI-Thread und setzte
+                # nebenbei Fenstergeometrie, Tab und Splitter zurück.
+                self.load_settings(only_changes=True)
                 # Aktualisiere alle Komponenten mit neuer Konfiguration
                 self._refresh_components()
                 # Runtime plugin toggle: rebuild the chat agent's tool registry so
@@ -106,18 +110,24 @@ class MainWindowSettingsMixin:
         except Exception as e:
             self.logger.warning(f"Could not refresh SearchTab sources: {e}")
 
-    def load_settings(self):
-        """Lädt die gespeicherten Einstellungen"""
-        # Fenster-Geometrie
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
+    def load_settings(self, *, only_changes: bool = False):
+        """Lädt die gespeicherten Einstellungen
 
-        self.tabs.setCurrentIndex(0)
+        ``only_changes=True`` (nach dem Einstellungsdialog): Geometrie, Tab und
+        Splitter bleiben unangetastet, Theme und Schriftgröße werden nur dann
+        neu angewendet, wenn sie vom aktuellen Stand abweichen.
+        """
+        if not only_changes:
+            # Fenster-Geometrie
+            geometry = self.settings.value("geometry")
+            if geometry:
+                self.restoreGeometry(geometry)
 
-        # Restore pipeline splitter states - Claude Generated
-        if hasattr(self, 'pipeline_tab'):
-            self.pipeline_tab.restore_splitter_state(self.settings)
+            self.tabs.setCurrentIndex(0)
+
+            # Restore pipeline splitter states - Claude Generated
+            if hasattr(self, 'pipeline_tab'):
+                self.pipeline_tab.restore_splitter_state(self.settings)
 
         # Load dark mode preference — Claude Generated
         from src.alima_gui import is_system_dark_mode
@@ -127,8 +137,6 @@ class MainWindowSettingsMixin:
             dark = saved == "true" or saved is True
         else:
             dark = is_system_dark_mode(app)
-        self.apply_theme(dark)
-
         # Load font size preference — Claude Generated
         saved_fs = self.settings.value("font_size", None)
         if saved_fs is None and self.config_manager:
@@ -136,7 +144,16 @@ class MainWindowSettingsMixin:
                 saved_fs = self.config_manager.load_config().ui_config.font_size
             except Exception:
                 saved_fs = 10
-        if saved_fs is not None:
+        font_changes = saved_fs is not None and not (
+            only_changes and int(saved_fs) == get_font_size()
+        )
+        theme_changes = not (only_changes and dark == getattr(self, "_dark_mode", None))
+
+        # One stylesheet pass when both change: apply_font_size restyles
+        # everything under the already-set palette and mode.
+        if theme_changes:
+            self.apply_theme(dark, restyle=not font_changes)
+        if font_changes:
             self.apply_font_size(int(saved_fs))
 
     def save_settings(self):
@@ -148,8 +165,13 @@ class MainWindowSettingsMixin:
         if hasattr(self, 'pipeline_tab'):
             self.pipeline_tab.save_splitter_state(self.settings)
 
-    def apply_theme(self, dark: bool):
-        """Switch between dark and light theme — Claude Generated"""
+    def apply_theme(self, dark: bool, *, restyle: bool = True):
+        """Switch between dark and light theme — Claude Generated
+
+        ``restyle=False`` sets palette and mode only and leaves the stylesheet to
+        the caller (start-up applies theme and font size in one pass; each full
+        stylesheet application re-polishes every widget, ~1.2 s).
+        """
         from src.alima_gui import _apply_dark_app_palette, _apply_light_app_palette
         self._dark_mode = dark
         set_dark_mode(dark)
@@ -158,10 +180,11 @@ class MainWindowSettingsMixin:
             _apply_dark_app_palette(app)
         else:
             _apply_light_app_palette(app)
-        if app:
-            app.setStyleSheet(get_main_stylesheet())
-        self.setStyleSheet(get_main_stylesheet())
-        self._reapply_tab_stylesheets()
+        if restyle:
+            if app:
+                app.setStyleSheet(get_main_stylesheet())
+            self.setStyleSheet(get_main_stylesheet())
+            self._reapply_tab_stylesheets()
         label = "☀️ Helles Design" if dark else "🌙 Dunkles Design"
         if hasattr(self, '_theme_action'):
             self._theme_action.setText(label)
@@ -169,6 +192,7 @@ class MainWindowSettingsMixin:
 
     def apply_font_size(self, pt: int) -> None:
         """Set global font size and refresh all stylesheets.
+        The config is only written when the stored size differs.
 
         Root cause of earlier "font doesn't apply" bug: many widgets call
         setFont(QFont(...)) directly, which beats the stylesheet cascade.
@@ -183,13 +207,13 @@ class MainWindowSettingsMixin:
             app.setStyleSheet(get_main_stylesheet())
         self.setStyleSheet(get_main_stylesheet())
         self._reapply_tab_stylesheets()
-        self._walk_refresh_styles(self)
         self.settings.setValue("font_size", pt)
         if self.config_manager:
             try:
                 config = self.config_manager.load_config()
-                config.ui_config.font_size = pt
-                self.config_manager.save_config(config)
+                if config.ui_config.font_size != pt:
+                    config.ui_config.font_size = pt
+                    self.config_manager.save_config(config)
             except Exception as e:
                 self.logger.debug(f"Could not persist font_size to config: {e}")
 
@@ -209,14 +233,14 @@ class MainWindowSettingsMixin:
             self.logger.debug(f"_walk_refresh_styles failed: {e}")
 
     def _reapply_tab_stylesheets(self):
-        """Re-apply stylesheets to all tabs after theme change — Claude Generated"""
-        for i in range(self.tabs.count()):
-            tab = self.tabs.widget(i)
-            if tab and hasattr(tab, 'refresh_styles'):
-                try:
-                    tab.refresh_styles()
-                except Exception as e:
-                    self.logger.debug(f"refresh_styles on tab {i} failed: {e}")
+        """Re-apply stylesheets after a theme or font change — Claude Generated
+
+        Every widget below the main window that defines ``refresh_styles()``
+        (tabs, chat panel, bars, step widgets, the log views) is called once,
+        not only the tabs: widgets that set their own colours at construction
+        would otherwise keep the theme they were built in.
+        """
+        self._walk_refresh_styles(self)
 
     def _toggle_theme(self):
         """Toggle between dark and light theme — Claude Generated"""
@@ -264,6 +288,32 @@ class MainWindowSettingsMixin:
             else:
                 logger.debug(f"Settings-Refresh: '{label}' {elapsed:.2f}s")
 
+    def _refresh_provider_status_async(self) -> None:
+        """Erreichbarkeit aller Provider im Hintergrund auffrischen - Claude Generated.
+
+        ``refresh_all_provider_status`` pingt jeden aktiven Provider nacheinander
+        mit bis zu 3 s Timeout. Synchron im UI-Thread summierte sich das mit jedem
+        nicht erreichbaren Provider; und ``config_changed`` kommt bei jedem Häkchen
+        und jeder Bearbeitung in den Einstellungen. Das Ergebnis wird nicht
+        zurückgegeben, sondern landet im Status-Cache und im Signal
+        ``provider_status_changed``. Ein laufender Durchgang wird nicht doppelt
+        gestartet.
+        """
+        service = getattr(self, "llm_service", None)
+        if service is None or getattr(self, "_status_refresh_running", False):
+            return
+        self._status_refresh_running = True
+
+        def run():
+            try:
+                service.refresh_all_provider_status()
+            except Exception:
+                self.logger.debug("provider status refresh failed", exc_info=True)
+            finally:
+                self._status_refresh_running = False
+
+        threading.Thread(target=run, name="provider-status-refresh", daemon=True).start()
+
     def _refresh_components(self):
         """Refresh all components with new configuration - Claude Generated"""
         _t_total = time.monotonic()
@@ -286,8 +336,7 @@ class MainWindowSettingsMixin:
 
             # 2. Refresh provider status to update reachability and available models
             with self._timed("refresh_all_provider_status", self.logger):
-                if hasattr(self, 'llm_service'):
-                    self.llm_service.refresh_all_provider_status()
+                self._refresh_provider_status_async()
 
             # 3. Reload pipeline configuration to use updated provider preferences
             with self._timed("pipeline.reload_config", self.logger):
@@ -326,7 +375,7 @@ class MainWindowSettingsMixin:
             # 5. Update global status bar with new provider and cache info
             with self._timed("status_bar", self.logger):
                 if hasattr(self, 'global_status_bar'):
-                    self.global_status_bar.update_provider_info()
+                    self.global_status_bar.update_provider_info(allow_network=False)
                     self.global_status_bar.update_cache_status()
 
             # 6. Notify tabs about configuration changes (custom handlers)

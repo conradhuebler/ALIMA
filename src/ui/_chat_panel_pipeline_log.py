@@ -271,8 +271,11 @@ class PipelineLogMixin:
         )
 
     def refresh_styles(self):
+        # The panel pins the main stylesheet on itself (setup_ui); re-apply it
+        # so its strips and controls take the current theme. - Claude Generated
+        from .styles import get_font_size, get_main_stylesheet
+        self.setStyleSheet(get_main_stylesheet())
         if hasattr(self, "stream_text"):
-            from .styles import get_font_size
             self.stream_text.set_font_pt(get_font_size())
 
     def reset_for_new_pipeline(self):

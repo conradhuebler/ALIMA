@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
 from ..core.pipeline_manager import PipelineStep
 from ..utils.pipeline_utils import PipelineResultFormatter
 from .unified_input_widget import UnifiedInputWidget
+from .styles import get_colors, set_tone
 
 
 class PipelineTabUiMixin:
@@ -117,9 +118,8 @@ class PipelineTabUiMixin:
 
         # Label kompakter gestylt
         label = QLabel(label_text)
-        label.setStyleSheet(
-            "font-weight: bold; color: #555; padding: 2px;"
-        )
+        set_tone(label, "heading")
+        label.setStyleSheet("padding: 2px;")
         label.setMaximumHeight(18)  # Explizite Height
         label.setWordWrap(False)  # Keine Zeilenumbrüche
 
@@ -161,11 +161,13 @@ class PipelineTabUiMixin:
 
         header = QHBoxLayout()
         label = QLabel("GND-Suchergebnisse:")
-        label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        set_tone(label, "heading")
+        label.setStyleSheet("padding: 2px;")
         label.setMaximumHeight(18)
         header.addWidget(label, 0)
         self.search_tier_stats = QLabel("")
-        self.search_tier_stats.setStyleSheet("color: #777; padding: 2px;")
+        set_tone(self.search_tier_stats, "muted")
+        self.search_tier_stats.setStyleSheet("padding: 2px;")
         self.search_tier_stats.setMaximumHeight(18)
         header.addWidget(self.search_tier_stats, 0)
         header.addStretch(1)
@@ -323,13 +325,13 @@ class PipelineTabUiMixin:
 
                 if tier == 2:
                     for it in (begriff_item, gnd_item, count_item, sel_item):
-                        it.setForeground(QColor("#2e7d32"))
+                        it.setForeground(QColor(get_colors()["success"]))
                         f = it.font()
                         f.setBold(True)
                         it.setFont(f)
                 elif tier == 1:
                     for it in (begriff_item, gnd_item, count_item, sel_item):
-                        it.setForeground(QColor("#1565c0"))
+                        it.setForeground(QColor(get_colors()["secondary"]))
                 if row.get("search_terms"):
                     begriff_item.setToolTip(
                         "Gefunden über: " + ", ".join(row["search_terms"])
@@ -388,7 +390,8 @@ class PipelineTabUiMixin:
 
         # ── Finale Schlagworte ────────────────────────────────────────────────
         kw_label = QLabel("Finale GND-Schlagworte:")
-        kw_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        set_tone(kw_label, "heading")
+        kw_label.setStyleSheet("padding: 2px;")
         kw_label.setMaximumHeight(18)
         layout.addWidget(kw_label, 0)
 
@@ -400,7 +403,8 @@ class PipelineTabUiMixin:
 
         # ── Schlagwortketten ─────────────────────────────────────────────────
         chains_label = QLabel("Schlagwortketten (mit Verifikation):")
-        chains_label.setStyleSheet("font-weight: bold; color: #555; padding: 2px;")
+        set_tone(chains_label, "heading")
+        chains_label.setStyleSheet("padding: 2px;")
         chains_label.setMaximumHeight(18)
         layout.addWidget(chains_label, 0)
 
@@ -429,7 +433,7 @@ class PipelineTabUiMixin:
 
         # Config Section (kompakter)
         config_header = QLabel("⚙️ Katalog-Such-Konfiguration")
-        config_header.setStyleSheet("font-weight: bold; color: #555;")
+        set_tone(config_header, "heading")
         controls_layout.addWidget(config_header)
 
         # Kompakte Grid-Layout statt 3 separate Rows
@@ -467,7 +471,7 @@ class PipelineTabUiMixin:
 
         # Filter Section (kompakter)
         filter_header = QLabel("🔍 Ergebnisse filtern")
-        filter_header.setStyleSheet("font-weight: bold; color: #555;")
+        set_tone(filter_header, "heading")
         controls_layout.addWidget(filter_header)
 
         # Filter Grid
@@ -490,16 +494,12 @@ class PipelineTabUiMixin:
         filter_grid.addWidget(QLabel("Modus:"), 0, 4)
         self.dk_filter_mode = QComboBox()
         self.dk_filter_mode.addItems(["Alle", "Titel", "Klassifikationscodes", "Keywords"])
-        self.dk_filter_mode.setStyleSheet(
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }"
-            "QComboBox QAbstractItemView { background-color: #2b2b2b; color: #ccc; "
-            "selection-background-color: #005fcc; selection-color: white; border: 1px solid #ccc; }"
-        )
+        self.dk_filter_mode.setStyleSheet("QComboBox { padding: 3px 6px; border-radius: 3px; }")
         self.dk_filter_mode.currentTextChanged.connect(self._filter_dk_search_results)
         filter_grid.addWidget(self.dk_filter_mode, 0, 5)
 
         self.dk_filter_count_label = QLabel("")
-        self.dk_filter_count_label.setStyleSheet("color: #666;")
+        set_tone(self.dk_filter_count_label, "muted")
         filter_grid.addWidget(self.dk_filter_count_label, 0, 6)
 
         filter_grid.setColumnStretch(7, 1)  # Push to left
@@ -514,7 +514,7 @@ class PipelineTabUiMixin:
         results_layout.setContentsMargins(5, 5, 5, 5)
 
         results_header = QLabel("📊 Katalog-Suchergebnisse")
-        results_header.setStyleSheet("font-weight: bold; color: #555;")
+        set_tone(results_header, "heading")
         results_layout.addWidget(results_header)
 
         self.dk_search_raw_data = []  # Store for filtering
@@ -558,7 +558,7 @@ class PipelineTabUiMixin:
 
         # Header statt GroupBox
         input_header = QLabel("📥 Eingangsdaten für LLM-Klassifikation")
-        input_header.setStyleSheet("font-weight: bold; color: #555;")
+        set_tone(input_header, "heading")
         input_layout.addWidget(input_header)
 
         self.dk_input_summary = QTextEdit()
@@ -581,7 +581,7 @@ class PipelineTabUiMixin:
 
         # Header statt GroupBox
         results_header = QLabel("✅ Finale DK/RVK-Klassifikationen")
-        results_header.setStyleSheet("font-weight: bold; color: #555;")
+        set_tone(results_header, "heading")
         results_layout.addWidget(results_header)
 
         self.dk_classification_results = QTextEdit()
@@ -610,7 +610,8 @@ class PipelineTabUiMixin:
         self.dk_compact_stats = QLabel()
         self.dk_compact_stats.setWordWrap(True)
         self.dk_compact_stats.setTextFormat(Qt.TextFormat.RichText)
-        self.dk_compact_stats.setStyleSheet("color: #666; padding: 5px;")
+        set_tone(self.dk_compact_stats, "muted")
+        self.dk_compact_stats.setStyleSheet("padding: 5px;")
         layout.addWidget(self.dk_compact_stats)
 
         return widget

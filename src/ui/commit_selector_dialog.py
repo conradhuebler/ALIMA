@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
 )
+from .styles import set_tone
 
 
 class CommitSelectorDialog(QDialog):
@@ -54,7 +55,8 @@ class CommitSelectorDialog(QDialog):
             f"Aus Sicherheitsgründen werden nur Commits ab dem {self.min_allowed_date.strftime('%d.%m.%Y')} angezeigt."
         )
         info_label.setWordWrap(True)
-        info_label.setStyleSheet("font-weight: bold; color: #CC0000;")
+        set_tone(info_label, "error")
+        info_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(info_label)
 
         # Auswahl zwischen Commit, Branch oder Tag

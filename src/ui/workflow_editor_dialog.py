@@ -57,7 +57,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .styles import get_scaled_font
+from .styles import get_scaled_font, set_tone
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +298,7 @@ class WorkflowEditorDialog(QDialog):
             tb.addWidget(b)
         tb.addStretch()
         self.target_label = QLabel(f"Ziel: {self._user_dir()}")
-        self.target_label.setStyleSheet("color: #888;")
+        set_tone(self.target_label, "muted")
         tb.addWidget(self.target_label)
         root.addLayout(tb)
 
@@ -362,7 +362,7 @@ class WorkflowEditorDialog(QDialog):
         splitter.setSizes([280, 820])
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #4caf50;")
+        set_tone(self.status_label, "success")
         root.addWidget(self.status_label)
 
     @staticmethod

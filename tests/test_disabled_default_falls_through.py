@@ -2,7 +2,7 @@
 
 ``explain_default_provider_model`` checked only ``if provider:`` (a
 non-empty name) for every candidate - ``preferred_provider``,
-``pipeline_default_provider``, ``agentic_default_provider``,
+``pipeline_default_provider``,
 ``vision_default_provider``. Only the LAST-resort fallback branch
 ("first_enabled") checked ``is_usable``. Disable the provider a default
 names, or delete it outright, and the resolution table still showed it as
@@ -52,15 +52,12 @@ class ADisabledNamedDefaultFallsThroughTest(unittest.TestCase):
         self.assertEqual(provider, "B")
         self.assertEqual(source, "preferred")
 
-    def test_a_disabled_agentic_default_falls_through_to_pipeline_default(self):
-        cfg = _config(
-            agentic_default_provider="A", agentic_default_model="a1",
-            pipeline_default_provider="B", pipeline_default_model="b1",
-        )
+    def test_a_disabled_general_default_falls_through_for_the_agentic_scope_too(self):
+        cfg = _config(preferred_provider="A", preferred_model="a1")
         cfg.get_provider_by_name("A").enabled = False
         provider, model, source = cfg.explain_default_provider_model(scope=ProviderScope.AGENTIC)
         self.assertEqual(provider, "B")
-        self.assertEqual(source, "pipeline_default")
+        self.assertEqual(source, "first_enabled")
 
     def test_a_disabled_vision_default_falls_through_to_preferred(self):
         cfg = _config(

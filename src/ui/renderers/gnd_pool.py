@@ -107,6 +107,9 @@ class GndPoolRenderer(BaseRenderer):
             f"<th style='text-align:left; padding:4px 8px;'>{_escape_html(c)}</th>"
             for c in COLUMNS
         )
+        from src.ui.styles import get_colors
+
+        line = get_colors()["border_light"]
         body_parts: List[str] = []
         for row in rows:
             cells = [
@@ -118,7 +121,7 @@ class GndPoolRenderer(BaseRenderer):
             body_parts.append(
                 "<tr>"
                 + "".join(
-                    f"<td style='padding:4px 8px; border-top:1px solid #444;'>{_escape_html(c)}</td>"
+                    f"<td style='padding:4px 8px; border-top:1px solid {line};'>{_escape_html(c)}</td>"
                     for c in cells
                 )
                 + "</tr>"

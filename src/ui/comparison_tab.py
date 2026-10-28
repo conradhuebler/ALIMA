@@ -84,7 +84,7 @@ class ComparisonTab(QWidget):
         self.btn_compare.setStyleSheet(f"""
             QPushButton {{
                 background-color: {get_colors()['primary']};
-                color: white; font-weight: bold;
+                color: {get_colors()['on_primary']}; font-weight: bold;
                 padding: 8px 20px; border-radius: 6px;
             }}
             QPushButton:hover {{ background-color: {get_colors()['primary_hover']}; }}
@@ -645,7 +645,7 @@ class ComparisonTab(QWidget):
         self.btn_compare.setStyleSheet(f"""
             QPushButton {{
                 background-color: {c['primary']};
-                color: white; font-weight: bold;
+                color: {c['on_primary']}; font-weight: bold;
                 padding: 8px 20px; border-radius: 6px;
             }}
             QPushButton:hover {{ background-color: {c['primary_hover']}; }}

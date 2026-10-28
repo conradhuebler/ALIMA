@@ -41,25 +41,31 @@ _TITLES = {
     "rerun_step": "🔁 Schritt erneut ausführen?",
 }
 
-_STYLE = """
-QFrame#proposalBar {
-    background-color: #3d2a00;
-    border: 1px solid #ffb86c;
+def _style() -> str:
+    """Bar colours from the current theme (warning ground, accept = success,
+    reject = error). - Claude Generated"""
+    from .styles import get_colors
+
+    c = get_colors()
+    return f"""
+QFrame#proposalBar {{
+    background-color: {c['warning_bg']};
+    border: 1px solid {c['warning']};
     border-radius: 4px;
-}
-QLabel#proposalTitle { color: #ffb86c; font-weight: bold; }
-QLabel#proposalBody  { color: #f8f8f2; }
-QLabel#proposalMeta  { color: #b0b0b0; font-size: 9pt; }
-QPushButton#accept {
-    background-color: #2e7d32; color: #fff; border: none;
+}}
+QLabel#proposalTitle {{ color: {c['warning']}; font-weight: bold; }}
+QLabel#proposalBody  {{ color: {c['text']}; }}
+QLabel#proposalMeta  {{ color: {c['text_muted']}; font-size: 9pt; }}
+QPushButton#accept {{
+    background-color: {c['success']}; color: {c['on_success']}; border: none;
     border-radius: 3px; padding: 4px 14px; font-weight: bold;
-}
-QPushButton#accept:hover { background-color: #43a047; }
-QPushButton#reject {
-    background-color: #6d2020; color: #fff; border: none;
+}}
+QPushButton#accept:hover {{ background-color: {c['success_hover']}; }}
+QPushButton#reject {{
+    background-color: {c['error']}; color: {c['on_error']}; border: none;
     border-radius: 3px; padding: 4px 14px; font-weight: bold;
-}
-QPushButton#reject:hover { background-color: #922b2b; }
+}}
+QPushButton#reject:hover {{ background-color: {c['error_hover']}; }}
 """
 
 
@@ -72,7 +78,7 @@ class ProposalBar(QFrame):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("proposalBar")
-        self.setStyleSheet(_STYLE)
+        self.setStyleSheet(_style())
         self.setFrameShape(QFrame.Shape.StyledPanel)
 
         self._audit_id: Optional[int] = None
@@ -116,6 +122,10 @@ class ProposalBar(QFrame):
         self.setVisible(False)
 
     # -- public API ----------------------------------------------------
+
+    def refresh_styles(self) -> None:
+        """Follow a theme switch. - Claude Generated"""
+        self.setStyleSheet(_style())
 
     def show_proposal(self, audit_id: int, tool_name: str, payload: Dict[str, Any]) -> None:
         """Display a proposal and wait for a click."""

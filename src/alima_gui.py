@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401  (import-order side effect)
 
 from PyQt6.QtWidgets import QApplication, QSplashScreen, QDialog
-from PyQt6.QtGui import QPixmap, QPalette, QColor
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap, QPalette, QColor, QIcon
 from src.ui.main_window import MainWindow
 from src.ui.first_start_wizard import FirstStartWizard
 from src.utils.logging_utils import setup_logging
@@ -29,35 +30,72 @@ def is_system_dark_mode(app: QApplication) -> bool:
     return bg.lightness() < 128
 
 
+def _set_palette_roles(palette: QPalette, c: dict, dark: bool) -> None:
+    """Fill the QPalette roles from a styles.py colour dict (COLORS or
+    DARK_COLORS), so widgets the stylesheet does not cover (lists, menus,
+    tooltips, Fusion frames) use the same tokens. - Claude Generated"""
+    role = QPalette.ColorRole
+    palette.setColor(role.Window, QColor(c["background_light"] if not dark else c["background"]))
+    palette.setColor(role.WindowText, QColor(c["text"]))
+    palette.setColor(role.Base, QColor(c["background"] if not dark else c["background_light"]))
+    palette.setColor(role.AlternateBase, QColor(c["background_dark"] if dark else c["surface_raised"]))
+    palette.setColor(role.Text, QColor(c["text"]))
+    palette.setColor(role.BrightText, QColor("#ffffff"))
+    palette.setColor(role.Button, QColor(c["surface_raised"]))
+    palette.setColor(role.ButtonText, QColor(c["text"]))
+    palette.setColor(role.Highlight, QColor(c["primary"]))
+    palette.setColor(role.HighlightedText, QColor(c["on_primary"]))
+    palette.setColor(role.ToolTipBase, QColor(c["background"]))
+    palette.setColor(role.ToolTipText, QColor(c["text"]))
+    palette.setColor(role.PlaceholderText, QColor(c["text_muted"]))
+    palette.setColor(role.Link, QColor(c["secondary"]))
+    palette.setColor(role.LinkVisited, QColor(c["secondary_pressed"]))
+    # Fusion draws frames and bevels from these
+    palette.setColor(role.Light, QColor(c["border_light"] if dark else "#ffffff"))
+    palette.setColor(role.Midlight, QColor(c["surface_raised"]))
+    palette.setColor(role.Mid, QColor(c["border_light"] if not dark else c["border"]))
+    palette.setColor(role.Dark, QColor(c["border"] if not dark else c["background_dark"]))
+    palette.setColor(role.Shadow, QColor("#000000" if dark else c["text_light"]))
+    disabled = QPalette.ColorGroup.Disabled
+    for r in (role.WindowText, role.Text, role.ButtonText):
+        palette.setColor(disabled, r, QColor(c["text_muted"]))
+
+
 def _apply_dark_app_palette(app: QApplication):
-    """Apply dark QPalette to the application — Claude Generated"""
+    """Apply the dark (logo ground) QPalette to the application — Claude Generated"""
     from src.ui.styles import DARK_COLORS
     palette = QPalette()
-    bg = QColor(DARK_COLORS["background"])
-    bg_light = QColor(DARK_COLORS["background_light"])
-    text = QColor(DARK_COLORS["text"])
-    border = QColor(DARK_COLORS["border"])
-    primary = QColor(DARK_COLORS["primary"])
-
-    palette.setColor(QPalette.ColorRole.Window, bg)
-    palette.setColor(QPalette.ColorRole.WindowText, text)
-    palette.setColor(QPalette.ColorRole.Base, bg_light)
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(DARK_COLORS["background_dark"]))
-    palette.setColor(QPalette.ColorRole.Text, text)
-    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.Button, bg_light)
-    palette.setColor(QPalette.ColorRole.ButtonText, text)
-    palette.setColor(QPalette.ColorRole.Highlight, primary)
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(DARK_COLORS["background_light"]))
-    palette.setColor(QPalette.ColorRole.ToolTipText, text)
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(DARK_COLORS["text_muted"]))
+    _set_palette_roles(palette, DARK_COLORS, dark=True)
     app.setPalette(palette)
 
 
 def _apply_light_app_palette(app: QApplication):
-    """Restore default light QPalette — Claude Generated"""
-    app.setPalette(app.style().standardPalette())
+    """Apply the warm light QPalette (same tokens as the light stylesheet) — Claude Generated"""
+    from src.ui.styles import COLORS
+    palette = app.style().standardPalette()
+    _set_palette_roles(palette, COLORS, dark=False)
+    app.setPalette(palette)
+
+
+def _app_icon_path() -> str:
+    """The logo mark (SVG tile) shared with the webapp favicon. - Claude Generated"""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "webapp", "static", "alima-icon.svg")
+
+
+def _load_splash_pixmap(app: QApplication) -> QPixmap:
+    """alima.png from the repository root, scaled to a modest splash size.
+    Returns a null pixmap when the file is missing. - Claude Generated"""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    pixmap = QPixmap(os.path.join(repo_root, "alima.png"))
+    if pixmap.isNull():
+        return pixmap
+    dpr = app.devicePixelRatio() or 1.0
+    side = int(320 * dpr)
+    pixmap = pixmap.scaled(
+        side, side, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+    pixmap.setDevicePixelRatio(dpr)
+    return pixmap
 
 
 def main():
@@ -76,6 +114,9 @@ def main():
     app.setApplicationName("AlIma")
     app.setApplicationVersion("0.2")
     app.setStyle("Fusion")
+    app_icon = QIcon(_app_icon_path())
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
 
     # Setup Qt plugin paths for SQL drivers (MariaDB/MySQL, ODBC, etc.) - Claude Generated
     # On many distros Qt plugins are in the system Qt install, not the venv PyQt6
@@ -115,9 +156,8 @@ def main():
         UnifiedKnowledgeManager.reset()  # Properly closes DB and resets singleton
         logging.info(f"Config reloaded and singletons reset after wizard (db_type={config.database_config.db_type})")
 
-    # Use direct file path instead of resource path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    pixmap = QPixmap(os.path.join(current_dir, "alima.png"))
+    # Splash: alima.png lives in the repository root, one level above src/
+    pixmap = _load_splash_pixmap(app)
 
     # Check if the image was loaded successfully
     if pixmap.isNull():

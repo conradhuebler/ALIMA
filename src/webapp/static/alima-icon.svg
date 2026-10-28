@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<defs>
+<linearGradient id="ai-bg" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4a1824"/><stop offset=".55" stop-color="#170f1e"/><stop offset="1" stop-color="#0a0913"/></linearGradient>
+<linearGradient id="ai-w" x1="0" y1="8" x2="0" y2="54" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f9dcc4"/><stop offset=".45" stop-color="#f8907c"/><stop offset="1" stop-color="#e8385f"/></linearGradient>
+<linearGradient id="ai-t" x1="0" y1="9" x2="0" y2="50" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f6dccb"/><stop offset=".5" stop-color="#a99ad6"/><stop offset="1" stop-color="#5b8de0"/></linearGradient>
+</defs>
+<rect width="64" height="64" rx="14" fill="url(#ai-bg)"/>
+<g transform="translate(5.4 4.6) scale(.83)" stroke-width="3">
+<g stroke="url(#ai-w)">
+<path d="M4 51h23.5q1.5 0 2.2 2.6h4.6q.7-2.6 2.2-2.6H60"/>
+<path d="M29.5 48.5C22 44.5 13 43.8 7 44.2V36.5M34.5 48.5c7.5-4 16.5-4.7 22.5-4.3v-7.7"/>
+<path d="M30 45C25 41.3 18.5 40.6 12.5 40.8V31M34 45c5-3.7 11.5-4.4 17.5-4.2V31"/>
+<path d="M32 37C24.5 37 18 31.5 16.6 25M32 37c7.5 0 14-5.5 15.4-12M32 28.5c-5 0-8.5-4-9.3-9.8M32 28.5c5 0 8.5-4 9.3-9.8"/>
+<circle cx="15.8" cy="22.2" r="2.7"/><circle cx="48.2" cy="22.2" r="2.7"/>
+<circle cx="22" cy="15.6" r="2.7"/><circle cx="42" cy="15.6" r="2.7"/>
+</g>
+<g stroke="url(#ai-t)">
+<path d="M32 47.5V18q0-2.6-2.4-4.4M32 18q0-2.6 2.4-4.4"/>
+<circle cx="28" cy="11.2" r="2.7"/><circle cx="36" cy="11.2" r="2.7"/>
+</g>
+</g>
+</svg>

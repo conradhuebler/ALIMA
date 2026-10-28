@@ -50,7 +50,7 @@ class ResolutionViewTest(unittest.TestCase):
 
     def test_there_is_one_row_per_axis(self):
         view = self._view(_config())
-        self.assertEqual(len(view.row_texts()), 4)
+        self.assertEqual(len(view.row_texts()), 3)
         labels = [r[0] for r in view.row_texts()]
         for expected in ("Allgemein", "Pipeline", "Agentisch", "Bild"):
             self.assertTrue(any(expected in l for l in labels), labels)
@@ -81,7 +81,7 @@ class ResolutionViewTest(unittest.TestCase):
             preferred_provider="A", preferred_model="a1",
             vision_default_provider="B", vision_default_model="b-vision",
         ))
-        vision = view.row_texts()[3]
+        vision = view.row_texts()[2]
         self.assertEqual(vision[2], "b-vision")
         self.assertIn("Vision", vision[3])
 
@@ -94,7 +94,7 @@ class ResolutionViewTest(unittest.TestCase):
     def test_refresh_replaces_instead_of_appending(self):
         view = self._view(_config())
         view.refresh(_config())
-        self.assertEqual(len(view.row_texts()), 4)
+        self.assertEqual(len(view.row_texts()), 3)
 
     def test_a_broken_config_does_not_raise(self):
         """The table must never be the thing that stops the dialog opening."""
@@ -124,7 +124,7 @@ class TheTableIsAlsoTheControlTest(unittest.TestCase):
     def test_every_axis_has_a_picker(self):
         view = self._view(_config())
         self.assertEqual(
-            sorted(view._selectors), ["agentic", "general", "pipeline", "vision"]
+            sorted(view._selectors), ["general", "pipeline", "vision"]
         )
 
     def test_vision_is_reachable(self):
@@ -140,7 +140,7 @@ class TheTableIsAlsoTheControlTest(unittest.TestCase):
         from src.ui.settings.resolution_view import ResolutionView
 
         self.assertIsNone(ResolutionView.EMPTY_LABELS["general"])
-        for scope in ("pipeline", "agentic", "vision"):
+        for scope in ("pipeline", "vision"):
             self.assertIsNotNone(ResolutionView.EMPTY_LABELS[scope], scope)
 
     def test_a_pick_reports_its_scope(self):
@@ -229,7 +229,7 @@ class ItFitsAndItsPickersAreUsableTest(unittest.TestCase):
         view = self._view(_config())
         counts = {s: sel.provider_combo.count() for s, sel in view._selectors.items()}
         self.assertEqual(counts["general"], 2)
-        for scope in ("pipeline", "agentic", "vision"):
+        for scope in ("pipeline", "vision"):
             self.assertEqual(counts[scope], 3, scope)
 
     def test_rows_are_uniform_and_fit_their_picker(self):

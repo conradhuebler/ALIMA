@@ -51,15 +51,18 @@ class KeywordChainsRenderer(BaseRenderer):
             truncated = int(items[-1]["_truncated"])
             items = items[:-1]
 
+        from src.ui.styles import get_colors
+
+        c = get_colors()
         label_prefix = str(ctx.get("label_prefix", "keyword_chains"))
         trunc_text = (
-            f" <span style='color:#ff79c6;'>+{truncated} more</span>"
+            f" <span style='color:{c['accent_text']};'>+{truncated} more</span>"
             if truncated
             else ""
         )
 
         rows: List[str] = [
-            f"<div style='color:#8be9fd; margin-top:4px;'>{_escape_html(label_prefix)} "
+            f"<div style='color:{c['accent_text']}; margin-top:4px;'>{_escape_html(label_prefix)} "
             f"({len(items)}{trunc_text})</div>"
         ]
         for ch in items:
@@ -69,9 +72,9 @@ class KeywordChainsRenderer(BaseRenderer):
             reason = ch.get("reason", "")
             chain_str = " → ".join(str(c) for c in chain)
             rows.append(
-                f"<div><span style='color:#f8f8f2'>• "
+                f"<div><span style='color:{c['text']}'>• "
                 f"{_escape_html(chain_str)}</span>"
-                f" <span style='color:#6272a4'>{_escape_html(reason)}</span></div>"
+                f" <span style='color:{c['text_muted']}'>{_escape_html(reason)}</span></div>"
             )
         return "".join(rows)
 

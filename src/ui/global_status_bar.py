@@ -11,6 +11,7 @@ import logging
 
 from ..llm.llm_service import LlmService
 from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
+from .styles import set_style_prop  # chip colours: QLabel[chip=...] in the main stylesheet
 
 
 class GlobalStatusBar(QStatusBar):
@@ -52,63 +53,21 @@ class GlobalStatusBar(QStatusBar):
         layout.setContentsMargins(5, 0, 5, 0)
 
         # Provider info
-        self.provider_label.setStyleSheet(
-            """
-            QLabel {
-                color: #2196f3;
-                font-weight: bold;
-                padding: 2px 8px;
-                border-radius: 3px;
-                background-color: rgba(33, 150, 243, 0.1);
-            }
-        """
-        )
+        set_style_prop(self.provider_label, "chip", "info")
         layout.addWidget(self.provider_label)
 
         # Cache status
-        self.cache_label.setStyleSheet(
-            """
-            QLabel {
-                color: #4caf50;
-                font-weight: bold;
-                padding: 2px 8px;
-                border-radius: 3px;
-                background-color: rgba(76, 175, 80, 0.1);
-            }
-        """
-        )
+        set_style_prop(self.cache_label, "chip", "success")
         layout.addWidget(self.cache_label)
 
         # Pipeline status
-        self.pipeline_label.setStyleSheet(
-            """
-            QLabel {
-                color: #ff9800;
-                font-weight: bold;
-                padding: 2px 8px;
-                border-radius: 3px;
-                background-color: rgba(255, 152, 0, 0.1);
-            }
-        """
-        )
+        set_style_prop(self.pipeline_label, "chip", "warning")
         layout.addWidget(self.pipeline_label)
 
         # Progress bar (hidden by default)
         self.progress_bar.setMaximumWidth(150)
         self.progress_bar.setVisible(False)
-        self.progress_bar.setStyleSheet(
-            """
-            QProgressBar {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #2196f3;
-                border-radius: 2px;
-            }
-        """
-        )
+        # Border, ground and the gradient chunk: QProgressBar rules of the main stylesheet
         layout.addWidget(self.progress_bar)
 
         layout.addStretch()
@@ -138,36 +97,23 @@ class GlobalStatusBar(QStatusBar):
                 if providers:
                     provider_count = len(providers)
                     self.provider_label.setText(f"Provider: {provider_count} verfügbar")
-                    self.provider_label.setStyleSheet(
-                        """
-                        QLabel {
-                            color: #2e7d32;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            border-radius: 3px;
-                            background-color: rgba(46, 125, 50, 0.1);
-                        }
-                    """
-                    )
+                    set_style_prop(self.provider_label, "chip", "success")
                 else:
                     self.provider_label.setText("Provider: Nicht verfügbar")
-                    self.provider_label.setStyleSheet(
-                        """
-                        QLabel {
-                            color: #d32f2f;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            border-radius: 3px;
-                            background-color: rgba(211, 47, 47, 0.1);
-                        }
-                    """
-                    )
+                    set_style_prop(self.provider_label, "chip", "error")
             except Exception as e:
                 self.logger.error(f"Error updating provider info lazily: {e}")
                 self.provider_label.setText("Provider: Error")
 
-    def update_provider_info(self, provider: str = None, model: str = None):
-        """Update provider information display - Claude Generated"""
+    def update_provider_info(self, provider: str = None, model: str = None,
+                             allow_network: bool = True):
+        """Update provider information display - Claude Generated
+
+        ``allow_network=False`` fragt keine Modellliste ab (das ist ein
+        synchroner Netzaufruf im UI-Thread, der bei einem nicht antwortenden
+        Server beliebig lange blockiert); ein bekanntes Modell desselben
+        Providers bleibt stehen.
+        """
         if self.llm_service:
             try:
                 if not provider:
@@ -175,25 +121,18 @@ class GlobalStatusBar(QStatusBar):
                     provider = providers[0] if providers else "Nicht verfügbar"
 
                 if not model and provider != "Nicht verfügbar":
-                    models = self.llm_service.get_available_models(provider)
-                    model = models[0] if models else "Kein Modell"
+                    if allow_network:
+                        models = self.llm_service.get_available_models(provider)
+                        model = models[0] if models else "Kein Modell"
+                    elif provider == getattr(self, "current_provider", None):
+                        model = getattr(self, "current_model", "")
 
                 self.current_provider = provider
                 self.current_model = model or ""
 
                 if provider == "Nicht verfügbar":
                     self.provider_label.setText("Provider: Nicht verfügbar")
-                    self.provider_label.setStyleSheet(
-                        """
-                        QLabel {
-                            color: #d32f2f;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            border-radius: 3px;
-                            background-color: rgba(211, 47, 47, 0.1);
-                        }
-                    """
-                    )
+                    set_style_prop(self.provider_label, "chip", "error")
                 else:
                     display_text = f"Provider: {provider}"
                     if model:
@@ -202,17 +141,7 @@ class GlobalStatusBar(QStatusBar):
                         display_text += f" ({short_model})"
 
                     self.provider_label.setText(display_text)
-                    self.provider_label.setStyleSheet(
-                        """
-                        QLabel {
-                            color: #2196f3;
-                            font-weight: bold;
-                            padding: 2px 8px;
-                            border-radius: 3px;
-                            background-color: rgba(33, 150, 243, 0.1);
-                        }
-                    """
-                    )
+                    set_style_prop(self.provider_label, "chip", "info")
 
             except Exception as e:
                 self.logger.error(f"Error updating provider info: {e}")
@@ -234,30 +163,10 @@ class GlobalStatusBar(QStatusBar):
                         self.cache_label.setText(
                             f"Cache: {entries} Einträge ({size_mb:.1f}MB)"
                         )
-                        self.cache_label.setStyleSheet(
-                            """
-                            QLabel {
-                                color: #4caf50;
-                                font-weight: bold;
-                                padding: 2px 8px;
-                                border-radius: 3px;
-                                background-color: rgba(76, 175, 80, 0.1);
-                            }
-                        """
-                        )
+                        set_style_prop(self.cache_label, "chip", "success")
                     else:
                         self.cache_label.setText("Cache: Leer")
-                        self.cache_label.setStyleSheet(
-                            """
-                            QLabel {
-                                color: #ff9800;
-                                font-weight: bold;
-                                padding: 2px 8px;
-                                border-radius: 3px;
-                                background-color: rgba(255, 152, 0, 0.1);
-                            }
-                        """
-                        )
+                        set_style_prop(self.cache_label, "chip", "warning")
                 else:
                     self.cache_label.setText("Cache: Nicht verfügbar")
 
@@ -271,17 +180,7 @@ class GlobalStatusBar(QStatusBar):
         """Update pipeline status display - Claude Generated"""
         if status == "running":
             self.pipeline_label.setText(f"Pipeline: {step_name} läuft...")
-            self.pipeline_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #2196f3;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    background-color: rgba(33, 150, 243, 0.1);
-                }
-            """
-            )
+            set_style_prop(self.pipeline_label, "chip", "info")
 
             if progress >= 0:
                 self.progress_bar.setVisible(True)
@@ -292,47 +191,17 @@ class GlobalStatusBar(QStatusBar):
 
         elif status == "completed":
             self.pipeline_label.setText(f"Pipeline: {step_name} abgeschlossen ✓")
-            self.pipeline_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #4caf50;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    background-color: rgba(76, 175, 80, 0.1);
-                }
-            """
-            )
+            set_style_prop(self.pipeline_label, "chip", "success")
             self.progress_bar.setVisible(False)
 
         elif status == "error":
             self.pipeline_label.setText(f"Pipeline: {step_name} Fehler ✗")
-            self.pipeline_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #d32f2f;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    background-color: rgba(211, 47, 47, 0.1);
-                }
-            """
-            )
+            set_style_prop(self.pipeline_label, "chip", "error")
             self.progress_bar.setVisible(False)
 
         elif status == "ready":
             self.pipeline_label.setText("Pipeline: Bereit")
-            self.pipeline_label.setStyleSheet(
-                """
-                QLabel {
-                    color: #ff9800;
-                    font-weight: bold;
-                    padding: 2px 8px;
-                    border-radius: 3px;
-                    background-color: rgba(255, 152, 0, 0.1);
-                }
-            """
-            )
+            set_style_prop(self.pipeline_label, "chip", "warning")
             self.progress_bar.setVisible(False)
 
         # Emit signal for other components

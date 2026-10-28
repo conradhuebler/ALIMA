@@ -1,7 +1,7 @@
 """Which model runs where, and where that comes from.
 
 Four axes are left after the Sep-2026 rework: the general default, the pipeline
-default, the agentic default, and the vision default. Each is one row.
+default (which is also the agentic and chat default), and the vision default. Each is one row.
 
 Per-task model choices are gone. They were a per-step choice for the classic
 pipeline and only ever the *first* entry of a list that read like a fallback
@@ -50,11 +50,11 @@ def _row(rows, needle):
 
 
 class OneRowPerAxisTest(unittest.TestCase):
-    def test_there_are_four_rows(self):
+    def test_there_are_three_rows_agentic_and_chat_are_the_general_one(self):
         rows = effective_rows(_config())
-        self.assertEqual(
-            [r.scope for r in rows], ["general", "pipeline", "agentic", "vision"]
-        )
+        self.assertEqual([r.scope for r in rows], ["general", "pipeline", "vision"])
+        self.assertIn("Agentisch", rows[0].task)
+        self.assertIn("Chat", rows[0].task)
 
     def test_every_source_key_has_a_label(self):
         cfg = _config()

@@ -1,7 +1,7 @@
 """Which of the competing settings decided the model that runs.
 
 Six settings can determine it: the three scope defaults
-(``agentic_default_*`` → ``pipeline_default_*`` → ``preferred_*``), the per-step
+(``pipeline_default_*`` → ``preferred_*``; agentisch = allgemein), the per-step
 the vision default, and — until Sep 2026 — per-task preferences,
 ``provider_priority`` and ``disabled_providers``, none of which had a visible
 control that matched what they did. Resolution lives in
@@ -38,27 +38,28 @@ def _config(**kw) -> UnifiedProviderConfig:
 
 
 class TheWinningSettingIsNamedTest(unittest.TestCase):
-    def test_agentic_default_wins_for_the_agentic_scope(self):
-        cfg = _config(agentic_default_provider="A", pipeline_default_provider="B",
-                      preferred_provider="B")
-        self.assertEqual(
-            cfg.explain_default_provider_model(scope=ProviderScope.AGENTIC)[2],
-            "agentic_default",
-        )
-
-    def test_agentic_falls_through_to_pipeline(self):
+    def test_agentic_is_the_general_default(self):
+        """Agentik, Chat und Allgemein sind eine Einstellung."""
         cfg = _config(pipeline_default_provider="B", preferred_provider="A")
+        self.assertEqual(
+            cfg.explain_default_provider_model(scope=ProviderScope.AGENTIC),
+            cfg.explain_default_provider_model(scope=ProviderScope.GENERAL),
+        )
         p, _m, src = cfg.explain_default_provider_model(scope=ProviderScope.AGENTIC)
-        self.assertEqual((p, src), ("B", "pipeline_default"))
+        self.assertEqual((p, src), ("A", "preferred"))
 
-    def test_pipeline_ignores_the_agentic_default(self):
-        """The hierarchy is not symmetric; the display must not suggest it is."""
-        cfg = _config(agentic_default_provider="A", preferred_provider="B")
-        p, _m, src = cfg.explain_default_provider_model(scope=ProviderScope.PIPELINE)
-        self.assertEqual((p, src), ("B", "preferred"))
+    def test_agentic_does_not_borrow_the_pipeline_default(self):
+        cfg = _config(pipeline_default_provider="B")
+        p, _m, src = cfg.explain_default_provider_model(scope=ProviderScope.AGENTIC)
+        self.assertNotEqual(src, "pipeline_default")
 
-    def test_general_ignores_both_scope_defaults(self):
-        cfg = _config(agentic_default_provider="A", pipeline_default_provider="A",
+    def test_there_is_no_agentic_setting_any_more(self):
+        cfg = _config()
+        self.assertFalse(hasattr(cfg, "agentic_default_provider"))
+        self.assertNotIn("agentic_default", cfg.DEFAULT_SOURCES)
+
+    def test_general_ignores_the_scope_defaults(self):
+        cfg = _config(pipeline_default_provider="A", vision_default_provider="A",
                       preferred_provider="B")
         p, _m, src = cfg.explain_default_provider_model(scope=ProviderScope.GENERAL)
         self.assertEqual((p, src), ("B", "preferred"))
@@ -75,7 +76,7 @@ class TheWinningSettingIsNamedTest(unittest.TestCase):
     def test_every_source_key_has_a_label(self):
         """The UI maps these; a rename must not silently show a bare key."""
         cfg = _config()
-        for key in ("agentic_default", "pipeline_default", "preferred",
+        for key in ("pipeline_default", "preferred",
                     "first_enabled", "none"):
             self.assertIn(key, cfg.DEFAULT_SOURCES)
 
@@ -89,7 +90,7 @@ class ExplanationAndBehaviourCannotDriftTest(unittest.TestCase):
             {"preferred_provider": "A"},
             {"preferred_provider": "A", "pipeline_default_provider": "B"},
             {"preferred_provider": "A", "pipeline_default_provider": "B",
-             "agentic_default_provider": "A"},
+             "vision_default_provider": "A"},
         ]
         for kw in cases:
             cfg = _config(**kw)

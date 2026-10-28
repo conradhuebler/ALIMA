@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from ..styles import set_tone
 
 def _endpoint(provider: Any) -> str:
     url = getattr(provider, "base_url", "") or ""
@@ -51,12 +52,13 @@ def _needs_key(provider: Any) -> bool:
 class ProviderList(QWidget):
     """The providers, all visible. Double-click edits."""
 
-    COLUMNS = ("Name", "Typ", "Endpunkt", "Modelle", "Zustand")
+    COLUMNS = ("Aktiv / Name", "Typ", "Endpunkt", "Modelle", "Zustand")
 
     edit_requested = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
     models_requested = pyqtSignal(str)
     add_requested = pyqtSignal()
+    enabled_toggled = pyqtSignal(str, bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -81,11 +83,14 @@ class ProviderList(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.list.itemDoubleClicked.connect(self._on_double_click)
+        self.list.itemChanged.connect(self._on_item_changed)
+        self._populating = False
         self.list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         box.addWidget(self.list)
 
-        hint = QLabel("Doppelklick auf einen Eintrag bearbeitet ihn.")
-        hint.setStyleSheet("color: gray; font-size: 10px;")
+        hint = QLabel("Häkchen schaltet einen Anbieter ein oder aus. Doppelklick bearbeitet ihn.")
+        set_tone(hint, "muted")
+        hint.setStyleSheet("font-size: 10px;")
         box.addWidget(hint)
 
         row = QHBoxLayout()
@@ -112,15 +117,35 @@ class ProviderList(QWidget):
     # -- content ---------------------------------------------------------
 
     def refresh(self, providers: List[Any], *,
-                models: Dict[str, List[str]]) -> None:
+                models: Dict[str, List[str]],
+                suggestions: Optional[List[Any]] = None) -> None:
+        """``suggestions``: vorkonfigurierte, noch nicht übernommene Anbieter.
+
+        Sie erscheinen abgehakt-aus am Ende; das Anhaken meldet sich über
+        ``enabled_toggled`` wie bei jedem anderen Eintrag. - Claude Generated
+        """
         selected = self.selected_name()
+        self._populating = True
+        try:
+            self._fill(providers, models, suggestions or [])
+        finally:
+            self._populating = False
+        self._fit_height()
+        if selected:
+            self.select(selected)
+
+    def _fill(self, providers, models, suggestions) -> None:
         self.list.clear()
         self._models = dict(models or {})
-        for provider in providers:
+        for provider, is_suggestion in (
+            [(p, False) for p in providers] + [(p, True) for p in suggestions]
+        ):
             name = getattr(provider, "name", "?")
             known = list(self._models.get(name) or getattr(provider, "available_models", []) or [])
             state = []
-            if not getattr(provider, "enabled", True):
+            if is_suggestion:
+                state.append("vorkonfiguriert")
+            elif not getattr(provider, "enabled", True):
                 state.append("aus")
             if _needs_key(provider):
                 state.append("kein Schlüssel")
@@ -132,6 +157,13 @@ class ProviderList(QWidget):
                 ", ".join(state),
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked
+                if (getattr(provider, "enabled", True) and not is_suggestion)
+                else Qt.CheckState.Unchecked,
+            )
             item.setTextAlignment(3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             if state:
                 muted = self.palette().placeholderText()
@@ -147,9 +179,14 @@ class ProviderList(QWidget):
             empty.setFlags(Qt.ItemFlag.NoItemFlags)
             self.list.addTopLevelItem(empty)
 
-        self._fit_height()
-        if selected:
-            self.select(selected)
+    def _on_item_changed(self, item, column: int) -> None:
+        if self._populating or column != 0:
+            return
+        name = item.data(0, Qt.ItemDataRole.UserRole)
+        if name:
+            self.enabled_toggled.emit(
+                name, item.checkState(0) == Qt.CheckState.Checked
+            )
 
     def _fit_height(self) -> None:
         """Show every provider without scrolling; they are few and all relevant."""

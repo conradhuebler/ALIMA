@@ -15,6 +15,7 @@ from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import QMessageBox
 
 from ..utils.pipeline_utils import PipelineResultFormatter
+from .styles import get_colors, set_box
 
 
 class PipelineTabEventsMixin:
@@ -374,6 +375,7 @@ class PipelineTabEventsMixin:
             else:
                 final_set.add(_norm(str(item)))
 
+        col = get_colors()
         blocks = []
         for c in chains:
             parts = c.get("chain", [])
@@ -382,19 +384,19 @@ class PipelineTabEventsMixin:
             all_present = True
             for kw in parts:
                 if _norm(kw) in final_set:
-                    kw_html_parts.append(f'<span style="color:#4caf50;font-weight:bold">{_esc(kw)}</span>')
+                    kw_html_parts.append(f'<span style="color:{col["success"]};font-weight:bold">{_esc(kw)}</span>')
                 else:
-                    kw_html_parts.append(f'<span style="color:#f44336;font-weight:bold">{_esc(kw)} ✗</span>')
+                    kw_html_parts.append(f'<span style="color:{col["error"]};font-weight:bold">{_esc(kw)} ✗</span>')
                     all_present = False
-            arrow = '<span style="color:#888"> → </span>'
-            status_color = "#4caf50" if all_present else "#ff9800"
+            arrow = f'<span style="color:{col["text_muted"]}"> → </span>'
+            status_color = col["success"] if all_present else col["warning"]
             block = (
                 f'<p style="margin:4px 0 0 0">'
                 f'<span style="color:{status_color};font-weight:bold">{"✓" if all_present else "⚠"} </span>'
                 f'{arrow.join(kw_html_parts)}</p>'
             )
             if reason:
-                block += f'<p style="margin:1px 0 6px 16px;color:#aaa;font-style:italic">{_esc(reason)}</p>'
+                block += f'<p style="margin:1px 0 6px 16px;color:{col["text_muted"]};font-style:italic">{_esc(reason)}</p>'
             else:
                 block += '<p style="margin:0 0 6px 0"></p>'
             blocks.append(block)
@@ -672,10 +674,8 @@ class PipelineTabEventsMixin:
 
         # Update status
         self.pipeline_status_label.setText("Pipeline abgebrochen")
-        self.pipeline_status_label.setStyleSheet(
-            "color: #FF9800; font-weight: bold; padding: 5px; "
-            "background-color: #FFF3E0; border: 1px solid #FFB74D; border-radius: 3px;"
-        )
+        set_box(self.pipeline_status_label, "warning")
+        self.pipeline_status_label.setStyleSheet("font-weight: bold; padding: 5px;")
 
         # End any active streaming
         if hasattr(self, "stream_widget") and self.stream_widget.is_streaming:

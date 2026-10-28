@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from urllib.parse import urlparse, quote
 import logging
+from .styles import set_tone
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class LiberoLoginDialog(QDialog):
 
         # Explanation label
         hint = QLabel("Libero-Zugangsdaten eingeben um automatisch einen Token zu erstellen.")
-        hint.setStyleSheet("color: gray;")
+        set_tone(hint, "muted")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -123,7 +124,7 @@ class LiberoLoginDialog(QDialog):
         )
         if not auth_url:
             self._status_label.setText("❌ Keine Auth-URL — bitte SOAP Search URL in der Konfiguration eintragen.")
-            self._status_label.setStyleSheet("color: red;")
+            set_tone(self._status_label, "error")
             return
 
         self._fetch_btn.setEnabled(False)
@@ -140,12 +141,12 @@ class LiberoLoginDialog(QDialog):
         if result.success:
             self._token = result.data
             self._status_label.setText(f"✅ {result.message}")
-            self._status_label.setStyleSheet("color: green;")
+            set_tone(self._status_label, "success")
             self._ok_btn.setEnabled(True)
             logger.info("Libero token fetched successfully")
         else:
             self._status_label.setText(f"❌ {result.message}")
-            self._status_label.setStyleSheet("color: red;")
+            set_tone(self._status_label, "error")
             self._ok_btn.setEnabled(False)
             logger.warning(f"Libero token fetch failed: {result.message}")
 

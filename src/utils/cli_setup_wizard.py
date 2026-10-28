@@ -167,17 +167,38 @@ class CLISetupWizard:
             except Exception:
                 pass  # malformed preset URL — keep interactive defaults - Claude Generated
 
-        host = input(f"Ollama Host (Standard: {preset_host}): ").strip() or preset_host
-        port_str = input(f"Ollama Port (Standard: {preset_port}): ").strip() or str(preset_port)
+        from getpass import getpass
 
+        from . import ollama_endpoint
+
+        host_in = input(f"Ollama Host (Standard: {preset_host}): ").strip() or preset_host
+        port_str = input(f"Ollama Port (Standard: {preset_port}): ").strip() or str(preset_port)
         try:
             port = int(port_str)
         except ValueError:
             port = 11434
             print(f"Ungültiger Port, verwende Standard: {port}")
 
+        # Schema im Host ("https://…") oder Ollama Cloud entscheidet über SSL
+        host, port, use_ssl = ollama_endpoint.parse_host(host_in, port, False)
+        if not host:
+            print("❌ Host fehlt.\n")
+            return self._setup_ollama()
+        if ollama_endpoint.is_ollama_cloud_host(host):
+            use_ssl = True
+        elif not host_in.lower().startswith(("http://", "https://")):
+            use_ssl = input("HTTPS verwenden? (j/N): ").strip().lower() == "j"
+
+        api_key = ollama_endpoint.clean_api_key(
+            getpass("API-Schlüssel (leer lassen für lokal, nötig für Ollama Cloud): ")
+        )
+
+        for hint in ollama_endpoint.hints(host, port, use_ssl, api_key):
+            icon = {"error": "⛔", "warn": "⚠️ ", "info": "ℹ️ "}[hint.level]
+            print(f"{icon} {hint.text}")
+
         print("\n🧪 Teste Verbindung...\n")
-        result = OllamaConnectionValidator.test_native(host, port)
+        result = OllamaConnectionValidator.test_native(host, port, api_key, use_ssl=use_ssl)
 
         if result.success:
             print(f"✅ {result.message}\n")
@@ -187,7 +208,8 @@ class CLISetupWizard:
 
             self.provider_type = "ollama"
             self.provider_name = self.provider_type  # BUGFIX: Use provider_type for consistency
-            self.base_url = f"http://{host}:{port}"
+            self.base_url = ollama_endpoint.base_url(host, port, use_ssl)
+            self.api_key = api_key
             self.available_models = result.data
         else:
             print(f"❌ {result.message}\n")

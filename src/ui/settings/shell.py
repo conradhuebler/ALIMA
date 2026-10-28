@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .search import SettingsIndex
+from ..styles import set_tone
 
 class SettingsShell(QWidget):
     """Sidebar + page stack + search + footer."""
@@ -75,7 +76,7 @@ class SettingsShell(QWidget):
         self.footer.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        self.footer.setStyleSheet("color: gray;")
+        set_tone(self.footer, "muted")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)

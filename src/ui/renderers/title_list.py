@@ -63,6 +63,9 @@ class TitleListRenderer(BaseRenderer):
     output_slot = "slot:title_list"
 
     def render_html(self, data: Any, context: Optional[Dict] = None) -> str:
+        from src.ui.styles import get_colors
+
+        edge = get_colors()["indicator"]
         rows: List[Dict[str, Any]] = list(data or [])
         if not rows:
             return "<p><i>(keine Titel)</i></p>"
@@ -86,7 +89,7 @@ class TitleListRenderer(BaseRenderer):
                 meta_lines.append(f"<dt>Klassifikation</dt><dd>{codes}</dd>")
 
             cards.append(
-                "<article style='border-left:3px solid #4a86e8; padding:6px 10px; margin:6px 0;'>"
+                f"<article style='border-left:3px solid {edge}; padding:6px 10px; margin:6px 0;'>"
                 f"<h3 style='margin:0; font-size:11pt;'>{title}</h3>"
                 f"<dl style='font-size:9pt; margin:4px 0;'>{''.join(meta_lines)}</dl>"
                 "</article>"

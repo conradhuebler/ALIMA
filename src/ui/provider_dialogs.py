@@ -15,15 +15,39 @@ the tab instantiates them and reads results via their getters.
 import logging
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
+    QVBoxLayout,
 )
 
 from ..utils.config_manager import ProviderDetectionService
 from ..utils.config_models import UnifiedProvider
 from .workers import ModelLoadWorker
+from .styles import get_colors, set_tone
+
+
+_running_tests: set = set()  # Verbindungstest-Threads leben, bis sie fertig sind
+
+
+class _ConnectionTestWorker(QThread):
+    """Führt einen Verbindungstest außerhalb des UI-Threads aus - Claude Generated"""
+
+    done = pyqtSignal(object)  # SetupResult
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+
+    def run(self):
+        from ..utils.setup_utils import SetupResult
+
+        try:
+            result = self._fn()
+        except Exception as e:  # defensiv: der Test selbst fängt schon
+            result = SetupResult(False, f"Test fehlgeschlagen: {e}", [])
+        self.done.emit(result)
 
 
 def _endpoint_warnings(base_url: str, api_key: str) -> list:
@@ -132,7 +156,8 @@ class TaskModelSelectionDialog(QDialog):
         # Status label for model detection feedback - Claude Generated
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("QLabel { color: #666; font-style: italic; margin: 5px; }")
+        set_tone(self.status_label, "muted")
+        self.status_label.setStyleSheet("QLabel { font-style: italic; margin: 5px; }")
         layout.addWidget(self.status_label)
 
         # Buttons
@@ -325,12 +350,10 @@ class TaskModelSelectionDialog(QDialog):
             self.status_label.setText(
                 f"❌ Model '{current_text}' not found in {self.provider_combo.currentText()}"
             )
-            self.status_label.setStyleSheet(
-                "QLabel { color: #d32f2f; font-style: italic; margin: 5px; }"
-            )
+            set_tone(self.status_label, "error")
             # Clear the input
             self.model_combo.lineEdit().clear()
-            self.status_label.setStyleSheet("QLabel { color: #666; font-style: italic; margin: 5px; }")
+            set_tone(self.status_label, "muted")
 
     def accept(self) -> None:
         """Override accept to update cached models before closing - Claude Generated
@@ -445,15 +468,29 @@ class ProviderEditDialog(QDialog):
         self.connection_layout = QFormLayout(self.connection_group)
         layout.addWidget(self.connection_group)
 
-        # Warning label for untested providers
-        self.warning_label = QLabel()
-        self.warning_label.setStyleSheet("color: orange; padding: 5px;")
-        self.warning_label.setWordWrap(True)
-        self.warning_label.hide()
-        layout.addWidget(self.warning_label)
+        # Live-Hinweise zur Eingabe und Verbindungstest - Claude Generated
+        self.hint_label = QLabel()
+        self.hint_label.setWordWrap(True)
+        self.hint_label.setTextFormat(Qt.TextFormat.RichText)
+        self.hint_label.hide()
+        layout.addWidget(self.hint_label)
+
+        test_row = QHBoxLayout()
+        self.test_button = QPushButton("🔌 Verbindung testen")
+        self.test_button.setToolTip(
+            "Prüft mit den Werten aus diesem Formular, ob der Anbieter antwortet "
+            "und Modelle liefert. Nichts wird gespeichert."
+        )
+        self.test_button.clicked.connect(self._run_connection_test)
+        test_row.addWidget(self.test_button)
+        self.test_result = QLabel()
+        self.test_result.setWordWrap(True)
+        test_row.addWidget(self.test_result, 1)
+        layout.addLayout(test_row)
 
         # Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.ok_button = button_box.button(QDialogButtonBox.StandardButton.Ok)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
@@ -477,17 +514,30 @@ class ProviderEditDialog(QDialog):
             self.port_spinbox.setValue(11434)
             self.ssl_checkbox = QCheckBox()
             self.api_key_edit = QLineEdit()
-            
+            self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self.host_edit.setPlaceholderText("localhost  oder  ollama.com")
+
             self.connection_layout.addRow("Host:", self.host_edit)
             self.connection_layout.addRow("Port:", self.port_spinbox)
             self.connection_layout.addRow("Use SSL:", self.ssl_checkbox)
             self.connection_layout.addRow("API Key (optional):", self.api_key_edit)
             
         elif provider_type == "openai_compatible":
+            from ..utils.provider_presets import DISCLAIMER, OPENAI_COMPATIBLE_PRESETS
+
+            self.preset_combo = QComboBox()
+            self.preset_combo.addItem("(eigene URL)", None)
+            for preset in OPENAI_COMPATIBLE_PRESETS:
+                self.preset_combo.addItem(preset.label, preset.id)
+            self.preset_combo.setToolTip(DISCLAIMER)
+            self.preset_combo.activated.connect(self._on_preset_chosen)
+
             self.base_url_edit = QLineEdit()
+            self.base_url_edit.textChanged.connect(self._sync_preset_combo)
             self.api_key_edit = QLineEdit()
             self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
             
+            self.connection_layout.addRow("Vorlage:", self.preset_combo)
             self.connection_layout.addRow("Base URL:", self.base_url_edit)
             self.connection_layout.addRow("API Key:", self.api_key_edit)
             
@@ -497,23 +547,132 @@ class ProviderEditDialog(QDialog):
 
             self.connection_layout.addRow("API Key:", self.api_key_edit)
 
-        # Show warning for untested providers
-        if hasattr(self, 'warning_label'):
-            if provider_type == "gemini":
-                self.warning_label.setText(
-                    "⚠️ Google Gemini-Provider ist nicht getestet und benötigt Nachbearbeitung. "
-                    "API-Integration funktioniert möglicherweise nicht vollständig."
+        self._wire_live_feedback(provider_type)
+
+    # ---- Vorlagen für OpenAI-kompatible Anbieter - Claude Generated -------
+
+    def _on_preset_chosen(self, index: int) -> None:
+        """Vorlage gewählt: URL setzen; Name und Beschreibung nur, wenn leer."""
+        from ..utils.provider_presets import OPENAI_COMPATIBLE_PRESETS
+
+        if index <= 0:
+            return
+        preset = OPENAI_COMPATIBLE_PRESETS[index - 1]
+        self.base_url_edit.setText(preset.base_url)
+        if not self.name_edit.text().strip():
+            self.name_edit.setText(preset.id)
+        if not self.description_edit.text().strip():
+            self.description_edit.setText(preset.label)
+        self._update_hints()
+
+    def _sync_preset_combo(self, *_args) -> None:
+        """Die Vorlagen-Auswahl folgt der URL (Laden, Einfügen, Tippen)."""
+        from ..utils.provider_presets import OPENAI_COMPATIBLE_PRESETS, preset_for_url
+
+        combo = getattr(self, "preset_combo", None)
+        if combo is None:
+            return
+        preset = preset_for_url(self.base_url_edit.text())
+        index = 0 if preset is None else 1 + OPENAI_COMPATIBLE_PRESETS.index(preset)
+        combo.blockSignals(True)
+        combo.setCurrentIndex(index)
+        combo.blockSignals(False)
+
+    # ---- Eingabe-Feedback und Verbindungstest - Claude Generated ----------
+
+    def _wire_live_feedback(self, provider_type: str) -> None:
+        """Hinweise bei jeder Änderung der Verbindungsfelder neu berechnen."""
+        self.test_result.clear()
+        self.test_button.setVisible(provider_type in ("ollama", "openai_compatible"))
+        for name, signal in (
+            ("host_edit", "textChanged"), ("api_key_edit", "textChanged"),
+            ("base_url_edit", "textChanged"), ("port_spinbox", "valueChanged"),
+            ("ssl_checkbox", "toggled"),
+        ):
+            widget = getattr(self, name, None)
+            if widget is not None and name in self._current_field_names(provider_type):
+                getattr(widget, signal).connect(self._update_hints)
+        self._update_hints()
+
+    @staticmethod
+    def _current_field_names(provider_type: str) -> tuple:
+        return {
+            "ollama": ("host_edit", "port_spinbox", "ssl_checkbox", "api_key_edit"),
+            "openai_compatible": ("base_url_edit", "api_key_edit"),
+        }.get(provider_type, ("api_key_edit",))
+
+    def _collect_hints(self) -> list:
+        """Liste von (Stufe, Text) für den aktuellen Formularzustand."""
+        from ..utils import ollama_endpoint
+
+        ptype = self.type_combo.currentText()
+        if ptype == "ollama" and hasattr(self, "host_edit"):
+            return [
+                (h.level, h.text) for h in ollama_endpoint.hints(
+                    self.host_edit.text(), self.port_spinbox.value(),
+                    self.ssl_checkbox.isChecked(), self.api_key_edit.text(),
                 )
-                self.warning_label.show()
-            elif provider_type == "anthropic":
-                self.warning_label.setText(
-                    "⚠️ Anthropic/Claude-Provider ist nicht getestet und benötigt Nachbearbeitung. "
-                    "API-Integration funktioniert möglicherweise nicht vollständig."
-                )
-                self.warning_label.show()
-            else:
-                self.warning_label.hide()
-    
+            ]
+        if ptype == "openai_compatible" and hasattr(self, "base_url_edit"):
+            from ..utils.provider_presets import preset_for_url
+
+            out = [("warn", w) for w in _endpoint_warnings(
+                self.base_url_edit.text(), self.api_key_edit.text())]
+            preset = preset_for_url(self.base_url_edit.text())
+            if preset is not None:
+                if preset.key_required and not self.api_key_edit.text().strip():
+                    out.append(("warn", f"{preset.label} braucht einen API-Key."))
+                if preset.note:
+                    out.append(("info", preset.note))
+            return out
+        return []
+
+    def _update_hints(self, *_args) -> None:
+        c = get_colors()
+        colors = {"error": c["error"], "warn": c["warning"], "info": c["text_muted"]}
+        icons = {"error": "⛔", "warn": "⚠️", "info": "ℹ️"}
+        items = self._collect_hints()
+        self.hint_label.setText("<br>".join(
+            f'<span style="color:{colors[lvl]}">{icons[lvl]} {txt}</span>'
+            for lvl, txt in items
+        ))
+        self.hint_label.setVisible(bool(items))
+        # Nur ein fehlender Host sperrt „OK“; alles andere sind Hinweise.
+        if getattr(self, "ok_button", None) is not None:
+            self.ok_button.setEnabled(not any(lvl == "error" for lvl, _ in items))
+
+    def _run_connection_test(self) -> None:
+        from ..utils.ollama_endpoint import clean_api_key
+        from ..utils.setup_utils import OllamaConnectionValidator
+
+        ptype = self.type_combo.currentText()
+        key = clean_api_key(self.api_key_edit.text())
+        if ptype == "ollama":
+            host, port, ssl = (self.host_edit.text(), self.port_spinbox.value(),
+                               self.ssl_checkbox.isChecked())
+            def fn():
+                return OllamaConnectionValidator.test_native(host, port, key, use_ssl=ssl)
+        elif ptype == "openai_compatible":
+            url = self.base_url_edit.text().strip()
+            def fn():
+                return OllamaConnectionValidator.test_openai_compatible(url, key)
+        else:
+            return
+        self.test_button.setEnabled(False)
+        set_tone(self.test_result, "muted")
+        self.test_result.setText("⏳ Teste Verbindung …")
+        worker = _ConnectionTestWorker(fn)
+        worker.done.connect(self._on_test_done)
+        worker.finished.connect(lambda w=worker: _running_tests.discard(w))
+        _running_tests.add(worker)
+        worker.start()
+
+    def _on_test_done(self, result) -> None:
+        self.test_button.setEnabled(True)
+        ok = bool(result.success)
+        set_tone(self.test_result, "success" if ok else "error")
+        self.test_result.setText(("✅ " if ok else "❌ ") + result.message)
+
     def _load_provider_data(self):
         """Load provider data into form fields - Claude Generated"""
         if not self.provider:
@@ -580,23 +739,34 @@ class ProviderEditDialog(QDialog):
         connection_config = {}
         provider_type = self.type_combo.currentText()
         
+        from ..utils.ollama_endpoint import clean_api_key, is_ollama_cloud_host, parse_host
+
+        key = clean_api_key(getattr(self, 'api_key_edit', QLineEdit()).text())
         if provider_type == "ollama":
+            # Schema/Pfad/Port aus dem Hostfeld werden in die Felder übernommen;
+            # Ollama Cloud wird auf HTTPS/443 gesetzt, damit die gespeicherten
+            # Werte zu dem passen, was der Client tatsächlich benutzt.
+            host, port, ssl = parse_host(
+                getattr(self, 'host_edit', QLineEdit()).text(),
+                getattr(self, 'port_spinbox', QSpinBox()).value() or 11434,
+                getattr(self, 'ssl_checkbox', QCheckBox()).isChecked(),
+            )
+            if is_ollama_cloud_host(host):
+                port, ssl = 443, True
             connection_config = {
-                "host": getattr(self, 'host_edit', QLineEdit()).text() or "localhost",
-                "port": getattr(self, 'port_spinbox', QSpinBox()).value() or 11434,
-                "use_ssl": getattr(self, 'ssl_checkbox', QCheckBox()).isChecked(),
-                "api_key": getattr(self, 'api_key_edit', QLineEdit()).text(),
+                "host": host or "localhost",
+                "port": port,
+                "use_ssl": ssl,
+                "api_key": key,
                 "connection_type": "native_client"
             }
         elif provider_type == "openai_compatible":
             connection_config = {
-                "base_url": getattr(self, 'base_url_edit', QLineEdit()).text(),
-                "api_key": getattr(self, 'api_key_edit', QLineEdit()).text()
+                "base_url": getattr(self, 'base_url_edit', QLineEdit()).text().strip(),
+                "api_key": key
             }
         elif provider_type in ["gemini", "anthropic"]:
-            connection_config = {
-                "api_key": getattr(self, 'api_key_edit', QLineEdit()).text()
-            }
+            connection_config = {"api_key": key}
 
         return UnifiedProvider(
             name=self.name_edit.text() or f"New {provider_type.title()} Provider",

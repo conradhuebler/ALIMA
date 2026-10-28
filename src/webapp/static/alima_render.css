@@ -11,39 +11,44 @@
  * by the --alima-fs custom property (default 10pt), inherited from <body>; the
  * GUI updates it via WebLogView.set_font_pt. - Claude Generated
  *
- * Chat-UX 6/9: the palette lives in --alima-* custom properties (defaults =
- * the historical dark theme, so the GUI is unchanged). The webapp's light
- * theme overrides them in styles.css ([data-theme="light"] #log { … }) — the
- * renderer emits classes, never inline hex, so the whole chrome follows.
+ * Palette: the --alima-* custom properties below are the dark theme taken from
+ * the ALIMA logo (aubergine ground, peach/coral/rose lines, blue/violet as the
+ * cool counter-accent). The light values follow below in two equal blocks
+ * (data-theme="light" on <html>, or a light system preference); the GUI sets
+ * data-theme from its own theme, the webapp from its toggle. The renderer
+ * emits classes, never inline hex, so the whole chrome follows. Token and
+ * contrast table: docs/design_refresh.md.
  */
 #log {
-  --alima-bg: #1e1e1e;
-  --alima-fg: #f8f8f2;
-  --alima-body: #e9edef;          /* body text on raised surfaces */
-  --alima-muted: #a8a8a8;         /* tool-block body text */
-  --alima-muted-strong: #888;     /* collapsed tool line / dim notes */
-  --alima-meta: #8a8a8a;          /* card meta / stream preview */
-  --alima-ts: #6272a4;            /* timestamps + debug level */
-  --alima-accent: #8be9fd;        /* cyan: step tags, headers, marker arrows */
-  --alima-purple: #bd93f9;        /* stream titles, RVK badge */
-  --alima-green: #50fa7b;         /* success */
-  --alima-yellow: #f1fa8c;        /* warning */
-  --alima-orange: #ffb86c;        /* DDC badge / proposals */
-  --alima-error: #ff5555;
-  --alima-error-soft: #ffb3b3;
-  --alima-link: #5af;
-  --alima-link-ext: #ff9800;
-  --alima-surface: #202c33;       /* bubbles, cards, tables */
-  --alima-surface-deep: #1a2228;  /* table heads, <pre> */
-  --alima-surface-alt: #1d272e;   /* zebra rows */
-  --alima-border: #33414a;
-  --alima-border-soft: #2a3942;
-  --alima-user-bubble: #005c4b;
-  --alima-system: #4caf50;
-  --alima-stream-live: #cdc6f0;
-  --alima-info: #bfdbfe;
-  --alima-info-bg: rgba(37, 99, 235, 0.12);
-  --alima-info-border: rgba(37, 99, 235, 0.25);
+  --alima-bg: #120e1a;
+  --alima-fg: #f1ebf0;
+  --alima-body: #e7dfe9;          /* body text on raised surfaces */
+  --alima-muted: #b3a6b6;         /* tool-block body text */
+  --alima-muted-strong: #a597a9;  /* collapsed tool line / dim notes */
+  --alima-meta: #a89dad;          /* card meta / stream preview */
+  --alima-ts: #8f97d8;            /* timestamps + debug level */
+  --alima-accent: #f8b896;        /* peach: step tags, headers, marker arrows */
+  --alima-purple: #aab0f6;        /* violet: stream titles, RVK badge */
+  --alima-green: #7ad6a0;         /* success */
+  --alima-yellow: #f3c56b;        /* warning */
+  --alima-orange: #f2994a;        /* DDC badge / proposals */
+  --alima-error: #ff7b7b;
+  --alima-error-soft: #ffb8b8;
+  --alima-link: #9db8ff;
+  --alima-link-ext: #f3c56b;
+  --alima-surface: #1c1626;       /* bubbles, cards, tables */
+  --alima-surface-deep: #171120;  /* table heads, <pre> */
+  --alima-surface-alt: #1a1423;   /* zebra rows */
+  --alima-border: #3a2f47;
+  --alima-border-soft: #2b2236;
+  --alima-user-bubble: #4a1d30;   /* bordeaux, the logo's top glow */
+  --alima-system: #7ad6a0;
+  --alima-stream-live: #d9cdf2;
+  --alima-info: #c3cbff;
+  --alima-info-bg: rgba(154, 166, 242, 0.12);
+  --alima-info-border: rgba(154, 166, 242, 0.30);
+  --alima-grad: linear-gradient(180deg, #f9cdb0 0%, #f27a7a 55%, #ea5b73 100%);
+  --alima-mark-opacity: 0.32;
 
   display: flex; flex-direction: column;
   box-sizing: border-box; padding: 8px;
@@ -51,12 +56,59 @@
   font-family: 'Consolas', 'Monaco', monospace; font-size: var(--alima-fs, 10pt);
   word-wrap: break-word;
 }
+/* Light palette. Applies when the document is light: an explicit
+   data-theme="light" on <html> (webapp toggle, GUI light theme), or a light
+   system preference without an explicit data-theme="dark". The GUI always
+   sets data-theme, so the media query never decides there. The two selector
+   blocks must stay identical. - Claude Generated */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) #log {
+        --alima-bg: #fffcfa; --alima-fg: #231925; --alima-body: #2d2230;
+        --alima-muted: #685963; --alima-muted-strong: #66575f; --alima-meta: #6b5c68;
+        --alima-ts: #4f58a8; --alima-accent: #9c2a4b; --alima-purple: #4a4fb0;
+        --alima-green: #16653d; --alima-yellow: #7d5000; --alima-orange: #8a3e0e;
+        --alima-error: #b42318; --alima-error-soft: #8f1d14;
+        --alima-link: #3446b0; --alima-link-ext: #8a3e0e;
+        --alima-surface: #f5efeb; --alima-surface-deep: #ece4df; --alima-surface-alt: #f8f3f0;
+        --alima-border: #d6cac4; --alima-border-soft: #e4dbd6;
+        --alima-user-bubble: #f6dde3; --alima-system: #16653d;
+        --alima-stream-live: #46387f; --alima-info: #3446b0;
+        --alima-info-bg: rgba(52, 70, 176, 0.07); --alima-info-border: rgba(52, 70, 176, 0.25);
+        --alima-grad: linear-gradient(180deg, #b8483a 0%, #a8284c 55%, #8c2e63 100%);
+        --alima-mark-opacity: 0.55;
+    }
+}
+[data-theme="light"] #log {
+    --alima-bg: #fffcfa; --alima-fg: #231925; --alima-body: #2d2230;
+    --alima-muted: #685963; --alima-muted-strong: #66575f; --alima-meta: #6b5c68;
+    --alima-ts: #4f58a8; --alima-accent: #9c2a4b; --alima-purple: #4a4fb0;
+    --alima-green: #16653d; --alima-yellow: #7d5000; --alima-orange: #8a3e0e;
+    --alima-error: #b42318; --alima-error-soft: #8f1d14;
+    --alima-link: #3446b0; --alima-link-ext: #8a3e0e;
+    --alima-surface: #f5efeb; --alima-surface-deep: #ece4df; --alima-surface-alt: #f8f3f0;
+    --alima-border: #d6cac4; --alima-border-soft: #e4dbd6;
+    --alima-user-bubble: #f6dde3; --alima-system: #16653d;
+    --alima-stream-live: #46387f; --alima-info: #3446b0;
+    --alima-info-bg: rgba(52, 70, 176, 0.07); --alima-info-border: rgba(52, 70, 176, 0.25);
+    --alima-grad: linear-gradient(180deg, #b8483a 0%, #a8284c 55%, #8c2e63 100%);
+    --alima-mark-opacity: 0.55;
+}
+
+/* Empty log: a quiet logo mark in the middle instead of a blank area. */
+#log:empty { position: relative; min-height: 160px; }
+#log:empty::before {
+  content: ""; position: absolute; inset: 0;
+  opacity: var(--alima-mark-opacity);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none' stroke-linecap='round' stroke-linejoin='round' stroke-width='2.4'%3E%3Cdefs%3E%3ClinearGradient id='lm-w' x1='0' y1='8' x2='0' y2='54' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f9dcc4'/%3E%3Cstop offset='.45' stop-color='%23f8907c'/%3E%3Cstop offset='1' stop-color='%23e8385f'/%3E%3C/linearGradient%3E%3ClinearGradient id='lm-t' x1='0' y1='9' x2='0' y2='50' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%23f6dccb'/%3E%3Cstop offset='.5' stop-color='%23a99ad6'/%3E%3Cstop offset='1' stop-color='%235b8de0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg stroke='url(%23lm-w)'%3E%3Cpath d='M4 51h23.5q1.5 0 2.2 2.6h4.6q.7-2.6 2.2-2.6H60'/%3E%3Cpath d='M29.5 48.5C22 44.5 13 43.8 7 44.2V36.5M34.5 48.5c7.5-4 16.5-4.7 22.5-4.3v-7.7'/%3E%3Cpath d='M30 45C25 41.3 18.5 40.6 12.5 40.8V31M34 45c5-3.7 11.5-4.4 17.5-4.2V31'/%3E%3Cpath d='M32 37C24.5 37 18 31.5 16.6 25M32 37c7.5 0 14-5.5 15.4-12M32 28.5c-5 0-8.5-4-9.3-9.8M32 28.5c5 0 8.5-4 9.3-9.8'/%3E%3Ccircle cx='15.8' cy='22.2' r='2.7'/%3E%3Ccircle cx='48.2' cy='22.2' r='2.7'/%3E%3Ccircle cx='22' cy='15.6' r='2.7'/%3E%3Ccircle cx='42' cy='15.6' r='2.7'/%3E%3C/g%3E%3Cg stroke='url(%23lm-t)'%3E%3Cpath d='M32 47.5V18q0-2.6-2.4-4.4M32 18q0-2.6 2.4-4.4'/%3E%3Ccircle cx='28' cy='11.2' r='2.7'/%3E%3Ccircle cx='36' cy='11.2' r='2.7'/%3E%3C/g%3E%3C/svg%3E") center / auto min(72px, 70%) no-repeat;
+}
 #log .block { margin: 1px 0; word-wrap: break-word; }
 #log details { margin: 2px 0; }
 #log summary {
   cursor: pointer; color: var(--alima-muted-strong); font-family: monospace; font-size: 9pt;
-  list-style: none; outline: none;
+  list-style: none; outline: none; border-radius: 3px;
 }
+#log summary:hover { color: var(--alima-fg); }
+#log summary:focus-visible { outline: 2px solid var(--alima-accent); outline-offset: 1px; }
 #log summary::-webkit-details-marker { display: none; }
 #log summary::before { content: '\25B6 '; color: var(--alima-accent); }
 #log details[open] > summary::before { content: '\25BC '; color: var(--alima-accent); }
@@ -91,18 +143,20 @@
 #log .assistant { margin: 6px 0; }
 #log .ahdr { color: var(--alima-accent); font-size: 9pt; font-style: italic; margin-bottom: 2px; }
 #log .stream, #log .rendered {
-  background: var(--alima-surface); border-radius: 6px; padding: 8px; color: var(--alima-body);
+  background: var(--alima-surface); border-radius: 10px; padding: 8px 10px; color: var(--alima-body);
   max-width: 75%; word-wrap: break-word;
 }
-/* Chat-UX 7/9: assistant bubble as a visual peer of the user bubble — the
- * model header is a caption row INSIDE the bubble; the inner .stream/.rendered
- * containers become transparent (the bubble carries the surface). */
+/* Assistant bubble as a visual peer of the user bubble: the model header is a
+ * caption row INSIDE the bubble; the inner .stream/.rendered containers become
+ * transparent (the bubble carries the surface). The square corner points at
+ * the speaker. */
 #log .abubble {
   display: inline-block; max-width: 75%;
-  background: var(--alima-surface); border-radius: 6px; padding: 8px;
+  background: var(--alima-surface); border: 1px solid var(--alima-border-soft);
+  border-radius: 12px 12px 12px 3px; padding: 8px 11px;
   word-wrap: break-word;
 }
-#log .abubble .ahdr { font-size: 8.5pt; opacity: 0.85; margin-bottom: 4px; }
+#log .abubble .ahdr { font-size: 8.5pt; opacity: 0.9; margin-bottom: 4px; }
 #log .abubble .stream, #log .abubble .rendered {
   background: transparent; border-radius: 0; padding: 0; max-width: none;
 }
@@ -118,11 +172,17 @@
   animation: alima-cursor-blink 1s steps(1) infinite;
 }
 @keyframes alima-cursor-blink { 50% { opacity: 0; } }
+#log .rendered ul, #log .rendered ol { margin: 4px 0; padding-left: 1.4em; }
 #log .rendered table { border-collapse: collapse; margin: 4px 0; }
 #log .rendered td, #log .rendered th { border: 1px solid var(--alima-border); padding: 2px 6px; }
 #log .rendered pre { background: var(--alima-surface-deep); padding: 6px; border-radius: 4px; overflow-x: auto; }
 #log .rendered code { font-family: monospace; }
-#log a { color: var(--alima-link); text-decoration: underline; }
+#log .rendered :not(pre) > code {
+  background: var(--alima-surface-deep); border: 1px solid var(--alima-border-soft);
+  border-radius: 4px; padding: 0 4px;
+}
+#log a { color: var(--alima-link); text-decoration: underline; text-underline-offset: 2px; }
+#log a:hover { color: var(--alima-fg); }
 #log a.cat-link::after { content: " 📖"; font-style: normal; }  /* local catalog entry */
 #log a.ext-link { color: var(--alima-link-ext); }   /* external / non-catalog link warning */
 #log a.ext-link::after { content: " ↗"; }
@@ -153,8 +213,8 @@
 }
 #log .user-bubble-inner {
   display: inline-block; max-width: 75%; text-align: left;
-  background: var(--alima-user-bubble); color: var(--alima-body); font-size: 10pt; padding: 8px;
-  border-radius: 6px; white-space: pre-wrap; word-wrap: break-word;
+  background: var(--alima-user-bubble); color: var(--alima-body); font-size: 10pt; padding: 8px 11px;
+  border-radius: 12px 12px 3px 12px; white-space: pre-wrap; word-wrap: break-word;
 }
 #log .system-message {
   text-align: center; margin: 4px 0;
@@ -168,12 +228,11 @@
 }
 
 /* Classification badge cards — shared GUI ↔ webapp render of DK/RVK results.
- * Ported from the webapp's structured cards (WP12), recoloured for the dark
- * #log surface using the GUI's existing palette. */
+ * Badge grounds are tints of the token colour, so they follow both themes. */
 #log .classification-card-title { color: var(--alima-accent); font-weight: bold; font-size: 10pt; margin: 6px 0 2px; }
 #log .classification-validation-summary { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
 #log .classification-entry-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-#log .classification-entry { padding: 8px 10px; border-radius: 6px; background: var(--alima-surface); border: 1px solid var(--alima-border); }
+#log .classification-entry { padding: 8px 10px; border-radius: 8px; background: var(--alima-surface); border: 1px solid var(--alima-border); }
 #log .classification-entry__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 #log .classification-entry__code { font-family: monospace; font-size: 10pt; color: var(--alima-body); }
 #log .classification-entry__meta { margin-top: 4px; font-size: 9pt; color: var(--alima-meta); }
@@ -182,12 +241,12 @@
   display: inline-flex; align-items: center; border-radius: 999px;
   padding: 2px 8px; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.01em;
 }
-#log .classification-badge--dk { background: rgba(139, 233, 253, 0.15); color: var(--alima-accent); }
-#log .classification-badge--ddc { background: rgba(255, 184, 108, 0.18); color: var(--alima-orange); }
-#log .classification-badge--rvk { background: rgba(189, 147, 249, 0.18); color: var(--alima-purple); }
-#log .classification-badge--standard { background: rgba(80, 250, 123, 0.15); color: var(--alima-green); }
-#log .classification-badge--non-standard { background: rgba(241, 250, 140, 0.15); color: var(--alima-yellow); }
-#log .classification-badge--unknown { background: rgba(255, 85, 85, 0.15); color: var(--alima-error); }
+#log .classification-badge--dk { background: color-mix(in srgb, var(--alima-accent) 16%, transparent); color: var(--alima-accent); }
+#log .classification-badge--ddc { background: color-mix(in srgb, var(--alima-orange) 16%, transparent); color: var(--alima-orange); }
+#log .classification-badge--rvk { background: color-mix(in srgb, var(--alima-purple) 16%, transparent); color: var(--alima-purple); }
+#log .classification-badge--standard { background: color-mix(in srgb, var(--alima-green) 14%, transparent); color: var(--alima-green); }
+#log .classification-badge--non-standard { background: color-mix(in srgb, var(--alima-yellow) 14%, transparent); color: var(--alima-yellow); }
+#log .classification-badge--unknown { background: color-mix(in srgb, var(--alima-error) 14%, transparent); color: var(--alima-error); }
 
 /* RVK-Analytik / Auswertung tables — shared GUI ↔ webapp render of the
  * classic-pipeline frequency statistics and RVK provenance (WP12). */
@@ -239,7 +298,8 @@
 }
 #log .stream-md-table tr:last-child td, #log .stream-md-table tr:last-child th { border-bottom: none; }
 #log .stream-md-table--keyvalue .stream-record-head {
-  width: 150px; min-width: 150px; color: var(--alima-green); background: rgba(80, 250, 123, 0.08);
+  width: 150px; min-width: 150px; color: var(--alima-green);
+  background: color-mix(in srgb, var(--alima-green) 8%, transparent);
   vertical-align: top; padding: 8px 10px;
 }
 #log .stream-record-detail { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; padding: 3px 0; }
@@ -249,14 +309,16 @@
 
 /* Result card (WP: Kernergebnisse). Closes a run with one block instead of
    five log lines: core headings, keywords, chains, notations, shelf place and
-   the catalogue snippet a personal rule produced. - Claude Generated */
+   the catalogue snippet a personal rule produced. The left edge carries the
+   logo gradient. - Claude Generated */
 #log .alima-result {
-  border: 1px solid var(--alima-border); border-left: 3px solid var(--alima-green);
-  border-radius: 6px; background: var(--alima-surface); margin: 6px 0; overflow: hidden;
+  border: 1px solid var(--alima-border); border-radius: 8px; margin: 6px 0; overflow: hidden;
+  padding-left: 3px;
+  background: var(--alima-grad) left top / 3px 100% no-repeat, var(--alima-surface);
 }
 #log .alima-result__head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 7px 10px; background: var(--alima-surface-deep); color: var(--alima-green);
+  padding: 7px 10px; background: var(--alima-surface-deep); color: var(--alima-accent);
   font-weight: 600; letter-spacing: 0.02em; border-bottom: 1px solid var(--alima-border-soft);
 }
 #log .alima-result__row {
@@ -284,9 +346,28 @@
   font-size: 9pt; color: var(--alima-body); background: var(--alima-surface);
 }
 #log .alima-copy {
-  border: 1px solid var(--alima-border); border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--alima-border); border-radius: 6px; cursor: pointer;
   background: var(--alima-surface); color: var(--alima-body);
   font: inherit; font-size: 8.5pt; padding: 2px 8px;
 }
 #log .alima-copy:hover { border-color: var(--alima-accent); color: var(--alima-accent); }
+#log .alima-copy:focus-visible { outline: 2px solid var(--alima-accent); outline-offset: 1px; }
 #log .alima-copy[data-alima-copied] { color: var(--alima-green); border-color: var(--alima-green); }
+
+/* Proposal record (GUI only) and the answer notes below it. - Claude Generated */
+#log .alima-proposal {
+  margin: 6px 12px; padding: 10px; border-radius: 4px;
+  background: var(--alima-surface); border-left: 3px solid var(--alima-orange);
+}
+#log .alima-proposal__title { color: var(--alima-orange); font-weight: bold; font-size: 10pt; }
+#log .alima-proposal__body { color: var(--alima-body); }
+#log .alima-proposal__meta { color: var(--alima-meta); font-size: 9pt; }
+#log .alima-proposal__id { color: var(--alima-muted-strong); font-size: 8pt; }
+#log .alima-proposal-note { margin: 2px 24px; font-size: 9pt; }
+#log .alima-proposal-note--late { color: var(--alima-orange); }
+#log .alima-proposal-note--ok { color: var(--alima-green); }
+#log .alima-proposal-note--no { color: var(--alima-error); }
+
+@media (prefers-reduced-motion: reduce) {
+  #log .stream--live::after { animation: none; }
+}

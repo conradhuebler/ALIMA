@@ -33,9 +33,12 @@ class RawJsonRenderer(BaseRenderer):
     output_slot = "slot:raw_json"
 
     def render_html(self, data: Any, context: Optional[Dict] = None) -> str:
+        from src.ui.styles import get_colors
+
+        c = get_colors()
         body = json.dumps(data, indent=2, ensure_ascii=False, default=str)
         return (
-            "<pre style='background:#1e1e1e; color:#dcdcdc;"
+            f"<pre style='background:{c['background_light']}; color:{c['text']};"
             " padding:8px; font-family:monospace;"
             f" white-space:pre-wrap;'>{_escape_html(body)}</pre>"
         )

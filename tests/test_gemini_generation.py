@@ -308,15 +308,74 @@ class ToolCallingConvertsMessagesAndToolsTest(unittest.TestCase):
         contents = fake.captured_kwargs["contents"]
         self.assertEqual([c.role for c in contents], ["user", "model"])
 
-    def test_tool_role_becomes_a_function_response(self):
+    def test_tool_role_becomes_a_function_response_in_a_user_turn(self):
+        """Die API kennt keine Rolle "function" (400 INVALID_ARGUMENT, "Role
+        'function' is not supported"); Funktionsantworten stehen in einem
+        user-Turn."""
         fake = self._run([
             {"role": "tool", "name": "search", "content": "Ergebnis"},
         ])
         content = fake.captured_kwargs["contents"][0]
-        self.assertEqual(content.role, "function")
+        self.assertEqual(content.role, "user")
         fr = content.parts[0].function_response
         self.assertEqual(fr.name, "search")
         self.assertEqual(fr.response, {"result": "Ergebnis"})
+
+    def test_no_content_ever_uses_a_role_the_api_rejects(self):
+        fake = self._run([
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "gemini_0_search", "name": "search", "arguments": {"q": "x"}}]},
+            {"role": "tool", "tool_call_id": "gemini_0_search", "name": "search", "content": "r"},
+            {"role": "assistant", "content": "fertig"},
+        ])
+        roles = [c.role for c in fake.captured_kwargs["contents"]]
+        self.assertEqual(set(roles) - {"user", "model"}, set())
+        self.assertEqual(roles, ["user", "model", "user", "model"])
+
+    def test_the_models_function_call_is_replayed_before_its_response(self):
+        fake = self._run([
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "ich suche", "tool_calls": [
+                {"id": "gemini_0_search", "name": "search", "arguments": {"q": "x"}}]},
+            {"role": "tool", "tool_call_id": "gemini_0_search", "name": "search", "content": "r"},
+        ])
+        model_turn = fake.captured_kwargs["contents"][1]
+        self.assertEqual(model_turn.role, "model")
+        self.assertEqual(model_turn.parts[0].text, "ich suche")
+        fc = model_turn.parts[1].function_call
+        self.assertEqual((fc.name, dict(fc.args)), ("search", {"q": "x"}))
+
+    def test_parallel_tool_results_form_one_user_turn_in_call_order(self):
+        fake = self._run([
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "gemini_0_a", "name": "a", "arguments": {}},
+                {"id": "gemini_1_b", "name": "b", "arguments": {}}]},
+            {"role": "tool", "tool_call_id": "gemini_0_a", "name": "a", "content": "ra"},
+            {"role": "tool", "tool_call_id": "gemini_1_b", "name": "b", "content": "rb"},
+        ])
+        contents = fake.captured_kwargs["contents"]
+        self.assertEqual([c.role for c in contents], ["model", "user"])
+        self.assertEqual([p.function_response.name for p in contents[1].parts], ["a", "b"])
+
+    def test_tool_name_is_recovered_from_the_call_id_when_missing(self):
+        fake = self._run([
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "gemini_0_search", "name": "search", "arguments": {}}]},
+            {"role": "tool", "tool_call_id": "gemini_0_search", "content": "r"},
+        ])
+        self.assertEqual(
+            fake.captured_kwargs["contents"][1].parts[0].function_response.name, "search")
+
+    def test_string_arguments_are_parsed_and_empty_assistant_text_is_skipped(self):
+        fake = self._run([
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "i", "name": "search", "arguments": '{"q": "x"}'}]},
+        ])
+        parts = fake.captured_kwargs["contents"][0].parts
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(dict(parts[0].function_call.args), {"q": "x"})
 
     def test_system_message_is_extracted_not_sent_as_content(self):
         fake = self._run([
@@ -470,3 +529,151 @@ class ModelListingUsesTheRealClientTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThoughtSignatureRoundTripTest(unittest.TestCase):
+    """Gemini 3 verlangt die thought_signature eines Funktionsaufrufs, wenn er im
+    nächsten Turn zurückgespielt wird. Claude Generated."""
+
+    def test_signature_from_the_response_is_replayed_on_the_same_call(self):
+        svc = _make_service()
+        part = genai_types.Part.from_function_call(name="search", args={"q": "x"})
+        part.thought_signature = b"SIG-1"
+        fake = _FakeModels(response=_response([part]))
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake)}
+        first = svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="gemini-3.5-flash",
+            messages=[{"role": "user", "content": "u"}], tools=[],
+            temperature=0.5, top_p=0.9, max_tokens=64,
+        )
+        call = first.tool_calls[0]
+
+        fake2 = _FakeModels(response=_response([genai_types.Part.from_text(text="ok")]))
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake2)}
+        svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="gemini-3.5-flash",
+            messages=[
+                {"role": "user", "content": "u"},
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": call.id, "name": call.name, "arguments": call.arguments}]},
+                {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": "r"},
+            ], tools=[], temperature=0.5, top_p=0.9, max_tokens=64,
+        )
+        replayed = fake2.captured_kwargs["contents"][1].parts[0]
+        self.assertEqual(replayed.thought_signature, b"SIG-1")
+
+    def test_unknown_call_gets_no_signature_field(self):
+        svc = _make_service()
+        _, contents = svc._convert_messages_for_gemini([
+            {"role": "assistant", "content": "", "tool_calls": [
+                {"id": "never-seen", "name": "x", "arguments": {}}]},
+        ])
+        self.assertIsNone(contents[0].parts[0].thought_signature)
+
+
+class ToolPathStreamingTest(unittest.TestCase):
+    """Der Tool-Pfad (Chat-Agent) streamt mit stream_callback über
+    generate_content_stream; vorher kam der Text erst am Ende. Claude Generated."""
+
+    @staticmethod
+    def _chunk(*parts):
+        return genai_types.GenerateContentResponse(
+            candidates=[genai_types.Candidate(
+                content=genai_types.Content(role="model", parts=list(parts)))],
+        )
+
+    def _call(self, chunks, **kw):
+        svc = _make_service()
+        fake = _FakeModels(response=_response([genai_types.Part.from_text(text="NICHT-STREAM")]),
+                           stream_chunks=chunks)
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake)}
+        got = []
+        resp = svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="gemini-3.5-flash",
+            messages=[{"role": "user", "content": "u"}], tools=[],
+            temperature=0.5, top_p=0.9, max_tokens=64,
+            stream_callback=got.append, **kw,
+        )
+        return resp, got, fake
+
+    def test_text_arrives_piece_by_piece_and_is_joined(self):
+        resp, got, _ = self._call([
+            self._chunk(genai_types.Part.from_text(text="Hal")),
+            self._chunk(genai_types.Part.from_text(text="lo")),
+        ])
+        self.assertEqual(got, ["Hal", "lo"])
+        self.assertEqual(resp.content, "Hallo")
+        self.assertNotIn("NICHT-STREAM", resp.content)
+
+    def test_function_call_in_the_stream_becomes_a_tool_call(self):
+        resp, got, _ = self._call([
+            self._chunk(genai_types.Part.from_text(text="ich suche")),
+            self._chunk(genai_types.Part.from_function_call(name="search", args={"q": "x"})),
+        ])
+        self.assertEqual(got, ["ich suche"])
+        self.assertEqual([(t.name, t.arguments) for t in resp.tool_calls], [("search", {"q": "x"})])
+        from src.core.data_models import StopReason
+        self.assertEqual(resp.stop_reason, StopReason.TOOL_USE)
+
+    def test_parallel_calls_across_chunks_get_distinct_ids(self):
+        resp, _, _ = self._call([
+            self._chunk(genai_types.Part.from_function_call(name="s", args={"q": "a"})),
+            self._chunk(genai_types.Part.from_function_call(name="s", args={"q": "b"})),
+        ])
+        ids = [t.id for t in resp.tool_calls]
+        self.assertEqual(len(set(ids)), 2)
+
+    def test_thought_signature_survives_streaming(self):
+        part = genai_types.Part.from_function_call(name="s", args={})
+        part.thought_signature = b"SIG-S"
+        svc = _make_service()
+        fake = _FakeModels(stream_chunks=[self._chunk(part)])
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake)}
+        resp = svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="m", messages=[{"role": "user", "content": "u"}],
+            tools=[], temperature=0.5, top_p=0.9, max_tokens=8, stream_callback=lambda t: None,
+        )
+        self.assertEqual(svc._gemini_signatures[resp.tool_calls[0].id], b"SIG-S")
+
+    def test_should_stop_ends_the_stream_and_reports_cancelled(self):
+        from src.core.data_models import StopReason
+
+        stop = {"now": False}
+        seen = []
+
+        def cb(t):
+            seen.append(t)
+            stop["now"] = True  # nach dem ersten Stück abbrechen
+
+        svc = _make_service()
+        fake = _FakeModels(stream_chunks=[
+            self._chunk(genai_types.Part.from_text(text="a")),
+            self._chunk(genai_types.Part.from_text(text="b")),
+            self._chunk(genai_types.Part.from_text(text="c")),
+        ])
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake)}
+        resp = svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="m", messages=[{"role": "user", "content": "u"}],
+            tools=[], temperature=0.5, top_p=0.9, max_tokens=8,
+            stream_callback=cb, should_stop=lambda: stop["now"],
+        )
+        self.assertEqual(seen, ["a"])
+        self.assertEqual(resp.stop_reason, StopReason.CANCELLED)
+
+    def test_without_callback_the_non_streaming_call_is_used(self):
+        svc = _make_service()
+        fake = _FakeModels(response=_response([genai_types.Part.from_text(text="ganz")]),
+                           stream_chunks=[self._chunk(genai_types.Part.from_text(text="X"))])
+        svc.clients = {PROVIDER_NAME: MagicMock(models=fake)}
+        resp = svc._generate_gemini_with_tools(
+            provider=PROVIDER_NAME, model="m", messages=[{"role": "user", "content": "u"}],
+            tools=[], temperature=0.5, top_p=0.9, max_tokens=8,
+        )
+        self.assertEqual(resp.content, "ganz")
+
+    def test_empty_chunks_without_candidates_do_not_crash(self):
+        resp, got, _ = self._call([
+            genai_types.GenerateContentResponse(),
+            self._chunk(genai_types.Part.from_text(text="ok")),
+        ])
+        self.assertEqual(resp.content, "ok")

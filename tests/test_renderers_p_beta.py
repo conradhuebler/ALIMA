@@ -41,6 +41,18 @@ def _restore_registry():
     RENDERER_REGISTRY.update(snapshot)
 
 
+@pytest.fixture(autouse=True)
+def _light_theme():
+    """Renderers take their colours from the current theme; snapshots are
+    recorded in the light theme. - Claude Generated"""
+    from src.ui import styles
+
+    previous = styles.is_dark_mode()
+    styles.set_dark_mode(False)
+    yield
+    styles.set_dark_mode(previous)
+
+
 def _snapshot_path(name: str) -> Path:
     return FIXTURE_DIR / name
 
@@ -208,11 +220,12 @@ def test_keyword_chains_html_contains_arrow():
 
 
 def test_duplicate_table_html_color_codes_status():
+    from src.ui.styles import COLORS
+
     html = DuplicateTableRenderer().render_html(DUPLICATE_TABLE_DATA)
-    # 'duplicate' status renders with red color (#dc3545)
-    assert "#dc3545" in html
-    # 'new' status renders with green color (#28a745)
-    assert "#28a745" in html
+    # 'duplicate' renders in the theme's error colour, 'new' in its success colour
+    assert COLORS["error"] in html
+    assert COLORS["success"] in html
 
 
 def test_title_list_html_renders_authors():

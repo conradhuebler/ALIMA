@@ -326,6 +326,49 @@ class ProviderState(Enum):
     LAZY_UNINITIALIZED = "lazy_uninitialized"
 
 
+_NO_CLIENT = object()
+
+
+class _LazyClients(dict):
+    """``LlmService.clients``: a provider registered as ``LAZY_UNINITIALIZED`` is
+    connected on first access - Claude Generated.
+
+    Constructing the SDK clients imports ``google.genai``, ``anthropic``,
+    ``openai`` and ``ollama`` (about 5 s together on a normal machine). Doing
+    that for every configured provider at start froze the GUI although
+    ``lazy_initialization=True`` was passed. ``in``, ``keys()`` and ``clear()``
+    see the registered names without connecting; indexing connects. A provider
+    that fails to connect is removed again, so afterwards it is absent exactly
+    as in eager mode. ``peek`` reads without connecting.
+    """
+
+    def __init__(self, loader):
+        super().__init__()
+        self._loader = loader
+        self._lock = threading.RLock()
+
+    def peek(self, key):
+        return dict.get(self, key)
+
+    def resolve(self, key) -> bool:
+        """Connect ``key`` if it is still the placeholder; True if a client exists."""
+        with self._lock:
+            if dict.get(self, key) is ProviderState.LAZY_UNINITIALIZED:
+                try:
+                    self._loader(key)
+                finally:
+                    if dict.get(self, key) is ProviderState.LAZY_UNINITIALIZED:
+                        dict.pop(self, key, None)
+            value = dict.get(self, key, _NO_CLIENT)
+        return value is not _NO_CLIENT and value is not ProviderState.LAZY_UNINITIALIZED
+
+    def __getitem__(self, key):
+        if dict.get(self, key) is ProviderState.LAZY_UNINITIALIZED:
+            self.resolve(key)
+        return dict.__getitem__(self, key)
+
+
+
 class LlmService(QObject):
     """
     A unified interface for interacting with various Large Language Models.
@@ -428,8 +471,8 @@ class LlmService(QObject):
         # Load current configuration
         self.alima_config = self.config_manager.load_config()
 
-        # Dictionary to store provider clients
-        self.clients = {}
+        # Dictionary to store provider clients (connected on first use, see _LazyClients)
+        self.clients = _LazyClients(self._initialize_single_provider)
 
         # Initialize unified provider configurations
         self._init_unified_provider_configs()
@@ -437,8 +480,17 @@ class LlmService(QObject):
         # Initialize legacy dynamic OpenAI-compatible providers (deprecated)
         self._legacy_init_dynamic_provider_configs()
 
-        # Initialize all providers directly (ping tests prevent blocking) - Claude Generated
-        self.initialize_providers(providers)
+        # lazy_initialization used to be stored and then ignored: every provider
+        # was connected here regardless (the SDK imports alone took ~5 s of GUI
+        # start). - Claude Generated
+        self._setup_clients(providers)
+
+    def _setup_clients(self, providers: List[str] = None) -> None:
+        """Register (lazy) or connect (eager) the configured providers - Claude Generated"""
+        if self.lazy_initialization:
+            self._register_providers_lazy(providers)
+        else:
+            self.initialize_providers(providers)
 
     def set_ollama_url(self, url: str):
         self.logger.debug(f"Setting Ollama URL to {url}")
@@ -554,7 +606,7 @@ class LlmService(QObject):
 
         # Reinitialize all providers
         self.clients.clear()
-        self.initialize_providers()
+        self._setup_clients()
 
         self.logger.debug("Provider reload completed")
 
@@ -808,17 +860,13 @@ class LlmService(QObject):
             return False
 
         # If provider is already initialized (not the sentinel), return True
-        if self.clients[mapped_provider] is not ProviderState.LAZY_UNINITIALIZED:
+        if self.clients.peek(mapped_provider) is not ProviderState.LAZY_UNINITIALIZED:
             return True
 
         # Initialize the provider now (deferred connect)
         self.logger.debug(f"Lazy-initializing provider '{mapped_provider}'")
         try:
-            self._initialize_single_provider(mapped_provider)
-            return (
-                mapped_provider in self.clients
-                and self.clients[mapped_provider] is not ProviderState.LAZY_UNINITIALIZED
-            )
+            return self.clients.resolve(mapped_provider)
         except Exception as e:
             self.logger.error(f"Failed to lazy-initialize provider '{mapped_provider}': {e}")
             return False
@@ -921,7 +969,7 @@ class LlmService(QObject):
                 cfg = info.get('config')
                 if (getattr(cfg, 'provider_type', '') == "openai_compatible"
                         and name in self.clients
-                        and self.clients[name] is not ProviderState.LAZY_UNINITIALIZED):
+                        and self.clients.peek(name) is not ProviderState.LAZY_UNINITIALIZED):
                     self.logger.debug(f"🔄 PROVIDER_MAPPING: 'openai_compatible' → '{name}'")
                     return name
             # Try lazy-init if not yet initialized
@@ -1369,6 +1417,13 @@ class LlmService(QObject):
                 return False
 
 
+    @staticmethod
+    def _normalize_ollama_cloud_url(url: str) -> str:
+        """Ollama Cloud spricht nur HTTPS auf 443; siehe ``utils.ollama_endpoint`` - Claude Generated"""
+        from ..utils.ollama_endpoint import normalize_ollama_cloud_url
+
+        return normalize_ollama_cloud_url(url)
+
     def _init_ollama_native_provider(
         self, provider: str, module: Any, api_key: str, provider_info: Dict[str, Any]
     ):
@@ -1394,11 +1449,16 @@ class LlmService(QObject):
                             f"Ollama {provider}: schema-lose base_url '{raw_url}' → '{base_url}'"
                         )
             elif hasattr(provider_config, 'host') and provider_config.host:
-                protocol = 'https' if getattr(provider_config, 'use_ssl', False) else 'http'
-                port = getattr(provider_config, 'port', 11434)
-                base_url = f"{protocol}://{provider_config.host}:{port}"
+                from ..utils.ollama_endpoint import base_url as _ollama_base_url
+
+                base_url = _ollama_base_url(
+                    provider_config.host,
+                    getattr(provider_config, 'port', 11434),
+                    getattr(provider_config, 'use_ssl', False),
+                )
             else:
                 base_url = "http://localhost:11434"
+            base_url = LlmService._normalize_ollama_cloud_url(base_url)
             provider_api_key = provider_config.api_key if hasattr(provider_config, 'api_key') else ""
             provider_enabled = provider_config.enabled if hasattr(provider_config, 'enabled') else True
             provider_name = provider
@@ -1414,9 +1474,13 @@ class LlmService(QObject):
 
             # Add authorization header if API key is provided
             if provider_api_key:
-                client_params["headers"] = {
-                    'Authorization': provider_api_key
-                }
+                # Ollama (Cloud/Reverse-Proxy) erwartet "Bearer <key>"; der
+                # offizielle Client setzt es für OLLAMA_API_KEY genauso. Ein
+                # roher Key im Header wird mit 401 abgelehnt. - Claude Generated
+                bearer = provider_api_key.strip()
+                if not bearer.lower().startswith("bearer "):
+                    bearer = f"Bearer {bearer}"
+                client_params["headers"] = {'Authorization': bearer}
                 self.logger.debug(f"Initializing native Ollama client {provider_name} with authentication at {base_url}")
             else:
                 self.logger.debug(f"Initializing native Ollama client {provider_name} without authentication at {base_url}")
@@ -2963,6 +3027,74 @@ class LlmService(QObject):
             self.logger.error(f"Anthropic tool-calling error: {e}")
             raise
 
+    def _convert_messages_for_gemini(self, messages: List[Dict[str, Any]]):
+        """Generische Nachrichten -> (system_text, google-genai Contents) - Claude Generated.
+
+        Dieselbe Familie wie ``_convert_messages_for_{ollama,openai,anthropic}``.
+        Was die Gemini-API verlangt und die alte Inline-Schleife nicht tat:
+
+        * Funktionsantworten stehen in einem **user**-Turn. Eine Rolle
+          ``function`` gibt es nicht (400 INVALID_ARGUMENT, "Role 'function' is
+          not supported"). Parallele Antworten eines Turns bilden *einen*
+          Content mit mehreren ``function_response``-Parts.
+        * Der Aufruf des Modells (``function_call``) muss vor seiner Antwort im
+          Verlauf stehen; vorher ging nur der Text des Assistenten mit.
+        * Die ``thought_signature`` des Aufrufs wird, falls bekannt, mitgegeben
+          (Gemini 3 lehnt Funktionsaufrufe ohne sie ab).
+        """
+        from google.genai import types as genai_types
+
+        signatures = self.__dict__.get("_gemini_signatures", {})
+        system_text = ""
+        contents: List[Any] = []
+        call_names: Dict[str, str] = {}  # tool_call_id -> Tool-Name
+        pending_responses: List[Any] = []
+
+        def flush_responses():
+            if pending_responses:
+                contents.append(genai_types.Content(role="user", parts=list(pending_responses)))
+                pending_responses.clear()
+
+        for msg in messages:
+            role = msg.get("role")
+            if role == "tool":
+                name = msg.get("name") or call_names.get(msg.get("tool_call_id", ""), "")
+                pending_responses.append(genai_types.Part.from_function_response(
+                    name=name, response={"result": msg.get("content", "")},
+                ))
+                continue
+            flush_responses()
+            if role == "system":
+                system_text = msg.get("content", "") or ""
+            elif role == "user":
+                contents.append(genai_types.Content(
+                    role="user", parts=[genai_types.Part.from_text(text=msg.get("content", "") or "")],
+                ))
+            elif role == "assistant":
+                parts: List[Any] = []
+                text = msg.get("content", "") or ""
+                if text:
+                    parts.append(genai_types.Part.from_text(text=text))
+                for tc in msg.get("tool_calls") or []:
+                    args = tc.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {}
+                    call_names[tc.get("id", "")] = tc.get("name", "")
+                    part = genai_types.Part(function_call=genai_types.FunctionCall(
+                        name=tc.get("name", ""), args=args if isinstance(args, dict) else {},
+                    ))
+                    sig = signatures.get(tc.get("id", ""))
+                    if sig:
+                        part.thought_signature = sig
+                    parts.append(part)
+                if parts:
+                    contents.append(genai_types.Content(role="model", parts=parts))
+        flush_responses()
+        return system_text, contents
+
     def _generate_gemini_with_tools(
         self,
         provider: str,
@@ -2980,11 +3112,10 @@ class LlmService(QObject):
 
         Ported to the google-genai SDK (Client().models.*).
 
-        Note: token streaming with tools is still not wired here
-        (``stream_callback`` is accepted for signature parity but not
-        invoked, unchanged from before the port) - Ollama, OpenAI, and
-        Anthropic stream intermediate text live; Gemini still delivers its
-        text only on completion.
+        Mit ``stream_callback`` läuft der Aufruf über ``generate_content_stream``
+        und liefert den Text stückweise; ohne Callback bleibt es bei
+        ``generate_content``. Denk-Zusammenfassungen (``thinking_callback``)
+        werden für Gemini nicht angefordert.
 
         ``provider`` is the configured instance NAME (e.g. a Gemini instance
         could be named anything), not the provider_type "gemini" -
@@ -3010,28 +3141,7 @@ class LlmService(QObject):
             for tool in tools
         ]
 
-        # Extract system message and build Gemini content
-        system_text = ""
-        gemini_contents: List[Any] = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system_text = msg.get("content", "") or ""
-            elif msg["role"] == "user":
-                gemini_contents.append(genai_types.Content(
-                    role="user", parts=[genai_types.Part.from_text(text=msg.get("content", "") or "")],
-                ))
-            elif msg["role"] == "assistant":
-                gemini_contents.append(genai_types.Content(
-                    role="model", parts=[genai_types.Part.from_text(text=msg.get("content", "") or "")],
-                ))
-            elif msg["role"] == "tool":
-                gemini_contents.append(genai_types.Content(
-                    role="function",
-                    parts=[genai_types.Part.from_function_response(
-                        name=msg.get("name", ""),
-                        response={"result": msg.get("content", "")},
-                    )],
-                ))
+        system_text, gemini_contents = self._convert_messages_for_gemini(messages)
 
         try:
             config_kwargs: Dict[str, Any] = {
@@ -3046,19 +3156,18 @@ class LlmService(QObject):
             if function_declarations:
                 config_kwargs["tools"] = [genai_types.Tool(function_declarations=function_declarations)]
 
-            response = self.clients[provider].models.generate_content(
-                model=model, contents=gemini_contents,
-                config=genai_types.GenerateContentConfig(**config_kwargs),
-            )
+            client = self.clients[provider]
+            gen_config = genai_types.GenerateContentConfig(**config_kwargs)
 
             content = ""
-            tool_calls = []
+            tool_calls: List[ToolCall] = []
 
-            candidates = response.candidates or []
-            parts = candidates[0].content.parts if candidates and candidates[0].content else []
-            for i, part in enumerate(parts or []):
+            def handle_part(part, streaming: bool) -> None:
+                nonlocal content
                 if part.text:
                     content += part.text
+                    if streaming:
+                        stream_callback(part.text)
                 elif part.function_call is not None:
                     # part.function_call ALWAYS exists as an attribute (a
                     # declared pydantic field) even when unset - the old code's
@@ -3071,11 +3180,41 @@ class LlmService(QObject):
                     # same tool in one turn produced the SAME id
                     # ("gemini_{name}"), and Anthropic/OpenAI both require
                     # call ids to be unique within a turn. - Claude Generated
+                    call_id = f"gemini_{len(tool_calls)}_{fc.name}"
                     tool_calls.append(ToolCall(
-                        id=f"gemini_{i}_{fc.name}",
+                        id=call_id,
                         name=fc.name,
                         arguments=dict(fc.args) if fc.args else {},
                     ))
+                    # Gemini 3 verlangt die thought_signature des Aufrufs, wenn
+                    # er im nächsten Turn zurückgespielt wird; das generische
+                    # Nachrichtenformat kennt kein solches Feld, also merkt sie
+                    # sich der Dienst unter der Call-ID.
+                    sig = getattr(part, "thought_signature", None)
+                    if sig:
+                        self.__dict__.setdefault("_gemini_signatures", {})[call_id] = sig
+
+            def parts_of(resp):
+                candidates = resp.candidates or []
+                return (candidates[0].content.parts
+                        if candidates and candidates[0].content else []) or []
+
+            if stream_callback is not None:
+                # Text kommt Stück für Stück an; Funktionsaufrufe liefert Gemini
+                # als vollständigen Part (kein Delta-Zusammensetzen nötig).
+                for chunk in client.models.generate_content_stream(
+                    model=model, contents=gemini_contents, config=gen_config,
+                ):
+                    if should_stop and should_stop():
+                        break
+                    for part in parts_of(chunk):
+                        handle_part(part, streaming=True)
+            else:
+                response = client.models.generate_content(
+                    model=model, contents=gemini_contents, config=gen_config,
+                )
+                for part in parts_of(response):
+                    handle_part(part, streaming=False)
 
             if should_stop and should_stop():
                 return AgentResponse(content=content, tool_calls=[], stop_reason=StopReason.CANCELLED)

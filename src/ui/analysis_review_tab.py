@@ -25,6 +25,8 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 
 from .styles import (
+    get_colors,
+    set_variant,
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
@@ -139,31 +141,31 @@ class AnalysisReviewTab(QWidget):
         button_layout.setSpacing(LAYOUT["inner_spacing"])
 
         self.load_button = QPushButton("Analyse laden")
-        self.load_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.load_button, "secondary")
         self.load_button.clicked.connect(self.load_analysis)
         button_layout.addWidget(self.load_button)
 
         # Batch mode toggle button
         self.batch_toggle_button = QPushButton("📋 Batch-Ansicht")
-        self.batch_toggle_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.batch_toggle_button, "secondary")
         self.batch_toggle_button.clicked.connect(self.toggle_batch_mode)
         self.batch_toggle_button.setCheckable(True)
         button_layout.addWidget(self.batch_toggle_button)
 
         self.export_button = QPushButton("Als JSON exportieren")
-        self.export_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.export_button, "secondary")
         self.export_button.clicked.connect(self.export_analysis)
         self.export_button.setEnabled(False)
         button_layout.addWidget(self.export_button)
 
         self.use_keywords_button = QPushButton("Suche: Keywords")
-        self.use_keywords_button.setStyleSheet(btn_styles["accent"])
+        set_variant(self.use_keywords_button, "accent")
         self.use_keywords_button.clicked.connect(self.use_keywords_in_search)
         self.use_keywords_button.setEnabled(False)
         button_layout.addWidget(self.use_keywords_button)
 
         self.use_abstract_button = QPushButton("Analyse: Abstract")
-        self.use_abstract_button.setStyleSheet(btn_styles["accent"])
+        set_variant(self.use_abstract_button, "accent")
         self.use_abstract_button.clicked.connect(self.use_abstract_in_analysis)
         self.use_abstract_button.setEnabled(False)
         button_layout.addWidget(self.use_abstract_button)
@@ -377,7 +379,7 @@ class AnalysisReviewTab(QWidget):
         k10plus_layout.addWidget(self.k10plus_text)
 
         copy_button = QPushButton("📋 In Zwischenablage kopieren")
-        copy_button.setStyleSheet(btn_styles["primary"])
+        set_variant(copy_button, "primary")
         copy_button.clicked.connect(self.copy_k10plus_to_clipboard)
         k10plus_layout.addWidget(copy_button)
 
@@ -802,9 +804,9 @@ class AnalysisReviewTab(QWidget):
 
             # Color code the status
             if "✓" in status:
-                status_item.setForeground(QColor(0, 128, 0))  # Green
+                status_item.setForeground(QColor(get_colors()["success"]))
             elif "⚠️" in status:
-                status_item.setForeground(QColor(255, 140, 0))  # Orange
+                status_item.setForeground(QColor(get_colors()["warning"]))
 
             self.iteration_history_table.setItem(row, 3, status_item)
 
@@ -817,9 +819,9 @@ class AnalysisReviewTab(QWidget):
 
         summary_html = f"<b>Gesamt:</b> {total_iterations} Iteration(en) | "
         if convergence_achieved:
-            summary_html += "<span style='color: green;'><b>Konvergenz: ✓ Erreicht</b></span>"
+            summary_html += f"<span style='color: {get_colors()['success']};'><b>Konvergenz: ✓ Erreicht</b></span>"
         else:
-            summary_html += "<span style='color: orange;'><b>Konvergenz: ✗ Nicht erreicht</b></span>"
+            summary_html += f"<span style='color: {get_colors()['warning']};'><b>Konvergenz: ✗ Nicht erreicht</b></span>"
 
         # Final GND pool size
         if iterations:

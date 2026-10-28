@@ -141,7 +141,7 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
     provider, model = _resolve_provider_model(args, chat_config, pipeline_manager, llm_service)
     if not provider or not model:
         print("❌ Kein LLM-Provider/Modell. Setze --provider/--model oder in den "
-              "Einstellungen agentic_default_provider/model.",
+              "Einstellungen den allgemeinen Standard (Allgemein).",
               file=sys.stderr)
         return 2
 

@@ -30,9 +30,10 @@ import json
 from pathlib import Path
 import uuid
 from .styles import (
+    set_variant,
+    set_status,
     get_main_stylesheet,
     get_button_styles,
-    get_status_label_styles,
     get_image_preview_style,
     get_scaled_font,
     LAYOUT,
@@ -172,7 +173,7 @@ class ImageAnalysisTab(QWidget):
 
         # Status label
         self.status_label = QLabel("Status: Bereit")
-        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        set_status(self.status_label, "info")
         control_bar.addWidget(self.status_label)
 
         control_bar.addStretch()
@@ -202,7 +203,7 @@ class ImageAnalysisTab(QWidget):
         file_layout.setSpacing(LAYOUT["inner_spacing"])
 
         self.file_button = QPushButton("📁 Bild auswählen")
-        self.file_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.file_button, "secondary")
         self.file_button.clicked.connect(self.select_file)
         file_layout.addWidget(self.file_button)
 
@@ -300,12 +301,12 @@ class ImageAnalysisTab(QWidget):
 
         self.analyze_button = QPushButton("🔍 Text extrahieren")
         self.analyze_button.clicked.connect(self.analyze_image)
-        self.analyze_button.setStyleSheet(btn_styles["primary"])
+        set_variant(self.analyze_button, "primary")
         button_layout.addWidget(self.analyze_button)
 
         # Stop button
         self.stop_analysis_button = QPushButton("⏹️ Stop")
-        self.stop_analysis_button.setStyleSheet(btn_styles["error"])
+        set_variant(self.stop_analysis_button, "error")
         self.stop_analysis_button.setVisible(False)
         self.stop_analysis_button.clicked.connect(self.on_stop_analysis_requested)
         button_layout.addWidget(self.stop_analysis_button)
@@ -313,7 +314,7 @@ class ImageAnalysisTab(QWidget):
         self.send_to_abstract_button = QPushButton("📤 An Abstract-Tab senden")
         self.send_to_abstract_button.clicked.connect(self.send_to_abstract_tab)
         self.send_to_abstract_button.setEnabled(False)
-        self.send_to_abstract_button.setStyleSheet(btn_styles["success"])
+        set_variant(self.send_to_abstract_button, "success")
         button_layout.addWidget(self.send_to_abstract_button)
 
         button_layout.addStretch()
@@ -371,10 +372,11 @@ class ImageAnalysisTab(QWidget):
 
     def refresh_styles(self):
         """Re-apply styles after theme change — Claude Generated"""
-        from .styles import get_main_stylesheet, get_status_label_styles
+        # The status line keeps its tone; its colour follows the theme via
+        # the main stylesheet.
         self.setStyleSheet(get_main_stylesheet())
-        if hasattr(self, 'status_label'):
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        if hasattr(self, "image_preview"):
+            self.image_preview.setStyleSheet(get_image_preview_style())
 
     def closeEvent(self, event) -> None:  # Claude Generated (Phase E)
         """Unsubscribe the mini-log renderer when the tab is closed."""
@@ -395,20 +397,20 @@ class ImageAnalysisTab(QWidget):
             count = self.provider_selector.provider_combo.count()
             if count:
                 self.status_label.setText(f"Status: Bereit - {count} Provider verfügbar")
-                self.status_label.setStyleSheet(get_status_label_styles()["success"])
+                set_status(self.status_label, "success")
             else:
                 self.status_label.setText("Status: Keine Provider verfügbar")
-                self.status_label.setStyleSheet(get_status_label_styles()["error"])
+                set_status(self.status_label, "error")
         except Exception as e:
             self.logger.error(f"Error loading providers: {e}")
             self.status_label.setText("Status: Fehler beim Laden der Provider")
-            self.status_label.setStyleSheet(get_status_label_styles()["error"])
+            set_status(self.status_label, "error")
 
     def _on_provider_model_changed(self, provider, model):
         """Reflect the selector's choice in the status label - Claude Generated"""
         if provider and model:
             self.status_label.setText(f"Status: {provider} / {model}")
-            self.status_label.setStyleSheet(get_status_label_styles()["success"])
+            set_status(self.status_label, "success")
 
     def update_temperature_label(self, value):
         """Update temperature label"""
@@ -431,7 +433,7 @@ class ImageAnalysisTab(QWidget):
                 self.status_label.setText(
                     f"Status: {len(file_paths)} Bilder ausgewählt - {Path(file_paths[0]).name}"
                 )
-                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+                set_status(self.status_label, "info")
         else:
             file_path, _ = QFileDialog.getOpenFileName(
                 self, "Bild auswählen", str(Path.home() / "Pictures"), "Bilder (*.png *.jpg *.jpeg *.gif *.bmp *.tiff)"
@@ -444,7 +446,7 @@ class ImageAnalysisTab(QWidget):
                 self.status_label.setText(
                     f"Status: Bild ausgewählt - {Path(file_path).name}"
                 )
-                self.status_label.setStyleSheet(get_status_label_styles()["info"])
+                set_status(self.status_label, "info")
 
     def _on_append_mode_changed(self, state):
         """Handle append mode checkbox state change - Claude Generated (Multi-Image OCR feature)"""
@@ -528,7 +530,7 @@ class ImageAnalysisTab(QWidget):
             self.status_label.setText(
                 f"Status: Analysiere Bild mit {provider} ({model})..."
             )
-        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        set_status(self.status_label, "info")
 
         # Start analysis for first image
         self._analyze_current_image(provider, model, prompt)
@@ -597,7 +599,7 @@ class ImageAnalysisTab(QWidget):
         self.stop_analysis_button.setVisible(False)  # Hide stop button - Claude Generated
         self.progress_bar.setVisible(False)
         self.status_label.setText("Status: Analyse erfolgreich abgeschlossen")
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        set_status(self.status_label, "success")
 
         self.logger.info(f"Image analysis completed successfully ({self._total_images} images)")
 
@@ -625,7 +627,7 @@ class ImageAnalysisTab(QWidget):
         self.stop_analysis_button.setVisible(False)  # Hide stop button - Claude Generated
         self.progress_bar.setVisible(False)
         self.status_label.setText("Status: Fehler bei der Analyse")
-        self.status_label.setStyleSheet(get_status_label_styles()["error"])
+        set_status(self.status_label, "error")
 
         self.logger.error(f"Image analysis error: {error}")
         QMessageBox.critical(self, "Fehler", f"Fehler bei der Bildanalyse:\n{error}")
@@ -662,7 +664,7 @@ class ImageAnalysisTab(QWidget):
 
         # Update status
         self.status_label.setText("Status: Analyse abgebrochen")
-        self.status_label.setStyleSheet(get_status_label_styles()["warning"])
+        set_status(self.status_label, "warning")
 
         # Show abort message
         self.output_field.setText("⏹️ Analyse wurde vom Benutzer abgebrochen")
@@ -692,4 +694,4 @@ class ImageAnalysisTab(QWidget):
                     break
 
         self.status_label.setText("Status: Text an Abstract-Tab gesendet")
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        set_status(self.status_label, "success")

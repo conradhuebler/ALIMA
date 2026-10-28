@@ -158,3 +158,65 @@ class ModelLimitsAreNoLongerEditedHereTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocalOllamaPresetTest(unittest.TestCase):
+    """Vorkonfiguriertes lokales Ollama, per Häkchen aktivierbar. - Claude Generated"""
+
+    _kept: list = []
+
+    def test_preset_is_native_local_and_off(self):
+        from src.utils.config_models import local_ollama_preset
+
+        p = local_ollama_preset()
+        self.assertEqual((p.provider_type, p.host, p.port, p.enabled),
+                         ("ollama", "localhost", 11434, False))
+        self.assertEqual(p.base_url, "http://localhost:11434")
+
+    def test_detection_of_existing_local_native_ollama(self):
+        from src.utils.config_models import has_local_native_ollama
+
+        mk = lambda **kw: UnifiedProvider(name="x", **kw)
+        self.assertFalse(has_local_native_ollama([]))
+        self.assertTrue(has_local_native_ollama([mk(provider_type="ollama", host="localhost")]))
+        self.assertTrue(has_local_native_ollama(
+            [mk(provider_type="ollama", base_url="http://127.0.0.1:11434")]))
+        # /v1-Endpunkt ist openai_compatible: zählt nicht als natives Ollama
+        self.assertFalse(has_local_native_ollama(
+            [mk(provider_type="openai_compatible", base_url="http://localhost:11434/v1")]))
+        # Cloud-Ollama ist kein lokales
+        self.assertFalse(has_local_native_ollama(
+            [mk(provider_type="ollama", host="ollama.com")]))
+
+    def _widget(self, providers, suggestions):
+        from src.ui.settings import ProviderList
+
+        _qapp(self._kept)
+        w = ProviderList()
+        w.refresh(providers, models={}, suggestions=suggestions)
+        self._kept.append(w)
+        return w
+
+    def test_checkbox_reflects_enabled_and_suggestion_is_unchecked(self):
+        from PyQt6.QtCore import Qt
+        from src.utils.config_models import local_ollama_preset
+
+        on = UnifiedProvider(name="A", provider_type="ollama", enabled=True)
+        off = UnifiedProvider(name="B", provider_type="ollama", enabled=False)
+        w = self._widget([on, off], [local_ollama_preset()])
+        states = [w.list.topLevelItem(i).checkState(0) for i in range(3)]
+        self.assertEqual(states, [Qt.CheckState.Checked, Qt.CheckState.Unchecked,
+                                  Qt.CheckState.Unchecked])
+        self.assertIn("vorkonfiguriert", w.row_texts()[2][4])
+
+    def test_ticking_emits_name_and_state_but_refresh_does_not(self):
+        from PyQt6.QtCore import Qt
+        from src.utils.config_models import local_ollama_preset
+
+        w = self._widget([], [local_ollama_preset()])
+        seen = []
+        w.enabled_toggled.connect(lambda n, e: seen.append((n, e)))
+        w.refresh([], models={}, suggestions=[local_ollama_preset()])
+        self.assertEqual(seen, [])
+        w.list.topLevelItem(0).setCheckState(0, Qt.CheckState.Checked)
+        self.assertEqual(seen, [("ollama_local", True)])

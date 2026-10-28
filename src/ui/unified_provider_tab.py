@@ -10,14 +10,17 @@ import logging
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QDialog,
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 
 from ..utils.config_manager import ConfigManager, ProviderDetectionService
 from ..utils.error_visibility import log_caught
 from ..utils.config_models import (
     UnifiedProviderConfig,
     UnifiedProvider,
-    AlimaConfig
+    AlimaConfig,
+    LOCAL_OLLAMA_PRESET_NAME,
+    has_local_native_ollama,
+    local_ollama_preset,
 )
 from .workers import ModelLoadWorker  # Shared model-list loader (F-7) - Claude Generated
 from .provider_dialogs import ProviderEditDialog  # F-5 split - Claude Generated
@@ -128,6 +131,7 @@ class UnifiedProviderTab(QWidget):
         self.provider_list.edit_requested.connect(self._edit_provider_by_name)
         self.provider_list.remove_requested.connect(self._remove_provider_by_name)
         self.provider_list.models_requested.connect(self._refresh_models_for)
+        self.provider_list.enabled_toggled.connect(self._on_provider_toggled)
         layout.addWidget(self.provider_list)
 
         provider_button_layout = QHBoxLayout()
@@ -240,10 +244,29 @@ class UnifiedProviderTab(QWidget):
 
     def _populate_provider_table(self):
         """Render the provider list. Name kept: several call sites use it."""
+        providers = list(self.unified_config.providers)
+        suggestions = [] if has_local_native_ollama(providers) else [local_ollama_preset()]
         self.provider_list.refresh(
-            list(self.unified_config.providers),
+            providers,
             models=dict(self._cached_models or {}),
+            suggestions=suggestions,
         )
+
+    def _on_provider_toggled(self, name: str, enabled: bool) -> None:
+        """Häkchen in der Liste: ein-/ausschalten; das Preset wird dabei übernommen - Claude Generated"""
+        index = self._provider_index(name)
+        if index >= 0:
+            self.unified_config.providers[index].enabled = enabled
+        elif name == LOCAL_OLLAMA_PRESET_NAME:
+            preset = local_ollama_preset()
+            preset.enabled = enabled
+            self.unified_config.providers.append(preset)
+        else:
+            return
+        self._persist_providers()
+        # Neuaufbau erst nach dem Rücksprung aus itemChanged
+        QTimer.singleShot(0, lambda: self._after_toggle(name, enabled))
+        self.config_changed.emit()
 
     # ---- accordion callbacks, addressed by provider name ----------------
 
@@ -281,20 +304,50 @@ class UnifiedProviderTab(QWidget):
         self._load_configuration()
         self.config_changed.emit()
 
+    def _after_toggle(self, name: str, enabled: bool) -> None:
+        """Liste neu aufbauen; beim Einschalten sofort die Erreichbarkeit prüfen - Claude Generated"""
+        self._load_configuration()
+        if enabled:
+            self._check_provider(name)
+
+    def _check_provider(self, name: str) -> None:
+        """Fragt einen Anbieter frisch ab (außerhalb des UI-Threads) und meldet das Ergebnis.
+
+        ``get_available_models`` liefert bei Fehlern ``[]``; "nicht erreichbar" und
+        "erreichbar, aber ohne Modelle" sind hier deshalb nicht zu trennen und
+        werden gemeinsam gemeldet.
+        """
+        worker = ModelLoadWorker(self._detection_service, name, force=True)
+        worker.fetched.connect(self._on_provider_checked)
+        # Referenz halten, bis der Thread endet: ein Server, der die Verbindung
+        # annimmt und nie antwortet, lässt ihn beliebig lange laufen; ein
+        # überschriebenes Attribut würde den laufenden QThread zerstören.
+        if not hasattr(self, "_check_workers"):
+            self._check_workers = set()
+        self._check_workers.add(worker)
+        worker.finished.connect(lambda w=worker: self._check_workers.discard(w))
+        worker.start()
+        self._show_save_toast(f"{name}: prüfe Verbindung …")
+
+    def _on_provider_checked(self, name: str, models: list) -> None:
+        self._cached_models[name] = list(models or [])
+        self._populate_provider_table()
+        if models:
+            self._show_save_toast(f"{name}: erreichbar, {len(models)} Modelle", duration=3000)
+        else:
+            self._show_save_toast(
+                f"{name}: keine Antwort oder keine Modelle. Läuft der Dienst, stimmt der Schlüssel?",
+                duration=6000, error=True,
+            )
+
     def _refresh_models_for(self, name: str) -> None:
         """Fetch one provider's model list on demand - Claude Generated.
 
-        Per provider rather than for all of them: the dialog must not spend four
-        network calls before it is usable, and a dead endpoint must not hang it.
+        Per provider rather than for all of them, und im Hintergrund: die Abfrage
+        lief früher synchron im UI-Thread und fror bei einem Server, der die
+        Verbindung annimmt aber nicht antwortet, das ganze Fenster ein.
         """
-        try:
-            models = self._detection_service.get_available_models(name, force_check=True)
-            self._cached_models[name] = list(models or [])
-            self._populate_provider_table()
-            self._show_save_toast(f"{name}: {len(models or [])} Modelle")
-        except Exception as e:
-            log_caught(self.logger, e, f"Modell-Abfrage für {name}")
-            self._show_save_toast(f"{name}: Abfrage fehlgeschlagen", error=True)
+        self._check_provider(name)
 
     def _get_api_key_status(self, provider) -> str:
         """Get API key status for a provider - Claude Generated"""
@@ -342,7 +395,6 @@ class UnifiedProviderTab(QWidget):
     SCOPE_FIELDS = {
         "general": ("preferred_provider", "preferred_model"),
         "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
-        "agentic": ("agentic_default_provider", "agentic_default_model"),
         "vision": ("vision_default_provider", "vision_default_model"),
     }
 

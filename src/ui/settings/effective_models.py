@@ -32,7 +32,6 @@ from typing import Any, List
 #: Display label per source key.
 SOURCE_LABELS = {
     "vision_default": "Vision-Standard",
-    "agentic_default": "Agentic Default",
     "pipeline_default": "Pipeline-Standard",
     "preferred": "Allgemeiner Standard",
     "first_enabled": "erster nutzbarer Anbieter",
@@ -69,9 +68,8 @@ def effective_rows(unified_config: Any) -> List[EffectiveRow]:
     from src.utils.config_models import ProviderScope
 
     plan = [
-        (ProviderScope.GENERAL, "general", "Allgemein"),
+        (ProviderScope.GENERAL, "general", "Allgemein, Agentisch und Chat"),
         (ProviderScope.PIPELINE, "pipeline", "Klassische Pipeline"),
-        (ProviderScope.AGENTIC, "agentic", "Agentisch und Chat"),
         (ProviderScope.VISION, "vision", "Bild- und OCR-Analyse"),
     ]
     rows: List[EffectiveRow] = []

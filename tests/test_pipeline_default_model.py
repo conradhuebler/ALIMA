@@ -26,14 +26,11 @@ class _FakeProvider:
 
 class _FakeUnified:
     def __init__(self, default_provider, default_model, providers,
-                 preferred_provider="", preferred_model="",
-                 agentic_default_provider="", agentic_default_model=""):
+                 preferred_provider="", preferred_model=""):
         self.pipeline_default_provider = default_provider
         self.pipeline_default_model = default_model
         self.preferred_provider = preferred_provider
         self.preferred_model = preferred_model
-        self.agentic_default_provider = agentic_default_provider
-        self.agentic_default_model = agentic_default_model
         self._providers = providers
         self.task_preferences = {}
 
@@ -48,9 +45,7 @@ class _FakeUnified:
 
     def resolve_default_provider_model(self, *, scope="general", fallback_to_first_enabled=True):
         candidate_fields = []
-        if scope == "agentic":
-            candidate_fields.append((self.agentic_default_provider, self.agentic_default_model))
-        if scope in ("agentic", "pipeline"):
+        if scope == "pipeline":
             candidate_fields.append((self.pipeline_default_provider, self.pipeline_default_model))
         candidate_fields.append((self.preferred_provider, self.preferred_model))
 

@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from ..styles import set_tone
 
 #: The value ``SystemConfig.default_workflow`` carries for the non-agentic path.
 CLASSIC_STEM = "__classic__"
@@ -191,7 +192,7 @@ class WorkflowList(QWidget):
 
         self.summary = QLabel("")
         self.summary.setWordWrap(True)
-        self.summary.setStyleSheet("color: gray;")
+        set_tone(self.summary, "muted")
         self.summary.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
         )

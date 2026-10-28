@@ -19,7 +19,6 @@ import copy
 from typing import Dict, List, Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -44,6 +43,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.plugins import CHOICE, INT, BOOL, SECRET, get_category, list_categories
 from src.utils.config_models import PluginInstanceConfig
+from .styles import set_tone
 
 # Human labels for the known categories (fallback = the raw name).
 # Capability -> what it means for the operator. Keys are the SearchCapability
@@ -220,14 +220,12 @@ class _CategoryPanel(QWidget):
         if doc is not None and (doc.description or doc.input or doc.output):
             doc_lbl = QLabel(doc.as_text())
             doc_lbl.setWordWrap(True)
-            # Palette-derived, so the box follows the theme. Was a hardcoded
-            # light-mode pair (#f0f0f0 on #333) and unreadable in dark mode.
+            # Palette roles resolved by Qt at paint time, so the box follows a
+            # theme switch (a hex snapshot of the palette would not).
             # - Claude Generated
-            pal = doc_lbl.palette()
-            bg = pal.color(QPalette.ColorRole.AlternateBase).name()
-            fg = pal.color(QPalette.ColorRole.WindowText).name()
             doc_lbl.setStyleSheet(
-                f"background:{bg}; color:{fg}; padding:6px; border-radius:4px;"
+                "background: palette(alternate-base); color: palette(window-text);"
+                " padding:6px; border-radius:4px;"
             )
             self.form_layout.addRow(doc_lbl)
 
@@ -240,7 +238,8 @@ class _CategoryPanel(QWidget):
         if caps:
             cap_lbl = QLabel("Kann: " + ", ".join(_CAPABILITY_LABELS.get(c, str(c)) for c in caps))
             cap_lbl.setWordWrap(True)
-            cap_lbl.setStyleSheet("color: gray; font-size: 10px;")
+            set_tone(cap_lbl, "muted")
+            cap_lbl.setStyleSheet("font-size: 10px;")
             self.form_layout.addRow(cap_lbl)
 
         self._enabled_cb = QCheckBox("Aktiviert")
@@ -282,7 +281,8 @@ class _CategoryPanel(QWidget):
             if fld.help:
                 hint = QLabel(fld.help)
                 hint.setWordWrap(True)
-                hint.setStyleSheet("color: gray; font-size: 10px;")
+                set_tone(hint, "muted")
+                hint.setStyleSheet("font-size: 10px;")
                 self.form_layout.addRow("", hint)
 
         # Per-type action buttons (e.g. webindex "Seite indizieren"). The form is

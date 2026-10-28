@@ -44,7 +44,9 @@ class DkTableRenderer(BaseRenderer):
     # -- HTML (verbatim from analysis_review_tab.py:670-732) ---------------
 
     def render_html(self, data: Any, context: Optional[Dict] = None) -> str:
-        from src.ui.styles import get_confidence_style
+        from src.ui.styles import get_colors, get_confidence_style
+
+        muted = get_colors()["text_muted"]
 
         rows: List[Dict[str, Any]] = list(data or [])
         if not rows:
@@ -95,14 +97,14 @@ class DkTableRenderer(BaseRenderer):
                 parts.append("</ol>")
                 if total_count > len(titles):
                     parts.append(
-                        f"<p style='color: #888; font-style: italic; font-size: 9pt;'>"
+                        f"<p style='color: {muted}; font-style: italic; font-size: 9pt;'>"
                         f"... und {total_count - len(titles)} weitere Titel</p>"
                     )
                 parts.append("</details></div>")
             else:
                 parts.append(
                     "<div style='padding-left: 20px; margin-bottom: 20px;'>"
-                    "<p style='color: #888; font-style: italic; font-size: 9pt;'>Keine Titel gefunden</p>"
+                    f"<p style='color: {muted}; font-style: italic; font-size: 9pt;'>Keine Titel gefunden</p>"
                     "</div>"
                 )
 

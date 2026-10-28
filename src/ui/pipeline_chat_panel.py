@@ -66,9 +66,11 @@ from .chat_input_widgets import ChatInputEdit, SystemPromptDialog
 from .chat_session import ChatSession
 from .repetition_warning_bar import RepetitionWarningBar
 from .styles import (
-    get_button_styles,
     get_main_stylesheet,
     get_scaled_font,
+    set_style_prop,
+    set_tone,
+    set_variant,
 )
 
 
@@ -273,16 +275,17 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         outer.setSpacing(0)
 
         # --- Single consolidated header --------------------------------
+        # Colours of the strips, the compact controls, the typing line and the
+        # chat input live in the main stylesheet (object names / ``role``), so
+        # the panel follows a theme switch. - Claude Generated
         header = QFrame()
-        header.setStyleSheet(
-            "QFrame { background-color: #2d2d2d; border-bottom: 1px solid #444; }"
-        )
+        header.setObjectName("panelStrip")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 4, 8, 4)
         header_layout.setSpacing(6)
 
         title_label = QLabel("📝 Pipeline + 💬 Chat")
-        title_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        title_label.setStyleSheet("font-weight: bold;")
         header_layout.addWidget(title_label)
 
         # No provider/model picker here on purpose: the pipeline toolbar has one,
@@ -297,9 +300,8 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # Read-only: which provider/model the chat will actually use, resolved
         # through the same chain as the run itself. - Claude Generated
         self.model_status_label = QLabel("")
-        self.model_status_label.setStyleSheet(
-            "color: #8be9fd; font-size: 10px; padding-left: 4px;"
-        )
+        set_tone(self.model_status_label, "info")
+        self.model_status_label.setStyleSheet("font-size: 10px; padding-left: 4px;")
         self.model_status_label.setToolTip(
             "Modell des Chat-Agenten. Kommt aus der LLM-Auswahl der "
             "Pipeline-Werkzeugleiste; bei \"-- Standard --\" gilt der agentische "
@@ -309,16 +311,13 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         header_layout.addStretch()
 
-        # Compact icon-style controls.
-        icon_btn_style = (
-            "QPushButton { background: transparent; border: 1px solid #555; "
-            "border-radius: 3px; color: #ccc; font-size: 10px; padding: 2px 6px; }"
-            "QPushButton:hover { background: #3d3d3d; }"
-        )
+        # Compact icon-style controls (QPushButton[role="icon"]).
+        def icon_btn_style_of(btn):
+            set_style_prop(btn, "role", "icon")
 
         self.system_prompt_btn = QPushButton("⚙️")
         self.system_prompt_btn.setFixedSize(26, 22)
-        self.system_prompt_btn.setStyleSheet(icon_btn_style)
+        icon_btn_style_of(self.system_prompt_btn)
         self.system_prompt_btn.setToolTip("System-Prompt bearbeiten")
         self.system_prompt_btn.clicked.connect(self.show_system_prompt_dialog)
         header_layout.addWidget(self.system_prompt_btn)
@@ -328,7 +327,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # abgelegt wurde. - Claude Generated
         self.rules_btn = QPushButton("📌")
         self.rules_btn.setFixedSize(26, 22)
-        self.rules_btn.setStyleSheet(icon_btn_style)
+        icon_btn_style_of(self.rules_btn)
         self.rules_btn.setToolTip("Persönliche Zusatzregeln verwalten")
         self.rules_btn.clicked.connect(self.show_rules_dialog)
         header_layout.addWidget(self.rules_btn)
@@ -337,7 +336,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.chat_language = "de"
         self.language_btn = QPushButton("DE")
         self.language_btn.setFixedSize(30, 22)
-        self.language_btn.setStyleSheet(icon_btn_style)
+        icon_btn_style_of(self.language_btn)
         self.language_btn.setToolTip("Antwortsprache umschalten (Deutsch/Englisch)")
         self.language_btn.clicked.connect(self._toggle_chat_language)
         header_layout.addWidget(self.language_btn)
@@ -345,10 +344,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # Thinking/Reasoning des Chat-Agenten überschreiben - Claude Generated
         self.chat_think_combo = QComboBox()
         self.chat_think_combo.addItems(["🧠 Auto", "🧠 An", "🧠 Aus"])
-        self.chat_think_combo.setStyleSheet(
-            "QComboBox { color: #ccc; font-size: 10px; padding: 2px 6px; "
-            "border: 1px solid #555; border-radius: 3px; }"
-        )
+        set_style_prop(self.chat_think_combo, "role", "compact")
         self.chat_think_combo.setToolTip(
             "Thinking/Reasoning des Chat-Agenten.\n"
             "Auto = Modell-Default · An = think=true · Aus = think=false"
@@ -357,14 +353,14 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         self.reset_toggle = QCheckBox("🔄 Reset")
         self.reset_toggle.setChecked(True)
-        self.reset_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        set_style_prop(self.reset_toggle, "role", "compact")
         self.reset_toggle.setToolTip(
             "Chat-Verlauf bei jedem neuen Pipeline-Lauf leeren."
         )
         header_layout.addWidget(self.reset_toggle)
 
         self.autonomous_toggle = QCheckBox("🤖 Autonom")
-        self.autonomous_toggle.setStyleSheet("color: #aaa; font-size: 10px;")
+        set_style_prop(self.autonomous_toggle, "role", "compact")
         self.autonomous_toggle.setToolTip(
             "Mutationen ohne Rückfrage anwenden (ChatConfig.autonomous_pipeline). "
             "Default off — Agent fragt vor jeder Änderung."
@@ -384,26 +380,29 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         self.auto_scroll_checkbox = QCheckBox("⬇")
         self.auto_scroll_checkbox.setChecked(True)
-        self.auto_scroll_checkbox.setStyleSheet("color: #aaa; font-size: 10px;")
+        set_style_prop(self.auto_scroll_checkbox, "role", "compact")
         self.auto_scroll_checkbox.setToolTip("Auto-scroll Log")
         header_layout.addWidget(self.auto_scroll_checkbox)
 
         self.clear_button = QPushButton("🗑️")
         self.clear_button.setFixedSize(26, 22)
-        self.clear_button.setStyleSheet(icon_btn_style)
+        icon_btn_style_of(self.clear_button)
         self.clear_button.setToolTip("Log leeren")
         self.clear_button.clicked.connect(self.clear_stream)
         header_layout.addWidget(self.clear_button)
 
         self.save_log_button = QPushButton("💾")
         self.save_log_button.setFixedSize(26, 22)
-        self.save_log_button.setStyleSheet(icon_btn_style)
+        icon_btn_style_of(self.save_log_button)
         self.save_log_button.setToolTip("Log speichern")
         self.save_log_button.clicked.connect(self.save_stream_log)
         header_layout.addWidget(self.save_log_button)
 
         self.cancel_btn = QPushButton("⏹ Abbrechen")
-        self.cancel_btn.setStyleSheet(get_button_styles().get("danger", ""))
+        # get_button_styles() never had a "danger" key: the button showed the
+        # neutral default. The error variant gives it the colour it asked for.
+        set_variant(self.cancel_btn, "error")
+        self.cancel_btn.setStyleSheet("QPushButton { padding: 2px 5px; }")  # header-sized
         self.cancel_btn.setVisible(False)
         self.cancel_btn.setToolTip("Aktuelle Generierung abbrechen")
         self.cancel_btn.clicked.connect(self.cancel_generation)
@@ -417,21 +416,14 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         # to spam the conversation stream as system messages.
         self.status_strip = QLabel("")
         self.status_strip.setVisible(False)
-        self.status_strip.setStyleSheet(
-            "QLabel { background-color: #262626; color: #9aa5b1;"
-            " font-size: 8pt; padding: 2px 8px;"
-            " border-bottom: 1px solid #444; }"
-        )
+        self.status_strip.setObjectName("statusStrip")
         outer.addWidget(self.status_strip)
 
         # --- Vertical splitter between log + input (user-draggable) ----
         self.body_splitter = QSplitter(Qt.Orientation.Vertical)
         self.body_splitter.setChildrenCollapsible(False)
         self.body_splitter.setHandleWidth(4)
-        self.body_splitter.setStyleSheet(
-            "QSplitter::handle { background-color: #2d2d2d; }"
-            "QSplitter::handle:hover { background-color: #555; }"
-        )
+        self.body_splitter.setObjectName("chatSplitter")
 
         # Top half = log area container (stream_text + warning + typing).
         log_container = QWidget()
@@ -465,11 +457,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         # --- Typing indicator (chat-only) ---
         self.typing_label = QLabel("")
-        self.typing_label.setStyleSheet(
-            "color: #8be9fd; font-size: 9pt; font-style: italic; "
-            "padding: 2px 12px; background-color: #1e1e1e; "
-            "border-top: 1px solid #2a2a2a;"
-        )
+        self.typing_label.setObjectName("typingIndicator")
         self.typing_label.setVisible(False)
         log_layout.addWidget(self.typing_label)
         self._typing_timer = QTimer(self)
@@ -480,9 +468,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
 
         # --- Chat input frame (expandable QTextEdit) -------------------
         input_frame = QFrame()
-        input_frame.setStyleSheet(
-            "QFrame { background-color: #2d2d2d; border-top: 1px solid #444; }"
-        )
+        input_frame.setObjectName("panelStripTop")
         input_layout = QHBoxLayout(input_frame)
         input_layout.setContentsMargins(6, 4, 6, 4)
         input_layout.setSpacing(6)
@@ -492,12 +478,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.input_field.setPlaceholderText(t("chat.input.placeholder"))
         # Right padding reserves room for the floating send button so text
         # never flows underneath it. Claude Generated.
-        self.input_field.setStyleSheet(
-            "QTextEdit { background-color: #3d3d3d; color: #e0e0e0; "
-            "border: 1px solid #555; border-radius: 10px; "
-            "padding: 8px 52px 8px 12px; font-size: 11pt; }"
-            "QTextEdit:focus { border: 1px solid #8be9fd; }"
-        )
+        self.input_field.setObjectName("chatInput")
         self.input_field.setFont(get_scaled_font(size_delta=0))
         fm = self.input_field.fontMetrics()
         line_h = fm.lineSpacing()
@@ -518,13 +499,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.send_btn.setFixedSize(36, 36)
         self.send_btn.setDefault(True)
-        self.send_btn.setStyleSheet(
-            "QPushButton { background-color: #8be9fd; color: #1e1e1e; "
-            "border: none; border-radius: 18px; font-size: 15pt; "
-            "font-weight: bold; padding-bottom: 2px; }"
-            "QPushButton:hover { background-color: #a4f0ff; }"
-            "QPushButton:disabled { background-color: #555; color: #888; }"
-        )
+        self.send_btn.setObjectName("chatSend")
         self.send_btn.clicked.connect(self.send_message)
         self.input_field.set_overlay_button(self.send_btn, margin=8)
 
@@ -667,7 +642,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         """The tool gave up waiting — withdraw the question. - Claude Generated"""
         self.proposal_bar.dismiss(audit_id)
         self._append_html(
-            f'<div style="margin: 2px 24px; color: #ffb86c; font-size: 9pt;">'
+            f'<div class="alima-proposal-note alima-proposal-note--late">'
             f"⌛ Keine Antwort — nichts gespeichert (#audit_{audit_id})</div>"
         )
 
@@ -685,15 +660,15 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
             # "Akzeptiert" here would report a change that never happened.
             # - Claude Generated
             self._append_html(
-                f'<div style="margin: 2px 24px; color: #ffb86c; font-size: 9pt;">'
+                f'<div class="alima-proposal-note alima-proposal-note--late">'
                 f"⌛ Zu spät — die Anfrage war abgelaufen, nichts gespeichert "
                 f"(#audit_{audit_id})</div>"
             )
             return
         status = "✓ Akzeptiert" if accepted else "✗ Abgelehnt"
-        color = "#50fa7b" if accepted else "#ff5555"
+        tone = "ok" if accepted else "no"
         self._append_html(
-            f'<div style="margin: 2px 24px; color: {color}; font-size: 9pt;">'
+            f'<div class="alima-proposal-note alima-proposal-note--{tone}">'
             f'{status} (#audit_{audit_id})</div>'
         )
 

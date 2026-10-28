@@ -251,8 +251,8 @@ class AgenticPipelineMixin:
         if not provider or not model:
             self.logger.warning(
                 "Agentic workflow %r starts with empty provider/model "
-                "(provider=%r, model=%r). Set agentic_default_provider/model, "
-                "pipeline_default_provider/model, or use --override.",
+                "(provider=%r, model=%r). Set the general default provider/model "
+                "(Allgemein) or use --override.",
                 getattr(workflow_path, "name", workflow_path),
                 provider,
                 model,

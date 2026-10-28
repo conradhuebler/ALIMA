@@ -27,13 +27,21 @@ from .registry import register_renderer
 
 COLUMNS = ["Status", "Eingabe", "#Matches", "Begründung"]
 
+# Status → colour token in styles.COLORS / DARK_COLORS (resolved per theme
+# at render time). The status word itself stays in the cell, colour repeats it.
 _STATUS_COLOR = {
-    "duplicate": "#dc3545",         # red
-    "likely_duplicate": "#fd7e14",  # orange
-    "different_edition": "#ffc107", # yellow
-    "new": "#28a745",               # green
-    "no_match": "#6c757d",          # grey
+    "duplicate": "error",
+    "likely_duplicate": "warning",
+    "different_edition": "violet",
+    "new": "success",
+    "no_match": "text_muted",
 }
+
+
+def _colors() -> Dict[str, str]:
+    from src.ui.styles import get_colors
+
+    return get_colors()
 
 
 def _escape_html(text: str) -> str:
@@ -60,17 +68,19 @@ class DuplicateTableRenderer(BaseRenderer):
             f"<th style='text-align:left; padding:4px 8px;'>{_escape_html(c)}</th>"
             for c in COLUMNS
         )
+        c = _colors()
+        line = c["border_light"]
         body_parts: List[str] = []
         for row in rows:
             status = str(row.get("status", "no_match"))
-            color = _STATUS_COLOR.get(status, "#888")
+            color = c[_STATUS_COLOR.get(status, "text_muted")]
             matches = row.get("matches") or []
             body_parts.append(
                 "<tr>"
-                f"<td style='color:{color}; font-weight:bold; padding:4px 8px; border-top:1px solid #444;'>{_escape_html(status)}</td>"
-                f"<td style='padding:4px 8px; border-top:1px solid #444;'>{_escape_html(row.get('input_title', ''))}</td>"
-                f"<td style='padding:4px 8px; border-top:1px solid #444;'>{len(matches)}</td>"
-                f"<td style='font-size:9pt; color:#666; padding:4px 8px; border-top:1px solid #444;'>"
+                f"<td style='color:{color}; font-weight:bold; padding:4px 8px; border-top:1px solid {line};'>{_escape_html(status)}</td>"
+                f"<td style='padding:4px 8px; border-top:1px solid {line};'>{_escape_html(row.get('input_title', ''))}</td>"
+                f"<td style='padding:4px 8px; border-top:1px solid {line};'>{len(matches)}</td>"
+                f"<td style='font-size:9pt; color:{c['text_muted']}; padding:4px 8px; border-top:1px solid {line};'>"
                 f"{_escape_html(row.get('reasoning', ''))}</td>"
                 "</tr>"
             )
@@ -89,7 +99,7 @@ class DuplicateTableRenderer(BaseRenderer):
 
         for row_idx, row in enumerate(rows):
             status = str(row.get("status", "no_match"))
-            color = _STATUS_COLOR.get(status, "#888")
+            color = _colors()[_STATUS_COLOR.get(status, "text_muted")]
             status_item = QTableWidgetItem(status)
             status_item.setForeground(QColor(color))
             table.setItem(row_idx, 0, status_item)

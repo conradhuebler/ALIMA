@@ -57,6 +57,7 @@ from src.ui.forms.step_form_builder import (
     build_step_form,
     find_missing_prerequisites,
 )
+from ..styles import set_tone
 
 
 class SingleStepRunWorker(QThread):
@@ -195,7 +196,8 @@ class SingleStepDialog(QDialog):
 
         # State info label
         self.state_info = QLabel("Context: <empty>")
-        self.state_info.setStyleSheet("color: #555; padding: 2px;")
+        set_tone(self.state_info, "light")
+        self.state_info.setStyleSheet("padding: 2px;")
         outer.addWidget(self.state_info)
 
         # Splitter: form panel (top) vs output (bottom)
@@ -316,7 +318,8 @@ class SingleStepDialog(QDialog):
                 label_text += f"  — fehlt; writer: {f.writer_step_id or '?'}"
             label = QLabel(label_text)
             if f.missing:
-                label.setStyleSheet("color: #b00; font-weight: bold;")
+                set_tone(label, "error")
+                label.setStyleSheet("font-weight: bold;")
             self.form_layout.addRow(label, widget)
 
         # Update state info

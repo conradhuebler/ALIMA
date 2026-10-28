@@ -29,6 +29,7 @@ from .settings import (
     workflow_entries,
 )
 from ..utils.logging_utils import LOG_LEVEL_CHOICES
+from .styles import set_tone
 
 
 class DatabaseTestWorker(QThread):
@@ -449,7 +450,8 @@ class ComprehensiveSettingsDialog(QDialog):
             "laufen über den LLM-Dienst und werden nicht überwacht."
         )
         scope_note.setWordWrap(True)
-        scope_note.setStyleSheet("color: gray; font-size: 10px;")
+        set_tone(scope_note, "muted")
+        scope_note.setStyleSheet("font-size: 10px;")
         repetition_layout.addRow(scope_note)
 
         self.repetition_enabled = QCheckBox("Enable repetition detection")

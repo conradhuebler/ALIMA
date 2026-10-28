@@ -64,17 +64,23 @@ def _load_render_asset(name: str) -> str:
 # render surface). The shared alima_render.css is scoped under #log so it can be
 # safely loaded into the multi-element webapp page; these page-level rules are
 # not, so they live here. - Claude Generated
+# Page ground and scrollbars per theme. The values come from styles.py
+# (background = --alima-bg, scroll_handle, indicator), so the page around #log
+# matches the log in both themes; <html data-theme> switches them. - Claude Generated
 _DOC_CHROME_CSS = """
-html, body {{ margin: 0; padding: 0; background: #1e1e1e; --alima-fs: {fs}pt; }}
+html {{ --doc-bg: {dark_bg}; --doc-thumb: {dark_thumb}; --doc-thumb-hover: {dark_hover}; }}
+html[data-theme="light"] {{ --doc-bg: {light_bg}; --doc-thumb: {light_thumb}; --doc-thumb-hover: {light_hover}; }}
+html, body {{ margin: 0; padding: 0; background: var(--doc-bg); --alima-fs: {fs}pt; }}
+body > #log:empty {{ min-height: 100vh; }}
 ::-webkit-scrollbar {{ width: 12px; }}
-::-webkit-scrollbar-track {{ background: #2d2d2d; }}
-::-webkit-scrollbar-thumb {{ background: #555; border-radius: 6px; }}
-::-webkit-scrollbar-thumb:hover {{ background: #777; }}
+::-webkit-scrollbar-track {{ background: var(--doc-bg); }}
+::-webkit-scrollbar-thumb {{ background: var(--doc-thumb); border-radius: 6px; border: 2px solid var(--doc-bg); }}
+::-webkit-scrollbar-thumb:hover {{ background: var(--doc-thumb-hover); }}
 """
 
 _SCAFFOLD_TEMPLATE = (
     "<!DOCTYPE html>\n"
-    '<html><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
+    '<html data-theme="{theme}"><head><meta charset="utf-8"><style>\n{doc_css}\n{css}\n</style></head>\n'
     '<body><div id="log"></div>\n'
     # Same-window links: keeps _ensureLinksNewTab from stamping
     # target="_blank" (a Chromium popup request the GUI never fulfils —
@@ -86,13 +92,29 @@ _SCAFFOLD_TEMPLATE = (
 )
 
 
-def _build_scaffold_html(base_font_pt: int) -> str:
-    """Assemble the WebLogView document from the shared CSS + JS assets."""
+def _build_scaffold_html(base_font_pt: int, dark: Optional[bool] = None) -> str:
+    """Assemble the WebLogView document from the shared CSS + JS assets.
+
+    ``dark`` (default: the current GUI theme) sets ``<html data-theme>``; the
+    light #log palette in alima_render.css keys on it.
+    """
     from ..utils.i18n import catalog_for_js
+    from .styles import COLORS, DARK_COLORS, is_dark_mode
 
     fs = max(8, int(base_font_pt))
+    if dark is None:
+        dark = is_dark_mode()
     return _SCAFFOLD_TEMPLATE.format(
-        doc_css=_DOC_CHROME_CSS.format(fs=fs),
+        theme="dark" if dark else "light",
+        doc_css=_DOC_CHROME_CSS.format(
+            fs=fs,
+            dark_bg=DARK_COLORS["background"],
+            dark_thumb=DARK_COLORS["scroll_handle"],
+            dark_hover=DARK_COLORS["indicator"],
+            light_bg=COLORS["background"],
+            light_thumb=COLORS["scroll_handle"],
+            light_hover=COLORS["indicator"],
+        ),
         css=_load_render_asset("alima_render.css"),
         js=_load_render_asset("alima_render.js"),
         i18n=json.dumps(catalog_for_js()),
@@ -255,6 +277,19 @@ class WebLogView(QWidget):
 
     def set_autoscroll(self, enabled: bool) -> None:
         self._run_js(f"window.__autoscroll = {str(bool(enabled)).lower()};")
+
+    def set_theme(self, dark: bool) -> None:
+        """Switch the log between the dark and light palette without
+        rebuilding the document (``<html data-theme>``). - Claude Generated"""
+        theme = "dark" if dark else "light"
+        self._run_js(f"document.documentElement.setAttribute('data-theme', '{theme}');")
+
+    def refresh_styles(self) -> None:
+        """Follow the GUI theme (called by the main window on a theme switch).
+        - Claude Generated"""
+        from .styles import is_dark_mode
+
+        self.set_theme(is_dark_mode())
 
     def set_font_pt(self, pt: int) -> None:
         """Update the base font size (pt) of the log document (--alima-fs var)."""

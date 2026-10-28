@@ -66,9 +66,11 @@ from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..utils.config_models import PipelineStepConfig, PipelineMode
 from ..utils.pipeline_text_utils import validate_prompt_placeholders
 from .styles import (
+    set_tone,
+    set_variant,
+    set_status,
     get_main_stylesheet,
     get_button_styles,
-    get_status_label_styles,
     get_font_size,
     LAYOUT,
     COLORS,
@@ -280,7 +282,7 @@ class AbstractTab(QWidget):
 
         # Feedback line: which task is active and what it does - Claude Generated
         self.task_description_label = QLabel("")
-        self.task_description_label.setStyleSheet("color: gray;")
+        set_tone(self.task_description_label, "muted")
         self.task_description_label.setWordWrap(True)
         main_layout.addWidget(self.task_description_label)
 
@@ -296,7 +298,7 @@ class AbstractTab(QWidget):
         header_layout.addWidget(QLabel("Abstract / Text:"))
         header_layout.addStretch(1)
         self.pdf_button = QPushButton("PDF importieren")
-        self.pdf_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.pdf_button, "secondary")
         self.pdf_button.clicked.connect(self.import_pdf)
         header_layout.addWidget(self.pdf_button)
         input_layout.addLayout(header_layout)
@@ -458,7 +460,7 @@ class AbstractTab(QWidget):
         reset_selection_btn = QPushButton("🔄")
         reset_selection_btn.setToolTip("Reset provider/model to prompt defaults")
         reset_selection_btn.setMaximumWidth(40)
-        reset_selection_btn.setStyleSheet(btn_styles["secondary"])
+        set_variant(reset_selection_btn, "secondary")
         reset_selection_btn.clicked.connect(self.reset_explicit_selections)
         provider_model_layout.addWidget(reset_selection_btn, 1, 2)
 
@@ -497,13 +499,13 @@ class AbstractTab(QWidget):
         analysis_button_layout = QHBoxLayout()
         analysis_button_layout.setSpacing(LAYOUT["spacing"])
         self.analyze_button = QPushButton("Analyse starten")
-        self.analyze_button.setStyleSheet(btn_styles["primary"])
+        set_variant(self.analyze_button, "primary")
         self.analyze_button.clicked.connect(self.start_analysis)
         analysis_button_layout.addWidget(self.analyze_button)
 
         # Cancel button (initially hidden)
         self.cancel_button = QPushButton("Abbrechen")
-        self.cancel_button.setStyleSheet(btn_styles["error"])
+        set_variant(self.cancel_button, "error")
         self.cancel_button.clicked.connect(self.cancel_analysis)
         self.cancel_button.setVisible(False)
         analysis_button_layout.addWidget(self.cancel_button)
@@ -512,7 +514,7 @@ class AbstractTab(QWidget):
 
         # Status label for analysis feedback
         self.status_label = QLabel("Bereit")
-        self.status_label.setStyleSheet(get_status_label_styles()["success"])
+        set_status(self.status_label, "success")
         analysis_button_layout.addWidget(self.status_label)
 
         # Create input widget that includes input/config and analysis buttons (this will be hidden/shown)
@@ -529,7 +531,7 @@ class AbstractTab(QWidget):
 
         # Toggle view button (always visible)
         self.toggle_input_button = QPushButton("Eingabe ausblenden")
-        self.toggle_input_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.toggle_input_button, "secondary")
         self.toggle_input_button.clicked.connect(self.toggle_input_visibility)
         control_button_layout.addWidget(self.toggle_input_button)
 
@@ -588,7 +590,7 @@ class AbstractTab(QWidget):
         nav_layout.addWidget(self.results_list)
 
         clear_button = QPushButton("Historie löschen")
-        clear_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(clear_button, "secondary")
         clear_button.clicked.connect(self.clear_results_history)
         nav_layout.addWidget(clear_button)
 
@@ -614,10 +616,9 @@ class AbstractTab(QWidget):
 
     def refresh_styles(self):
         """Re-apply styles after theme change — Claude Generated"""
-        from .styles import get_main_stylesheet, get_button_styles, get_status_label_styles
+        # The status line keeps its tone; its colour follows the theme via
+        # the main stylesheet.
         self.setStyleSheet(get_main_stylesheet())
-        if hasattr(self, 'status_label'):
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
 
     def load_result_from_history(self, item):
         """Load a result from the history list - Claude Generated (Enhanced for full state restoration)"""
@@ -994,7 +995,7 @@ class AbstractTab(QWidget):
         self.status_label.setText(
             f"Analyse läuft... ({self._task_display_name(self.task)})"
         )
-        self.status_label.setStyleSheet("QLabel { color: #ff9800; font-weight: bold; }")
+        set_status(self.status_label, "warning")
         self.progress_bar.setVisible(True)
         self.results_edit.clear()
 
@@ -1094,7 +1095,7 @@ class AbstractTab(QWidget):
         self.analyze_button.setVisible(True)
         self.cancel_button.setVisible(False)
         self.status_label.setText("Analyse abgeschlossen ✓")
-        self.status_label.setStyleSheet("QLabel { color: #4caf50; font-weight: bold; }")
+        set_status(self.status_label, "success")
 
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
@@ -1199,9 +1200,7 @@ class AbstractTab(QWidget):
             time.sleep(3)
             if not self.is_analysis_running:  # Only reset if no new analysis started
                 self.status_label.setText("Bereit")
-                self.status_label.setStyleSheet(
-                    "QLabel { color: #4caf50; font-weight: bold; }"
-                )
+                set_status(self.status_label, "success")
 
         threading.Thread(target=reset_status, daemon=True).start()
 
@@ -1215,7 +1214,7 @@ class AbstractTab(QWidget):
         self.analyze_button.setVisible(True)
         self.cancel_button.setVisible(False)
         self.status_label.setText("Fehler ✗")
-        self.status_label.setStyleSheet("QLabel { color: #d32f2f; font-weight: bold; }")
+        set_status(self.status_label, "error")
 
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
@@ -1234,9 +1233,7 @@ class AbstractTab(QWidget):
             time.sleep(5)
             if not self.is_analysis_running:
                 self.status_label.setText("Bereit")
-                self.status_label.setStyleSheet(
-                    "QLabel { color: #4caf50; font-weight: bold; }"
-                )
+                set_status(self.status_label, "success")
 
         threading.Thread(target=reset_status, daemon=True).start()
 
@@ -1282,9 +1279,7 @@ class AbstractTab(QWidget):
         # Update status to show streaming is active
         if self.is_analysis_running:
             self.status_label.setText("Streaming...")
-            self.status_label.setStyleSheet(
-                "QLabel { color: #2196f3; font-weight: bold; }"
-            )
+            set_status(self.status_label, "info")
 
         # Clear the initial "Analysis started" message on first token
         current_text = self.results_edit.toPlainText()
@@ -1364,7 +1359,7 @@ class AbstractTab(QWidget):
         self.analyze_button.setVisible(True)
         self.cancel_button.setVisible(False)
         self.status_label.setText("Abgebrochen")
-        self.status_label.setStyleSheet("QLabel { color: #ff9800; font-weight: bold; }")
+        set_status(self.status_label, "warning")
 
         # Restore input area if it was auto-hidden during streaming
         self.restore_input_after_streaming()
@@ -1379,9 +1374,7 @@ class AbstractTab(QWidget):
             time.sleep(3)
             if not self.is_analysis_running:
                 self.status_label.setText("Bereit")
-                self.status_label.setStyleSheet(
-                    "QLabel { color: #4caf50; font-weight: bold; }"
-                )
+                set_status(self.status_label, "success")
 
         threading.Thread(target=reset_status, daemon=True).start()
 

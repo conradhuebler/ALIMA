@@ -210,8 +210,8 @@ Then visit `http://localhost:8000` in browser.
   (stream blocks / `appendLocalNotice` / `#dk-progress` in the pipeline bar).
   `streaming_tokens` WS/poll frames remain for the API but are not rendered.
 - **Theming**: `#log` chrome is driven by `--alima-*` variables
-  (`alima_render.css`, dark defaults for the GUI); the webapp light theme
-  overrides them in `styles.css` — the theme toggle now reaches the log.
+  (`alima_render.css`, which holds both the dark defaults and the light
+  values); the theme toggle reaches the log in the webapp and the Qt log.
 - **Errors**: `kind="error"` collapsibles (red chrome) carry the step/chat
   error text in both frontends.
 - **i18n**: UI-chrome strings come from `locales/de.json`/`en.json`
@@ -220,3 +220,6 @@ Then visit `http://localhost:8000` in browser.
 - **Bus-consumer ownership**: see the note in `render_bridge.py` /
   `_chat_panel_bus.py` — webapp + GUI handler bodies must stay in lockstep;
   the chat endpoint subscribes with `tool_events=False` (double-render guard).
+
+## Gestaltung (Oct 2026)
+Farbwelt aus `alima.png` (Aubergine/Blauschwarz, Pfirsich→Koralle→Rosa-Rot, kühles Blau-Violett als Gegenakzent), hell und dunkel, ohne externe Schriften. Tokens, Kontrast-Tabelle und Entscheidungen: [`docs/design_refresh.md`](../../docs/design_refresh.md); `tests/test_design_tokens.py` misst die Kontrastpaare an den echten Dateien. `alima_render.css` ist die gemeinsame Quelle für Webapp und Qt-Log; die Marke liegt als `static/alima-mark.svg`.

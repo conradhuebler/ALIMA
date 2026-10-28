@@ -940,7 +940,7 @@ class UnifiedMessageRenderer:
             new = self._escape_html(str(payload.get("new", "")))
             gnd = payload.get("gnd_id") or ""
             gnd_str = (
-                f" <span style='color: #888;'>(GND-ID: {self._escape_html(gnd)})</span>"
+                f" <span class='alima-proposal__meta'>(GND-ID: {self._escape_html(gnd)})</span>"
                 if gnd
                 else ""
             )
@@ -958,13 +958,13 @@ class UnifiedMessageRenderer:
             when = self._escape_html(str(payload.get("applies_when", "") or ""))
             scope = self._escape_html(str(payload.get("scope", "") or "*"))
             when_html = (
-                f'<div style="color: #f8f8f2; margin-top: 2px;">Bedingung: {when}</div>'
+                f'<div class="alima-proposal__body" style="margin-top: 2px;">Bedingung: {when}</div>'
                 if when
                 else ""
             )
             diff_html = (
                 f"<b>{rule_text}</b>{when_html}"
-                f'<div style="color: #888; font-size: 9pt; margin-top: 2px;">'
+                f'<div class="alima-proposal__meta" style="margin-top: 2px;">'
                 f"Gilt für: {scope}</div>"
             )
         else:
@@ -972,17 +972,16 @@ class UnifiedMessageRenderer:
 
         reason = self._escape_html(str(payload.get("reason", "") or "—"))
 
+        # Colours: .alima-proposal in alima_render.css (both themes).
         html = (
-            f'<div style="margin: 6px 12px; padding: 10px; '
-            f'background-color: #2d3142; border-left: 3px solid #ffb86c; '
-            f'border-radius: 4px;">'
-            f'<div style="color: #ffb86c; font-weight: bold; font-size: 10pt;">{title}</div>'
-            f'<div style="color: #f8f8f2; margin-top: 4px;">{diff_html}</div>'
-            f'<div style="color: #888; font-size: 9pt; margin-top: 4px;">'
+            f'<div class="alima-proposal">'
+            f'<div class="alima-proposal__title">{title}</div>'
+            f'<div class="alima-proposal__body" style="margin-top: 4px;">{diff_html}</div>'
+            f'<div class="alima-proposal__meta" style="margin-top: 4px;">'
             f"Begründung: {reason}</div>"
-            f'<div style="color: #888; font-size: 9pt; margin-top: 6px;">'
+            f'<div class="alima-proposal__meta" style="margin-top: 6px;">'
             f"Zur Bestätigung unterhalb des Verlaufs "
-            f'<span style="color: #555; font-size: 8pt;">#audit_{audit_id}</span>'
+            f'<span class="alima-proposal__id">#audit_{audit_id}</span>'
             f"</div></div>"
         )
         self.transport.send(ev.block(html, kind=ev.KIND_PROPOSAL))

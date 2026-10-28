@@ -38,7 +38,7 @@ class ProviderScope(str, Enum):
     GENERAL = "general"    # preferred -> first enabled
     PIPELINE = "pipeline"  # pipeline_default -> preferred -> first enabled
     VISION = "vision"      # vision_default -> preferred -> first enabled
-    AGENTIC = "agentic"    # agentic_default -> pipeline_default -> preferred -> first enabled
+    AGENTIC = "agentic"    # Alias von GENERAL: Agentik, Chat und Allgemein sind eine Einstellung
 
 
 class TaskType(Enum):
@@ -364,6 +364,37 @@ class PipelineStepConfig:
 # UNIFIED PROVIDER CONFIGURATION
 # ============================================================================
 
+LOCAL_OLLAMA_PRESET_NAME = "ollama_local"
+
+
+def local_ollama_preset() -> "UnifiedProvider":
+    """Vorkonfigurierter, ausgeschalteter Eintrag für ein lokales Ollama - Claude Generated.
+
+    Native Schnittstelle auf dem Ollama-Standardport. Erst wenn der Nutzer ihn
+    anhakt, wird er Teil der Konfiguration.
+    """
+    return UnifiedProvider(
+        name=LOCAL_OLLAMA_PRESET_NAME,
+        provider_type="ollama",
+        enabled=False,
+        host="localhost",
+        port=11434,
+        base_url="http://localhost:11434",
+        description="Ollama auf diesem Rechner (Port 11434)",
+    )
+
+
+def has_local_native_ollama(providers) -> bool:
+    """Gibt es schon einen nativen Ollama-Eintrag auf diesem Rechner? - Claude Generated"""
+    for p in providers:
+        if getattr(p, "provider_type", "") != "ollama":
+            continue
+        where = f"{getattr(p, 'host', '')} {getattr(p, 'base_url', '')}".lower()
+        if "localhost" in where or "127.0.0.1" in where:
+            return True
+    return False
+
+
 @dataclass
 class UnifiedProvider:
     """Unified provider representation for all provider types - Claude Generated"""
@@ -486,8 +517,6 @@ class UnifiedProviderConfig:
     pipeline_default_provider: str = ""  # e.g. "ollama", "gemini"
     pipeline_default_model: str = ""     # e.g. "cogito:32b", "gemini-1.5-flash"
 
-    # Agentic / workflow default provider/model (WP-ι cleanup)
-    # Falls back to pipeline_default, then preferred_provider if unset.
     # Image/OCR analysis. A capability question, not a pipeline step: it applies
     # to image and PDF input whatever the operating mode. Used to live in
     # task_preferences["vision"], which no live resolution path consulted — every
@@ -496,9 +525,6 @@ class UnifiedProviderConfig:
     # (Oct 2026). - Claude Generated
     vision_default_provider: str = ""
     vision_default_model: str = ""
-
-    agentic_default_provider: str = ""
-    agentic_default_model: str = ""
 
     # Retired as a live config surface (Oct 2026): no UI writes it, no live
     # resolution path reads it. Parsed from disk only so
@@ -625,8 +651,9 @@ class UnifiedProviderConfig:
 
         Hierarchy per scope (first match wins):
           - pipeline:  pipeline_default -> preferred -> first enabled provider
-          - agentic:   agentic_default -> pipeline_default -> preferred -> first enabled provider
           - general:   preferred -> first enabled provider
+          - agentic:   dasselbe wie general (Agentik, Chat und Allgemein sind eine
+                       Einstellung; ``agentic_default_*`` gibt es nicht mehr)
 
         Empty strings are treated as unset.  When ``fallback_to_first_enabled`` is
         True and no configured default is available, the first enabled provider's
@@ -648,7 +675,6 @@ class UnifiedProviderConfig:
     #: Why a default resolved the way it did. Stable keys — the UI maps them to
     #: labels, so a rename here is a visible break rather than a silent one.
     DEFAULT_SOURCES = {
-        "agentic_default": "Agentic Default",
         "vision_default": "Vision-Standard",
         "pipeline_default": "Pipeline Default",
         "preferred": "General Default",
@@ -684,11 +710,7 @@ class UnifiedProviderConfig:
             candidate_fields.append(
                 ("vision_default", self.vision_default_provider, self.vision_default_model)
             )
-        if scope == "agentic":
-            candidate_fields.append(
-                ("agentic_default", self.agentic_default_provider, self.agentic_default_model)
-            )
-        if scope in ("agentic", "pipeline"):  # vision falls straight through
+        if scope == "pipeline":  # vision falls straight through
             candidate_fields.append(
                 ("pipeline_default", self.pipeline_default_provider, self.pipeline_default_model)
             )
@@ -775,7 +797,6 @@ class UnifiedProviderConfig:
         """
         pairs = (
             ("pipeline_default_provider", "pipeline_default_model"),
-            ("agentic_default_provider", "agentic_default_model"),
             ("vision_default_provider", "vision_default_model"),
             ("preferred_provider", "preferred_model"),
         )

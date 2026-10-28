@@ -27,6 +27,7 @@ from .styles import (
     get_main_stylesheet,
     get_scaled_font,
 )
+from .styles import set_tone
 
 
 # ----------------------------------------------------------------------
@@ -53,7 +54,8 @@ class SystemPromptDialog(QDialog):
             "Änderungen wirken sich sofort auf die nächste Nachricht aus."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #666; font-size: 10px;")
+        set_tone(info, "muted")
+        info.setStyleSheet("font-size: 10px;")
         layout.addWidget(info)
 
         self.editor = QTextEdit()

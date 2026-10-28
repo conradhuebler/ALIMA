@@ -23,6 +23,14 @@ from ..utils.setup_utils import (
     ConfigurationBuilder, PromptValidator, SetupResult
 )
 from ..utils.preset_loader import PresetLoader, InstitutionPresets
+from .styles import get_colors
+
+
+def _fg(token: str) -> str:
+    """Inline text colour from the current theme. The wizard also runs before
+    the main window has set the application stylesheet, so it cannot rely on
+    the ``tone`` rules there. - Claude Generated"""
+    return f"color: {get_colors()[token]};"
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +42,11 @@ class FirstStartWizard(QWizard):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("ALIMA Setup-Assistent")
-        self.setWindowIcon(QIcon("assets/alima.png"))
+        # The logo mark shared with the main window and the webapp favicon
+        # ("assets/alima.png" never existed, the wizard had no icon).
+        self.setWindowIcon(QIcon(str(
+            Path(__file__).resolve().parent.parent / "webapp" / "static" / "alima-icon.svg"
+        )))
         self.setMinimumWidth(600)
         self.setMinimumHeight(500)
 
@@ -374,9 +386,10 @@ class WelcomePage(QWizardPage):
                 f"🏛️ Konfiguriert für: {presets.institution_name}\n"
                 "Vorausgefüllte Einstellungen können überschrieben werden."
             )
+            c = get_colors()
             preset_banner.setStyleSheet(
-                "background-color: #dbeafe; color: #1e3a5f; "
-                "padding: 8px; border-radius: 5px; border: 1px solid #93c5fd;"
+                f"background-color: {c['info_bg']}; color: {c['secondary']}; "
+                f"padding: 8px; border-radius: 5px; border: 1px solid {c['secondary']};"
             )
             preset_banner.setWordWrap(True)
             layout.addWidget(preset_banner)
@@ -385,7 +398,9 @@ class WelcomePage(QWizardPage):
         info = QLabel(
             "💡 Tipp: Sie können diese Einstellungen jederzeit im Anwendungsmenü ändern."
         )
-        info.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
+        info.setStyleSheet(
+            f"background-color: {get_colors()['background_light']}; padding: 10px; border-radius: 5px;"
+        )
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -457,10 +472,21 @@ class LLMSetupPage(QWizardPage):
 
         self.ollama_port_label = QLabel("Port:")
         self.ollama_port_input = QSpinBox()
-        self.ollama_port_input.setValue(11434)
+        # Erst der Bereich: ein QSpinBox hat von Haus aus 0..99 und kappt
+        # setValue(11434) sonst still auf 99.
         self.ollama_port_input.setRange(1, 65535)
+        self.ollama_port_input.setValue(11434)
         self.config_layout.addWidget(self.ollama_port_label)
         self.config_layout.addWidget(self.ollama_port_input)
+
+        self.ollama_ssl_input = QCheckBox("HTTPS verwenden (SSL)")
+        self.config_layout.addWidget(self.ollama_ssl_input)
+
+        self.ollama_hint = QLabel("")
+        self.ollama_hint.setWordWrap(True)
+        self.ollama_hint.setTextFormat(Qt.TextFormat.RichText)
+        self.ollama_hint.setVisible(False)
+        self.config_layout.addWidget(self.ollama_hint)
 
         # API Key (for cloud providers)
         self.api_key_label = QLabel("API-Schlüssel:")
@@ -472,6 +498,20 @@ class LLMSetupPage(QWizardPage):
         self.config_layout.addWidget(self.api_key_input)
 
         # Base URL (for OpenAI-compatible)
+        from ..utils.provider_presets import DISCLAIMER, OPENAI_COMPATIBLE_PRESETS
+
+        self.openai_preset_label = QLabel("Vorlage:")
+        self.openai_preset_combo = QComboBox()
+        self.openai_preset_combo.addItem("(eigene URL)", None)
+        for _preset in OPENAI_COMPATIBLE_PRESETS:
+            self.openai_preset_combo.addItem(_preset.label, _preset.base_url)
+        self.openai_preset_combo.setToolTip(DISCLAIMER)
+        self.openai_preset_combo.activated.connect(self._on_openai_preset_chosen)
+        self.openai_preset_label.setVisible(False)
+        self.openai_preset_combo.setVisible(False)
+        self.config_layout.addWidget(self.openai_preset_label)
+        self.config_layout.addWidget(self.openai_preset_combo)
+
         self.base_url_label = QLabel("API Basis-URL:")
         self.base_url_input = QLineEdit()
         self.base_url_input.setText("https://api.openai.com/v1")
@@ -489,8 +529,14 @@ class LLMSetupPage(QWizardPage):
         # Connect input changes to trigger auto-test (with debounce)
         self.ollama_host_input.textChanged.connect(self._schedule_auto_test)
         self.ollama_port_input.valueChanged.connect(self._schedule_auto_test)
+        self.ollama_ssl_input.toggled.connect(self._schedule_auto_test)
+        for signal in (self.ollama_host_input.textChanged, self.api_key_input.textChanged,
+                       self.ollama_port_input.valueChanged, self.ollama_ssl_input.toggled):
+            signal.connect(self._update_ollama_hint)
         self.api_key_input.textChanged.connect(self._schedule_auto_test)
         self.base_url_input.textChanged.connect(self._schedule_auto_test)
+        self.base_url_input.textChanged.connect(self._sync_openai_preset)
+        self._sync_openai_preset()
 
         config_box.setLayout(self.config_layout)
         layout.addWidget(config_box)
@@ -507,7 +553,7 @@ class LLMSetupPage(QWizardPage):
 
         # Preset hint label (hidden until presets applied) - Claude Generated
         self._preset_hint = QLabel("🏛️ (Institutions-Standard)")
-        self._preset_hint.setStyleSheet("color: gray; font-style: italic;")
+        self._preset_hint.setStyleSheet(_fg("text_muted") + " font-style: italic;")
         self._preset_hint.setVisible(False)
         layout.addWidget(self._preset_hint)
 
@@ -533,12 +579,11 @@ class LLMSetupPage(QWizardPage):
             provider = presets.llm_provider_type
             if provider in ('ollama', ''):
                 try:
-                    from urllib.parse import urlparse
-                    parsed = urlparse(presets.llm_base_url)
-                    host = parsed.hostname or presets.llm_base_url
-                    port = parsed.port or 11434
+                    from ..utils.ollama_endpoint import parse_host
+                    host, port, use_ssl = parse_host(presets.llm_base_url, 11434, False)
                     self.ollama_host_input.setText(host)
                     self.ollama_port_input.setValue(port)
+                    self.ollama_ssl_input.setChecked(use_ssl)
                 except Exception:
                     self.ollama_host_input.setText(presets.llm_base_url)
             elif provider == 'openai_compatible':
@@ -584,6 +629,45 @@ class LLMSetupPage(QWizardPage):
         if can_test:
             self._test_connection()
 
+    def _on_openai_preset_chosen(self, index: int) -> None:
+        """Vorlage gewählt: Basis-URL setzen (Auswahl ``(eigene URL)`` lässt sie stehen) - Claude Generated"""
+        url = self.openai_preset_combo.itemData(index)
+        if url:
+            self.base_url_input.setText(url)
+
+    def _sync_openai_preset(self, *_args) -> None:
+        """Die Vorlagen-Auswahl folgt der eingetragenen URL - Claude Generated"""
+        from ..utils.provider_presets import preset_for_url
+
+        preset = preset_for_url(self.base_url_input.text())
+        index = 0
+        if preset is not None:
+            index = self.openai_preset_combo.findData(preset.base_url)
+            index = max(index, 0)
+        self.openai_preset_combo.blockSignals(True)
+        self.openai_preset_combo.setCurrentIndex(index)
+        self.openai_preset_combo.blockSignals(False)
+
+    def _update_ollama_hint(self, *_args) -> None:
+        """Live-Hinweise zur Ollama-Eingabe (gleiche Regeln wie im Anbieter-Dialog) - Claude Generated"""
+        from ..utils import ollama_endpoint
+
+        if self.provider_group.checkedId() != 0:
+            self.ollama_hint.setVisible(False)
+            return
+        c = get_colors()
+        colors = {"error": c["error"], "warn": c["warning"], "info": c["text_muted"]}
+        icons = {"error": "⛔", "warn": "⚠️", "info": "ℹ️"}
+        items = ollama_endpoint.hints(
+            self.ollama_host_input.text(), self.ollama_port_input.value(),
+            self.ollama_ssl_input.isChecked(), self.api_key_input.text(),
+        )
+        self.ollama_hint.setText("<br>".join(
+            f'<span style="color:{colors[h.level]}">{icons[h.level]} {h.text}</span>'
+            for h in items
+        ))
+        self.ollama_hint.setVisible(bool(items))
+
     def _schedule_auto_test(self):
         """Schedule auto-test after user stops typing (1.5s debounce) - Claude Generated"""
         # Cancel any pending test
@@ -600,17 +684,23 @@ class LLMSetupPage(QWizardPage):
         self.ollama_host_input.setVisible(selected == 0)
         self.ollama_port_label.setVisible(selected == 0)
         self.ollama_port_input.setVisible(selected == 0)
+        self.ollama_ssl_input.setVisible(selected == 0)
+        self._update_ollama_hint()
 
         # OpenAI-compatible settings (selected == 1)
+        self.openai_preset_label.setVisible(selected == 1)
+        self.openai_preset_combo.setVisible(selected == 1)
         self.base_url_label.setVisible(selected == 1)
         self.base_url_input.setVisible(selected == 1)
 
         # Cloud API settings (Gemini=2, Anthropic=3, OpenAI-Compatible=1)
-        self.api_key_label.setVisible(selected in [1, 2, 3])
-        self.api_key_input.setVisible(selected in [1, 2, 3])
+        self.api_key_label.setVisible(selected in [0, 1, 2, 3])
+        self.api_key_input.setVisible(selected in [0, 1, 2, 3])
 
         # Update API Key label text for clarity - Claude Generated
-        if selected == 1:
+        if selected == 0:
+            self.api_key_label.setText("API-Schlüssel (nur für Ollama Cloud oder einen Proxy):")
+        elif selected == 1:
             self.api_key_label.setText("API-Schlüssel (optional für Kompatibilitätsmodus):")
         elif selected in [2, 3]:
             self.api_key_label.setText("API-Schlüssel:")
@@ -622,11 +712,18 @@ class LLMSetupPage(QWizardPage):
         selected = self.provider_group.checkedId()
 
         if selected == 0:  # Ollama
+            from ..utils import ollama_endpoint
+
             host = self.ollama_host_input.text()
             port = self.ollama_port_input.value()
-            result = OllamaConnectionValidator.test_native(host, port)
+            use_ssl = self.ollama_ssl_input.isChecked()
+            api_key = ollama_endpoint.clean_api_key(self.api_key_input.text())
+            result = OllamaConnectionValidator.test_native(
+                host, port, api_key, use_ssl=use_ssl
+            )
             self.provider_type = "ollama"
-            self.base_url = f"http://{host}:{port}"
+            self.base_url = ollama_endpoint.base_url(host, port, use_ssl)
+            self.api_key = api_key
 
         elif selected == 1:  # OpenAI-compatible
             base_url = self.base_url_input.text()
@@ -654,12 +751,12 @@ class LLMSetupPage(QWizardPage):
         # Display result
         if result.success:
             self.status_label.setText(f"✅ {result.message}")
-            self.status_label.setStyleSheet("color: green;")
+            self.status_label.setStyleSheet(_fg("success"))
             self.available_models = result.data or []
             self.provider_name = self.provider_type  # BUGFIX: Use actual provider type for consistency
         else:
             self.status_label.setText(f"❌ {result.message}")
-            self.status_label.setStyleSheet("color: red;")
+            self.status_label.setStyleSheet(_fg("error"))
 
     def validatePage(self) -> bool:
         """Validate LLM configuration before proceeding - Claude Generated"""
@@ -1108,7 +1205,7 @@ class DatabaseSetupPage(QWizardPage):
 
             if not success:
                 self.connection_status.setText(f"❌ {message}")
-                self.connection_status.setStyleSheet("color: red;")
+                self.connection_status.setStyleSheet(_fg("error"))
                 self._connection_test_result = False
                 db.close_connection()
                 return
@@ -1128,26 +1225,26 @@ class DatabaseSetupPage(QWizardPage):
             # Build status message
             if gnd_count > 0:
                 status_msg = f"✅ Verbunden - {gnd_count:,} GND-Einträge gefunden"
-                self.connection_status.setStyleSheet("color: green;")
+                self.connection_status.setStyleSheet(_fg("success"))
 
                 # Auto-select "Skip" since GND data already exists
                 self.gnd_skip_radio.setChecked(True)
                 self.gnd_status_label.setText(f"✅ GND-Daten bereits vorhanden ({gnd_count:,} Einträge)")
-                self.gnd_status_label.setStyleSheet("color: green;")
+                self.gnd_status_label.setStyleSheet(_fg("success"))
             else:
                 status_msg = "✅ Verbunden - Keine GND-Daten"
-                self.connection_status.setStyleSheet("color: #FF8C00;")  # Orange for warning
+                self.connection_status.setStyleSheet(_fg("warning"))
 
                 # Suggest download if no GND data
                 self.gnd_status_label.setText("ℹ️ GND-Daten nicht vorhanden - Download empfohlen")
-                self.gnd_status_label.setStyleSheet("color: #FF8C00;")
+                self.gnd_status_label.setStyleSheet(_fg("warning"))
 
             self.connection_status.setText(status_msg)
             self._connection_test_result = True
 
         except Exception as e:
             self.connection_status.setText(f"❌ Fehler: {str(e)}")
-            self.connection_status.setStyleSheet("color: red;")
+            self.connection_status.setStyleSheet(_fg("error"))
             self._connection_test_result = False
 
     def _download_gnd(self):
@@ -1174,15 +1271,15 @@ class DatabaseSetupPage(QWizardPage):
             if result.success:
                 self.downloaded_xml_path = result.data
                 self.gnd_status_label.setText("✅ GND-Datenbank heruntergeladen")
-                self.gnd_status_label.setStyleSheet("color: green;")
+                self.gnd_status_label.setStyleSheet(_fg("success"))
                 self.gnd_download_btn.setEnabled(False)
             else:
                 self.gnd_status_label.setText(f"❌ Download fehlgeschlagen: {result.message}")
-                self.gnd_status_label.setStyleSheet("color: red;")
+                self.gnd_status_label.setStyleSheet(_fg("error"))
         except Exception as e:
             progress.close()
             self.gnd_status_label.setText(f"❌ Fehler: {str(e)}")
-            self.gnd_status_label.setStyleSheet("color: red;")
+            self.gnd_status_label.setStyleSheet(_fg("error"))
 
     def _apply_presets(self, presets: InstitutionPresets):
         """Apply database presets if available"""
@@ -1211,7 +1308,7 @@ class DatabaseSetupPage(QWizardPage):
             self.gnd_preset_radio.setVisible(True)
             self.gnd_preset_radio.setChecked(True)
             self.gnd_status_label.setText("✅ Preset-Datenbank enthält bereits GND-Daten")
-            self.gnd_status_label.setStyleSheet("color: green;")
+            self.gnd_status_label.setStyleSheet(_fg("success"))
 
     def get_database_config(self) -> dict:
         """Get database configuration from the form"""
@@ -1453,12 +1550,12 @@ class CatalogSetupPage(QWizardPage):
         url = self.soap_search_url.text().strip()
         if not url:
             self.status_label.setText("⚠️  Bitte erst eine SOAP Search URL eingeben.")
-            self.status_label.setStyleSheet("color: orange;")
+            self.status_label.setStyleSheet(_fg("warning"))
             return
 
         self.test_button.setEnabled(False)
         self.status_label.setText("🔄 Teste Verbindung...")
-        self.status_label.setStyleSheet("color: gray;")
+        self.status_label.setStyleSheet(_fg("text_muted"))
 
         from PyQt6.QtWidgets import QApplication
         QApplication.processEvents()
@@ -1471,15 +1568,15 @@ class CatalogSetupPage(QWizardPage):
                 self.status_label.setText(
                     f"✅ Server antwortet (HTTP {r.status_code}) — SOAP-Endpunkt erreichbar."
                 )
-                self.status_label.setStyleSheet("color: green;")
+                self.status_label.setStyleSheet(_fg("success"))
             else:
                 self.status_label.setText(
                     f"⚠️  Server antwortete mit HTTP {r.status_code}. URL prüfen."
                 )
-                self.status_label.setStyleSheet("color: orange;")
+                self.status_label.setStyleSheet(_fg("warning"))
         except Exception as exc:
             self.status_label.setText(f"❌ Verbindung fehlgeschlagen: {exc}")
-            self.status_label.setStyleSheet("color: red;")
+            self.status_label.setStyleSheet(_fg("error"))
         finally:
             self.test_button.setEnabled(True)
 

@@ -24,6 +24,14 @@ from PyQt6.QtMultimediaWidgets import QVideoWidget
 import logging
 from typing import Optional
 
+from .styles import DARK_COLORS, set_tone, set_variant
+
+# Marks drawn over the camera image, not over the UI: they must stand out
+# against a photo in either theme. The dimmed outside is plain translucent
+# black (whitelisted in tests/test_no_hardcoded_colors.py); the crop frame
+# uses the light logo peach.
+_CROP_MARK = DARK_COLORS["focus"]
+
 
 class CropOverlayWidget(QWidget):
     """Overlay widget for crop rectangle selection - Claude Generated"""
@@ -105,17 +113,17 @@ class CropOverlayWidget(QWidget):
         # Subtract crop area from overlay (creates donut shape)
         overlay_path = overlay_path.subtracted(crop_path)
 
-        painter.fillPath(overlay_path, QColor(0, 0, 0, 120))
+        painter.fillPath(overlay_path, QColor(0, 0, 0, 120))  # dims the photo outside the crop
 
         # Draw crop rectangle border
-        pen = QPen(QColor(0, 255, 0), 3, Qt.PenStyle.SolidLine)
+        pen = QPen(QColor(_CROP_MARK), 3, Qt.PenStyle.SolidLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)
 
         # Draw corner handles
         handle_size = 10
-        painter.setBrush(QColor(0, 255, 0))
+        painter.setBrush(QColor(_CROP_MARK))
         painter.setPen(Qt.PenStyle.NoPen)
 
         corners = [
@@ -207,7 +215,8 @@ class WebcamCaptureDialog(QDialog):
         # Image label for captured image
         self.image_label = QLabel(self.image_container)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setStyleSheet("border: 2px solid #ccc;")
+        self.image_label.setStyleSheet("border: 2px solid;")
+        set_tone(self.image_label, "divider")  # border colour = text colour of the tone
         
         # Crop overlay for editing page
         self.crop_overlay = CropOverlayWidget(self.image_container)
@@ -219,7 +228,8 @@ class WebcamCaptureDialog(QDialog):
 
         # Status label
         self.status_label = QLabel("📹 Live-Vorschau aktiv")
-        self.status_label.setStyleSheet("color: #2196f3; font-weight: bold; padding: 5px;")
+        set_tone(self.status_label, "info")
+        self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(self.status_label)
 
         # Instructions label
@@ -231,19 +241,8 @@ class WebcamCaptureDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.capture_button = QPushButton("📷 Aufnahme")
-        self.capture_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196f3;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1976d2;
-            }
-        """)
+        set_variant(self.capture_button, "primary")
+        self.capture_button.setStyleSheet("QPushButton { padding: 8px 16px; border-radius: 4px; }")
         self.capture_button.clicked.connect(self.capture_image)
         button_layout.addWidget(self.capture_button)
 
@@ -256,22 +255,8 @@ class WebcamCaptureDialog(QDialog):
 
         self.accept_button = QPushButton("✓ Übernehmen")
         self.accept_button.setEnabled(False)
-        self.accept_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """)
+        set_variant(self.accept_button, "success")
+        self.accept_button.setStyleSheet("QPushButton { padding: 8px 16px; border-radius: 4px; }")
         self.accept_button.clicked.connect(self.accept_capture)
         button_layout.addWidget(self.accept_button)
 
@@ -427,7 +412,8 @@ class WebcamCaptureDialog(QDialog):
         
         # Update UI
         self.status_label.setText("📸 Bild aufgenommen - Wählen Sie den Bereich aus")
-        self.status_label.setStyleSheet("color: #ff9800; font-weight: bold; padding: 5px;")
+        set_tone(self.status_label, "warning")
+        self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
         self.instructions_label.setText(
             "Ziehen Sie mit der Maus ein Rechteck um den gewünschten Bereich. "
             "Klicken Sie dann auf 'Übernehmen' oder 'Neu aufnehmen'."
@@ -452,7 +438,8 @@ class WebcamCaptureDialog(QDialog):
         
         # Update UI
         self.status_label.setText("📹 Live-Vorschau aktiv")
-        self.status_label.setStyleSheet("color: #2196f3; font-weight: bold; padding: 5px;")
+        set_tone(self.status_label, "info")
+        self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
         self.instructions_label.setText("Klicken Sie auf 'Aufnahme', um ein Foto zu machen.")
         
         # Update buttons
@@ -556,7 +543,8 @@ class WebcamCaptureDialog(QDialog):
 
         # Update status
         self.status_label.setText("✓ Bild wird verarbeitet...")
-        self.status_label.setStyleSheet("color: #4caf50; font-weight: bold; padding: 5px;")
+        set_tone(self.status_label, "success")
+        self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
         self.instructions_label.setText(f"Finale Bildgröße: {final_image.width()}x{final_image.height()} Pixel")
 
         # Force UI update and show for a brief moment

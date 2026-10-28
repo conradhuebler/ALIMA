@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QComboBox, QSpinBox, QTreeView, QHeaderView
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, pyqtSlot
-from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
+from PyQt6.QtGui import QColor, QFont, QStandardItemModel, QStandardItem
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
@@ -22,6 +22,7 @@ from ..core.unified_knowledge_manager import UnifiedKnowledgeManager
 from ..core.alima_manager import AlimaManager
 from ..core.pipeline_manager import PipelineConfig
 from .workers import StoppableWorker
+from .styles import get_colors
 
 
 class SiegelFetchWorker(StoppableWorker):
@@ -958,7 +959,7 @@ class BatchProcessingDialog(QDialog):
                     "  URL:https://example.com\n"
                     "\nHinweis: Bare DOIs (10.XXXX/...) und doi.org-URLs werden automatisch erkannt."
                 )
-                hint.setForeground(Qt.GlobalColor.darkRed)
+                hint.setForeground(QColor(get_colors()["error"]))
                 self.batch_preview_list.addItem(hint)
             else:
                 for source in sources:
@@ -1003,7 +1004,7 @@ class BatchProcessingDialog(QDialog):
                     "  URL:https://example.com\n\n"
                     "Bare DOIs (10.XXXX/...) werden automatisch erkannt."
                 )
-                hint.setForeground(Qt.GlobalColor.darkRed)
+                hint.setForeground(QColor(get_colors()["error"]))
                 self.manual_preview_list.addItem(hint)
             else:
                 for source in sources:

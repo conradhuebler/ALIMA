@@ -18,6 +18,8 @@ from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QColor
 
 from .styles import (
+    get_colors,
+    set_variant,
     get_main_stylesheet,
     get_button_styles,
     get_confidence_style,
@@ -103,6 +105,10 @@ class UBSearchPanel(QWidget):
         # ihn blieben Label+Spinner allein und wurden auseinandergezogen
         self._button_row.addStretch(1)
 
+    def refresh_styles(self):
+        """Re-apply the pinned main stylesheet after a theme switch. - Claude Generated"""
+        self.setStyleSheet(get_main_stylesheet())
+
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())
         btn_styles = get_button_styles()
@@ -128,7 +134,7 @@ class UBSearchPanel(QWidget):
 
         # Button row: [Suchen] [progress_bar, stretch] [Max.:] [spinbox]
         self.search_button = QPushButton("Suchen")
-        self.search_button.setStyleSheet(btn_styles["primary"])
+        set_variant(self.search_button, "primary")
         self.search_button.clicked.connect(self.start_search)
 
         self.progress_bar = QProgressBar()
@@ -225,7 +231,7 @@ class UBSearchPanel(QWidget):
         # Clear status messages and show a hint / auto-select first item
         if classifications:
             self.detail_view.setHtml(
-                "<p style='color:gray'><i>Klassifikation in der linken Liste anklicken, "
+                f"<p style='color:{get_colors()['text_muted']}'><i>Klassifikation in der linken Liste anklicken, "
                 "um zugehörige Titel anzuzeigen.</i></p>"
             )
             # Auto-select and display the top result
@@ -282,7 +288,7 @@ class UBSearchPanel(QWidget):
 
     def _handle_error(self, error_message: str):
         self.logger.error(f"DK search error: {error_message}")
-        self.detail_view.append(f"<b style='color:red'>Fehler:</b> {error_message}")
+        self.detail_view.append(f"<b style='color:{get_colors()['error']}'>Fehler:</b> {error_message}")
         QMessageBox.critical(self, "Fehler", error_message)
 
     def search_finished(self):
@@ -301,6 +307,10 @@ class DKStatisticsPanel(QWidget):
         super().__init__(parent)
         self.logger = logging.getLogger(__name__)
         self.setup_ui()
+
+    def refresh_styles(self):
+        """Re-apply the pinned main stylesheet after a theme switch. - Claude Generated"""
+        self.setStyleSheet(get_main_stylesheet())
 
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())
@@ -328,7 +338,7 @@ class DKStatisticsPanel(QWidget):
 
         # Clear button
         clear_btn = QPushButton("Clear Statistics")
-        clear_btn.setStyleSheet(get_button_styles()["secondary"])
+        set_variant(clear_btn, "secondary")
         clear_btn.clicked.connect(self.clear_statistics)
         layout.addWidget(clear_btn)
 
@@ -403,6 +413,10 @@ class UBCatalogTab(QWidget):
         self.setup_ui()
         if pipeline_manager is not None and hasattr(pipeline_manager, 'pipeline_executor'):
             self.ub_search_panel.set_executor(pipeline_manager.pipeline_executor)
+
+    def refresh_styles(self):
+        """Re-apply the pinned main stylesheet after a theme switch. - Claude Generated"""
+        self.setStyleSheet(get_main_stylesheet())
 
     def setup_ui(self):
         self.setStyleSheet(get_main_stylesheet())

@@ -32,6 +32,7 @@ from ._pipeline_tab_control import PipelineTabControlMixin
 from ._pipeline_tab_events import PipelineTabEventsMixin
 from ._pipeline_tab_ui import PipelineTabUiMixin
 from .workers import PipelineWorker
+from .styles import get_colors, set_tone, set_variant
 
 
 class PipelineTab(
@@ -174,48 +175,8 @@ class PipelineTab(
         self.pipeline_tabs.setTabShape(QTabWidget.TabShape.Rounded)
         self.pipeline_tabs.setMinimumWidth(300)  # Reduced for small screens - Claude Generated
 
-        # Set tab width to be smaller
-        self.pipeline_tabs.setStyleSheet(
-            self.pipeline_tabs.styleSheet()
-            + """
-            QTabBar::tab {
-                min-width: 80px;  /* Reduced tab width */
-                max-width: 120px;
-            }
-        """
-        )
-
-        # Enhanced tab styling
-        self.pipeline_tabs.setStyleSheet(
-            f"""
-            QTabWidget::pane {{
-                border: 1px solid #ddd;
-                background: white;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
-            }}
-            QTabWidget::tab-bar {{
-                alignment: left;
-            }}
-            QTabBar::tab {{
-                background: #f5f5f5;
-                border: 1px solid #ddd;
-                #padding: 12px 8px; # do not set padding to avoid increasing tab height/width
-                margin-bottom: 2px;
-                border-top-left-radius: 4px;
-                border-bottom-left-radius: 4px;
-                min-width: 100px;
-            }}
-            QTabBar::tab:selected {{
-                background: #2196f3;
-                color: white;
-                border-right: none;
-            }}
-            QTabBar::tab:hover:!selected {{
-                background: #e3f2fd;
-            }}
-        """
-        )
+        # Tab styling (colours from the theme; refresh_styles re-applies)
+        self.pipeline_tabs.setStyleSheet(self._pipeline_tabs_css())
 
         # Create pipeline step tabs - direkt in main_splitter - Claude Generated
         self.create_pipeline_step_tabs()
@@ -355,13 +316,51 @@ class PipelineTab(
         self.step_widgets["dk_classification"] = dk_classification_step_widget
         self.pipeline_tabs.addTab(dk_classification_step_widget, "📚 DK/RVK-Klassifikation")
 
+    def _pipeline_tabs_css(self) -> str:
+        """Vertical step tabs, coloured from the current theme. - Claude Generated"""
+        c = get_colors()
+        return f"""
+            QTabWidget::pane {{
+                border: 1px solid {c['border_light']};
+                background: {c['background']};
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }}
+            QTabWidget::tab-bar {{
+                alignment: left;
+            }}
+            /* Keine Mindestbreite: die senkrechten Tabs sind so breit wie ihre
+               Schrift (die Breite der Leiste ergibt sich aus Schriftgröße und
+               dem Polster aus dem App-Stylesheet). */
+            QTabBar::tab {{
+                background: {c['background_light']};
+                color: {c['text_light']};
+                border: 1px solid {c['border_light']};
+                margin-bottom: 2px;
+                border-top-left-radius: 4px;
+                border-bottom-left-radius: 4px;
+            }}
+            QTabBar::tab:selected {{
+                background: {c['primary']};
+                color: {c['on_primary']};
+                border-right: none;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background: {c['hover_tint']};
+                color: {c['text']};
+            }}
+        """
+
+    def refresh_styles(self):
+        """Re-apply the theme-dependent styles after a theme switch. - Claude Generated"""
+        if hasattr(self, "pipeline_tabs"):
+            self.pipeline_tabs.setStyleSheet(self._pipeline_tabs_css())
+
     def create_toolbar(self, main_layout):
         """Create compact toolbar with primary pipeline actions - Claude Generated"""
         self.toolbar_frame = QFrame()
         self.toolbar_frame.setFixedHeight(44)
-        self.toolbar_frame.setStyleSheet(
-            "QFrame { background: #f8f9fa; border-bottom: 1px solid #dee2e6; }"
-        )
+        self.toolbar_frame.setObjectName("panelStrip")  # colours: styles._component_rules
 
         tb_layout = QHBoxLayout(self.toolbar_frame)
         tb_layout.setContentsMargins(8, 4, 8, 4)
@@ -369,38 +368,18 @@ class PipelineTab(
 
         # Auto-pipeline button
         self.auto_pipeline_button = QPushButton("🚀 Auto-Pipeline")
+        set_variant(self.auto_pipeline_button, "primary")
         self.auto_pipeline_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #4caf50;
-                color: white;
-                border: none;
-                padding: 5px 14px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #45a049; }
-            QPushButton:disabled { background-color: #ccc; }
-            """
+            "QPushButton { padding: 5px 14px; border-radius: 3px; }"
         )
         self.auto_pipeline_button.clicked.connect(self.start_auto_pipeline)
         tb_layout.addWidget(self.auto_pipeline_button)
 
         # Stop button (initially hidden, shown only when pipeline is running)
         self.stop_pipeline_button = QPushButton("⏹️ Stop")
+        set_variant(self.stop_pipeline_button, "error")
         self.stop_pipeline_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #da190b; }
-            QPushButton:disabled { background-color: #e57373; }
-            """
+            "QPushButton { padding: 5px 10px; border-radius: 3px; }"
         )
         self.stop_pipeline_button.setVisible(False)
         self.stop_pipeline_button.clicked.connect(self.on_stop_pipeline_requested)
@@ -410,7 +389,7 @@ class PipelineTab(
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFixedHeight(24)
-        sep.setStyleSheet("color: #ccc;")
+        set_tone(sep, "divider")
         tb_layout.addWidget(sep)
 
         # Secondary actions
@@ -424,23 +403,18 @@ class PipelineTab(
         reset_btn.clicked.connect(self.reset_pipeline)
         tb_layout.addWidget(reset_btn)
 
-        # Shared combobox stylesheet — light background, blue selection
-        _combo_css = (
-            "QComboBox { padding: 3px 6px; border: 1px solid #ccc; "
-            "border-radius: 3px; font-size: 11px; }"
-            "QComboBox QAbstractItemView { background-color: #ffffff; color: #333333; "
-            "selection-background-color: #1976d2; selection-color: white; border: 1px solid #ccc; }"
-        )
+        # Shared combobox layout; colours come from the main stylesheet
+        _combo_css = "QComboBox { padding: 3px 6px; border-radius: 3px; font-size: 11px; }"
 
         # Workflow picker
         workflow_sep = QFrame()
         workflow_sep.setFrameShape(QFrame.Shape.VLine)
         workflow_sep.setFixedHeight(24)
-        workflow_sep.setStyleSheet("color: #ccc;")
+        set_tone(workflow_sep, "divider")
         tb_layout.addWidget(workflow_sep)
 
         workflow_label = QLabel("🧬 Workflow:")
-        workflow_label.setStyleSheet("color: #555; font-weight: bold;")
+        set_tone(workflow_label, "heading")
         tb_layout.addWidget(workflow_label)
         self.agentic_workflow_label = workflow_label  # kept for compat
 
@@ -473,11 +447,11 @@ class PipelineTab(
         llm_sep = QFrame()
         llm_sep.setFrameShape(QFrame.Shape.VLine)
         llm_sep.setFixedHeight(24)
-        llm_sep.setStyleSheet("color: #ccc;")
+        set_tone(llm_sep, "divider")
         tb_layout.addWidget(llm_sep)
 
         llm_label = QLabel("🤖 LLM:")
-        llm_label.setStyleSheet("color: #555;")
+        set_tone(llm_label, "light")
         tb_layout.addWidget(llm_label)
 
         # Shared provider+model picker (Phase 5): replaces the combined
@@ -546,7 +520,8 @@ class PipelineTab(
 
         # Pipeline status label (shows the live step timer during a run)
         self.pipeline_status_label = QLabel("Bereit")
-        self.pipeline_status_label.setStyleSheet("color: #666; padding-left: 8px;")
+        set_tone(self.pipeline_status_label, "muted")
+        self.pipeline_status_label.setStyleSheet("padding-left: 8px;")
         tb_layout.addWidget(self.pipeline_status_label)
 
         main_layout.addWidget(self.toolbar_frame)

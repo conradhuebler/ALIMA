@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..core.pipeline_manager import PipelineStep
+from .styles import set_style_prop, set_tone
 
 
 class PipelineStepWidget(QFrame):
@@ -34,6 +35,10 @@ class PipelineStepWidget(QFrame):
         """Setup the step widget UI - Claude Generated"""
         self.setFrameStyle(QFrame.Shape.Box)
         self.setLineWidth(2)
+        # Frame colours per state come from the main stylesheet
+        # (QFrame#pipelineStep[state=...]); scoped by object name so they do
+        # not bleed into the labels and text fields inside.
+        self.setObjectName("pipelineStep")
 
         # Prevent sizeHint propagation from child QTextEdits - Claude Generated
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
@@ -60,7 +65,7 @@ class PipelineStepWidget(QFrame):
 
         # Enhanced Provider/Model info with task preference indicators - Claude Generated
         self.provider_model_label = QLabel()
-        self.provider_model_label.setStyleSheet("color: #666;")
+        set_tone(self.provider_model_label, "muted")
         self._update_provider_model_display()
         header_layout.addWidget(self.provider_model_label)
 
@@ -88,29 +93,31 @@ class PipelineStepWidget(QFrame):
             llm_steps = ["initialisation", "keywords", "dk_classification"]
             if self.step.step_id in llm_steps:
                 self.provider_model_label.setText("⚠️ No provider configured")
-                self.provider_model_label.setStyleSheet("color: #ff9800; font-style: italic;")
+                set_tone(self.provider_model_label, "warning")
+                self.provider_model_label.setStyleSheet("font-style: italic;")
             else:
                 # Non-LLM steps (like search) don't need provider info
                 self.provider_model_label.setText("No LLM required")
-                self.provider_model_label.setStyleSheet("color: #666; font-style: italic;")
+                set_tone(self.provider_model_label, "muted")
+                self.provider_model_label.setStyleSheet("font-style: italic;")
             return
 
         # Build display text with visual indicators
         display_parts = []
-        style_color = "#666"
+        tone = "muted"
 
         # Check if this looks like a task preference (basic heuristic)
         task_preference_indicators = []
         if hasattr(self.step, 'selection_reason') and self.step.selection_reason:
             if "task preference" in self.step.selection_reason.lower():
                 task_preference_indicators.append("⭐")
-                style_color = "#2e7d32"  # Green for task preferences
+                tone = "success"  # task preferences
             elif "provider" in self.step.selection_reason.lower():
                 task_preference_indicators.append("🔧")
-                style_color = "#1976d2"  # Blue for provider preferences
+                tone = "info"  # provider preferences
             elif "fallback" in self.step.selection_reason.lower():
                 task_preference_indicators.append("🔄")
-                style_color = "#ff9800"  # Orange for fallbacks
+                tone = "warning"  # fallbacks
 
         # Format provider/model display
         indicator_prefix = "".join(task_preference_indicators)
@@ -127,7 +134,7 @@ class PipelineStepWidget(QFrame):
 
         display_text = " ".join(display_parts)
         self.provider_model_label.setText(display_text)
-        self.provider_model_label.setStyleSheet(f"color: {style_color};")
+        set_tone(self.provider_model_label, tone)
 
         # Set tooltip with full details
         tooltip_parts = [f"Provider: {self.step.provider}", f"Model: {self.step.model}"]
@@ -137,33 +144,23 @@ class PipelineStepWidget(QFrame):
 
     def update_status_display(self):
         """Update visual status indicator - Claude Generated"""
-        if self.step.status == "pending":
+        # Symbol + colour per state: the symbol carries the meaning, the
+        # colour repeats it.
+        status = self.step.status
+        if status == "pending":
             self.status_label.setText("▷")
-            self.status_label.setStyleSheet("color: #999;")
-            self.setStyleSheet(
-                "QFrame { border-color: #ddd; background-color: #fafafa; }"
-            )
-
-        elif self.step.status == "running":
+            set_tone(self.status_label, "muted")
+        elif status == "running":
             self.status_label.setText("▶")
-            self.status_label.setStyleSheet("color: #2196f3;")
-            self.setStyleSheet(
-                "QFrame { border-color: #2196f3; background-color: #e3f2fd; }"
-            )
-
-        elif self.step.status == "completed":
+            set_tone(self.status_label, "info")
+        elif status == "completed":
             self.status_label.setText("✓")
-            self.status_label.setStyleSheet("color: #4caf50;")
-            self.setStyleSheet(
-                "QFrame { border-color: #4caf50; background-color: #e8f5e8; }"
-            )
-
-        elif self.step.status == "error":
+            set_tone(self.status_label, "success")
+        elif status == "error":
             self.status_label.setText("✗")
-            self.status_label.setStyleSheet("color: #d32f2f;")
-            self.setStyleSheet(
-                "QFrame { border-color: #d32f2f; background-color: #ffebee; }"
-            )
+            set_tone(self.status_label, "error")
+        if status in ("pending", "running", "completed", "error"):
+            set_style_prop(self, "state", status)
 
         # Always update provider/model display when status changes - Claude Generated
         self._update_provider_model_display()

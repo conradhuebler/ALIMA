@@ -47,11 +47,10 @@ def resolve_provider_model(
     Precedence:
       1. explicit args / request body / GUI toolbar override
       2. ``pipeline_manager.config.global_provider_override/model`` (runtime --override)
-      3. ``UnifiedProviderConfig.agentic_default_provider/model``
-      4. ``UnifiedProviderConfig.pipeline_default_provider/model``
-      5. ``UnifiedProviderConfig.preferred_provider/model`` (general default)
-      6. first enabled provider + its preferred/first model
-      7. ``llm_service.current_provider/model``
+      3. ``UnifiedProviderConfig.preferred_provider/model`` (general default;
+         agentic, chat and general are one setting)
+      4. first enabled provider + its preferred/first model
+      5. ``llm_service.current_provider/model``
 
     There is deliberately no chat-specific default any more. ``ChatConfig``
     used to carry one at position 2, above everything the operator can set in
@@ -69,7 +68,7 @@ def resolve_provider_model(
         if p and m:
             return p, m
 
-    # Unified config hierarchy: agentic -> pipeline -> general -> first enabled.
+    # Unified config hierarchy: general (= agentic = chat) -> first enabled.
     config_manager = getattr(pipeline_manager, "config_manager", None)
     if config_manager is not None:
         try:

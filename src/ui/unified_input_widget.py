@@ -39,6 +39,7 @@ from datetime import datetime
 from ..llm.llm_service import LlmService
 from .image_analysis_tab import ImageAnalysisTab
 from .workers import StoppableWorker
+from .styles import set_style_prop, set_tone, set_variant
 from ..core.alima_manager import AlimaManager
 from ..utils.doi_resolver import (
     UnifiedResolver,
@@ -478,20 +479,9 @@ class UnifiedInputWidget(QWidget):
         self.drop_frame.setFrameStyle(QFrame.Shape.Box)
         self.drop_frame.setLineWidth(2)
         self.drop_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
-        self.drop_frame.setStyleSheet(
-            """
-            QFrame {
-                border: 2px dashed #ccc;
-                border-radius: 8px;
-                background-color: #f9f9f9;
-                padding: 20px;
-            }
-            QFrame:hover {
-                border-color: #2196f3;
-                background-color: #e3f2fd;
-            }
-        """
-        )
+        # Colours and the drag state: QFrame#dropZone in the main stylesheet,
+        # scoped by object name so the labels inside keep their own look.
+        self.drop_frame.setObjectName("dropZone")
 
         frame_layout = QVBoxLayout(self.drop_frame)
         frame_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -499,12 +489,12 @@ class UnifiedInputWidget(QWidget):
         # Drop instruction
         drop_label = QLabel("Dateien hier ablegen")
         drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        drop_label.setStyleSheet("color: #666; font-weight: bold;")
+        set_tone(drop_label, "heading")
         frame_layout.addWidget(drop_label)
 
         supported_label = QLabel("PDF, Bilder, Text-Dateien")
         supported_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        supported_label.setStyleSheet("color: #999;")
+        set_tone(supported_label, "muted")
         frame_layout.addWidget(supported_label)
 
         drop_zone_layout.addWidget(self.drop_frame)
@@ -520,21 +510,7 @@ class UnifiedInputWidget(QWidget):
         self.webcam_frame.setFrameStyle(QFrame.Shape.Box)
         self.webcam_frame.setLineWidth(2)
         self.webcam_frame.setMinimumHeight(80)  # Reduced from 120 - Claude Generated
-        self.webcam_frame.setStyleSheet(
-            """
-            QFrame {
-                border: 2px dashed #2196f3;
-                border-radius: 8px;
-                background-color: #e3f2fd;
-                padding: 20px;
-            }
-            QFrame:hover {
-                border-color: #1976d2;
-                background-color: #bbdefb;
-                cursor: pointer;
-            }
-        """
-        )
+        self.webcam_frame.setObjectName("webcamZone")  # colours: main stylesheet
 
         # Make frame clickable
         self.webcam_frame.mousePressEvent = lambda event: self.capture_from_webcam()
@@ -545,12 +521,13 @@ class UnifiedInputWidget(QWidget):
         # Icon + Text
         webcam_label = QLabel("Klicken für Aufnahme")
         webcam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        webcam_label.setStyleSheet("color: #1976d2; font-weight: bold;")
+        set_tone(webcam_label, "info")
+        webcam_label.setStyleSheet("font-weight: bold;")
         frame_layout.addWidget(webcam_label)
 
         info_label = QLabel("Webcam-Bild aufnehmen")
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info_label.setStyleSheet("color: #666;")
+        set_tone(info_label, "muted")
         frame_layout.addWidget(info_label)
 
         webcam_layout.addWidget(self.webcam_frame)
@@ -599,9 +576,7 @@ class UnifiedInputWidget(QWidget):
         """Create text display content without GroupBox wrapper - Claude Generated"""
         # Header Label statt GroupBox Title
         header_label = QLabel("📄 Extrahierter Text")
-        header_label.setStyleSheet(
-            "font-weight: bold; color: #333; padding: 5px;"
-        )
+        header_label.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(header_label)
 
         # Append mode checkbox - Claude Generated (Multi-Image OCR feature)
@@ -615,9 +590,8 @@ class UnifiedInputWidget(QWidget):
 
         # Source info
         self.source_info_label = QLabel("Keine Quelle ausgewählt")
-        self.source_info_label.setStyleSheet(
-            "font-weight: bold; color: #666; padding: 5px;"
-        )
+        set_tone(self.source_info_label, "heading")
+        self.source_info_label.setStyleSheet("padding: 5px;")
         layout.addWidget(self.source_info_label)
 
         # Text area (mit neuen Constraints)
@@ -634,19 +608,7 @@ class UnifiedInputWidget(QWidget):
         font.setPointSize(11)
         self.text_display.setFont(font)
 
-        self.text_display.setStyleSheet(
-            """
-            QTextEdit {
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                padding: 8px;
-                background-color: white;
-            }
-            QTextEdit:focus {
-                border-color: #2196f3;
-            }
-        """
-        )
+        # Border, ground and focus ring: the QTextEdit rules of the main stylesheet
 
         layout.addWidget(self.text_display)
 
@@ -655,9 +617,8 @@ class UnifiedInputWidget(QWidget):
         # particular input shape (e.g. title list).
         self.workflow_hint_label = QLabel("")
         self.workflow_hint_label.setWordWrap(True)
-        self.workflow_hint_label.setStyleSheet(
-            "color: #6272a4; font-style: italic; padding: 2px 6px;"
-        )
+        set_tone(self.workflow_hint_label, "info")
+        self.workflow_hint_label.setStyleSheet("font-style: italic; padding: 2px 6px;")
         self.workflow_hint_label.setVisible(False)
         layout.addWidget(self.workflow_hint_label)
 
@@ -666,23 +627,9 @@ class UnifiedInputWidget(QWidget):
 
         # Stop button for extraction - Claude Generated
         self.stop_extraction_button = QPushButton("⏹️ Stoppen")
+        set_variant(self.stop_extraction_button, "error")
         self.stop_extraction_button.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-            QPushButton:disabled {
-                background-color: #ccc;
-            }
-        """
+            "QPushButton { padding: 8px 16px; border-radius: 4px; }"
         )
         self.stop_extraction_button.setVisible(False)  # Hidden until extraction starts
         self.stop_extraction_button.clicked.connect(self.on_stop_extraction_requested)
@@ -702,16 +649,7 @@ class UnifiedInputWidget(QWidget):
             event.acceptProposedAction()
             # Update the new drop_frame styling
             if hasattr(self, "drop_frame"):
-                self.drop_frame.setStyleSheet(
-                    """
-                    QFrame {
-                        border: 2px solid #4caf50;
-                        border-radius: 8px;
-                        background-color: #e8f5e8;
-                        padding: 20px;
-                    }
-            """
-                )
+                set_style_prop(self.drop_frame, "state", "drag")
         else:
             event.ignore()
 
@@ -719,20 +657,7 @@ class UnifiedInputWidget(QWidget):
         """Handle drag leave event - Claude Generated"""
         # Reset the new drop_frame styling
         if hasattr(self, "drop_frame"):
-            self.drop_frame.setStyleSheet(
-                """
-                QFrame {
-                    border: 2px dashed #ccc;
-                    border-radius: 8px;
-                    background-color: #f9f9f9;
-                    padding: 20px;
-                }
-                QFrame:hover {
-                    border-color: #2196f3;
-                    background-color: #e3f2fd;
-                }
-            """
-            )
+            set_style_prop(self.drop_frame, "state", "")
 
     def dropEvent(self, event: QDropEvent):
         """Handle drop event - Claude Generated"""

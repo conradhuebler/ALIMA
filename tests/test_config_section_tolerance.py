@@ -95,8 +95,65 @@ class LoadWithRemovedKeysTest(unittest.TestCase):
         self.assertEqual(config.chat_config.max_iterations, 11)
         # …and, the point of the test, nothing else was reset to defaults.
         self.assertEqual(config.database_config.sqlite_path, "/tmp/alima-test.db")
-        self.assertEqual(config.unified_config.agentic_default_model, "gemma4:31b-cloud")
+        # agentic_default ist der allgemeine Standard geworden
+        self.assertEqual(config.unified_config.preferred_model, "gemma4:31b-cloud")
         self.assertEqual([p.name for p in config.unified_config.providers], ["LLMachine"])
+
+
+class AgenticDefaultFoldsIntoGeneralTest(unittest.TestCase):
+    """Agentik, Chat und Allgemein sind eine Einstellung: ein früher gesetzter
+    agentic_default wird der allgemeine Standard (er war der, mit dem Chat und
+    Agentik tatsächlich liefen). Claude Generated."""
+
+    _load = LoadWithRemovedKeysTest._load
+
+    def _unified(self, **kw):
+        return self._load({
+            "config_version": "2.0",
+            "database_config": {"db_type": "sqlite", "sqlite_path": "/tmp/alima-test.db"},
+            "unified_config": {"providers": [], **kw},
+        }).unified_config
+
+    def test_agentic_default_becomes_the_general_default(self):
+        u = self._unified(agentic_default_provider="A", agentic_default_model="a1")
+        self.assertEqual((u.preferred_provider, u.preferred_model), ("A", "a1"))
+
+    def test_it_wins_over_a_differing_general_default(self):
+        u = self._unified(agentic_default_provider="A", agentic_default_model="a1",
+                          preferred_provider="B", preferred_model="b1")
+        self.assertEqual((u.preferred_provider, u.preferred_model), ("A", "a1"))
+
+    def test_an_existing_general_default_is_kept_when_agentic_is_unset(self):
+        u = self._unified(preferred_provider="B", preferred_model="b1")
+        self.assertEqual((u.preferred_provider, u.preferred_model), ("B", "b1"))
+
+    def test_the_legacy_keys_are_not_written_back(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from src.utils.config_manager import ConfigManager
+
+        cfg = self._load({
+            "config_version": "2.0",
+            "database_config": {"db_type": "sqlite", "sqlite_path": "/tmp/alima-test.db"},
+            "unified_config": {"agentic_default_provider": "A", "agentic_default_model": "a1",
+                               "providers": []},
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text(json.dumps({"unified_config": {
+                "agentic_default_provider": "A", "agentic_default_model": "a1"}}))
+            manager = ConfigManager()
+            original = manager.config_file
+            manager.config_file = path
+            try:
+                manager.save_config(cfg)
+                written = json.loads(path.read_text())
+            finally:
+                manager.config_file = original
+        self.assertNotIn("agentic_default_provider", written.get("unified_config", {}))
+        self.assertNotIn("agentic_default_model", written.get("unified_config", {}))
 
 
 if __name__ == "__main__":

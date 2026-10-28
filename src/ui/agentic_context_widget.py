@@ -37,12 +37,20 @@ STATUS_ICON = {
     "error": "✗",
 }
 
+# Status → colour token in styles.COLORS / DARK_COLORS (resolved per theme).
 STATUS_COLOR = {
-    "pending": "#888888",
-    "running": "#8be9fd",
-    "completed": "#50fa7b",
-    "error": "#ff5555",
+    "pending": "text_muted",
+    "running": "secondary",
+    "completed": "success",
+    "error": "error",
 }
+
+
+def _c() -> Dict[str, str]:
+    """Current theme colours. - Claude Generated"""
+    from .styles import get_colors
+
+    return get_colors()
 
 # Known SharedContext fields that get typed rendering (rest falls back to
 # generic JSON-ish printer).
@@ -81,11 +89,28 @@ class AgenticStepPanel(QFrame):
         self._status = "pending"
         self._duration: Optional[float] = None
         self._error: Optional[str] = None
+        self._last_snap: Optional[Dict[str, Any]] = None
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet(
-            "QFrame { background: #1e1e1e; border: 1px solid #333; border-radius: 4px; }"
-        )
+        self.setObjectName("agenticStepPanel")
+        self._apply_frame_style()
         self._build()
+
+    def _apply_frame_style(self) -> None:
+        """Panel frame, scoped by object name (a bare ``QFrame`` rule would
+        also hit the QTextEdit and labels inside). - Claude Generated"""
+        c = _c()
+        self.setStyleSheet(
+            f"QFrame#agenticStepPanel {{ background: {c['background_light']}; "
+            f"border: 1px solid {c['border_light']}; border-radius: 4px; }}"
+        )
+
+    def refresh_styles(self) -> None:
+        """Re-colour frame, header and body after a theme switch. - Claude Generated"""
+        self._apply_frame_style()
+        self._apply_body_style()
+        self._refresh_header_text()
+        if self._last_snap is not None:
+            self.body.setHtml(self._render_body(self._last_snap))
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
@@ -99,11 +124,6 @@ class AgenticStepPanel(QFrame):
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon
         )
         self.toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-        self.toggle_btn.setStyleSheet(
-            "QToolButton { background: transparent; border: none;"
-            " color: #f8f8f2; font-weight: bold; padding: 2px 4px; text-align: left; }"
-            "QToolButton:hover { background: #2a2a2a; }"
-        )
         self.toggle_btn.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -117,10 +137,7 @@ class AgenticStepPanel(QFrame):
         self.body = QTextEdit()
         self.body.setReadOnly(True)
         self.body.setFont(QFont("Consolas", 9))
-        self.body.setStyleSheet(
-            "QTextEdit { background: #181818; color: #f8f8f2;"
-            " border: 1px solid #2a2a2a; border-radius: 2px; }"
-        )
+        self._apply_body_style()
         self.body.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
@@ -132,6 +149,14 @@ class AgenticStepPanel(QFrame):
         self.body.setVisible(False)
         layout.addWidget(self.body, stretch=1)
 
+    def _apply_body_style(self) -> None:
+        """Body text field in the theme colours. - Claude Generated"""
+        c = _c()
+        self.body.setStyleSheet(
+            f"QTextEdit {{ background: {c['background']}; color: {c['text']};"
+            f" border: 1px solid {c['border_light']}; border-radius: 2px; }}"
+        )
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -142,6 +167,7 @@ class AgenticStepPanel(QFrame):
         self._error = snap.get("_step_error")
         self._refresh_header_text()
 
+        self._last_snap = snap
         self.body.setHtml(self._render_body(snap))
 
         # Auto-expand on running/error the first time (until user toggles)
@@ -153,6 +179,7 @@ class AgenticStepPanel(QFrame):
         self._duration = None
         self._error = None
         self._user_toggled = False
+        self._last_snap = None
         self.toggle_btn.setChecked(False)
         self.body.clear()
         self._refresh_header_text()
@@ -169,24 +196,8 @@ class AgenticStepPanel(QFrame):
         )
 
     def _refresh_header_text(self) -> None:
-        icon = STATUS_ICON.get(self._status, "▷")
-        color = STATUS_COLOR.get(self._status, "#888888")
-        parts = [f"<span style='color:{color}; font-size:14px;'>{icon}</span>"]
-        parts.append(
-            f"<span style='color:#f8f8f2; font-weight:bold;'>{self._esc(self.step_id)}</span>"
-        )
-        if self.step_type:
-            parts.append(
-                f"<span style='color:#6272a4;'>({self._esc(self.step_type)})</span>"
-            )
-        if self._duration is not None:
-            parts.append(
-                f"<span style='color:#bd93f9;'>{self._duration:.1f}s</span>"
-            )
-        if self._status == "error" and self._error:
-            parts.append(
-                f"<span style='color:#ff5555;'>❗ {self._esc(self._error[:60])}</span>"
-            )
+        c = _c()
+        color = c[STATUS_COLOR.get(self._status, "text_muted")]
         # QToolButton text doesn't render HTML reliably → strip to plain
         plain = [
             f"{STATUS_ICON.get(self._status, '▷')} {self.step_id}",
@@ -202,23 +213,24 @@ class AgenticStepPanel(QFrame):
         self.toggle_btn.setStyleSheet(
             "QToolButton { background: transparent; border: none;"
             f" color: {color}; font-weight: bold; padding: 2px 4px; text-align: left; }}"
-            "QToolButton:hover { background: #2a2a2a; }"
+            f"QToolButton:hover {{ background: {c['hover_tint']}; }}"
         )
 
     # --- Rendering --------------------------------------------------------
 
     def _render_body(self, snap: Dict[str, Any]) -> str:
+        c = _c()
         blocks: List[str] = []
 
         if self.description:
             blocks.append(
-                f"<div style='color:#6272a4; font-style:italic; margin-bottom:4px;'>"
+                f"<div style='color:{c['text_muted']}; font-style:italic; margin-bottom:4px;'>"
                 f"{self._esc(self.description)}</div>"
             )
 
         if self._status == "error" and self._error:
             blocks.append(
-                f"<div style='color:#ff5555; font-weight:bold;'>Fehler: "
+                f"<div style='color:{c['error']}; font-weight:bold;'>Fehler: "
                 f"{self._esc(self._error)}</div>"
             )
 
@@ -247,7 +259,7 @@ class AgenticStepPanel(QFrame):
                     blocks.append(self._render_generic(f"extra.{key}", val))
 
         if not blocks:
-            return "<i style='color:#888'>— keine Daten —</i>"
+            return f"<i style='color:{c['text_muted']}'>— keine Daten —</i>"
         return "".join(blocks)
 
     @staticmethod
@@ -288,14 +300,15 @@ class AgenticStepPanel(QFrame):
         if items and isinstance(items[-1], dict) and "_truncated" in items[-1]:
             truncated = items[-1]["_truncated"]
             items = items[:-1]
+        c = _c()
         chips = "  ".join(
-            f"<span style='background:#44475a; color:#f8f8f2; padding:1px 6px;"
+            f"<span style='background:{c['surface_raised']}; color:{c['text']}; padding:1px 6px;"
             f" border-radius:3px;'>{self._esc(k)}</span>"
             for k in items
         )
-        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
+        trunc_text = f" <span style='color:{c['accent_text']};'>+{truncated} more</span>" if truncated else ""
         return (
-            f"<div style='color:#8be9fd; margin-top:4px;'>{self._esc(label)} "
+            f"<div style='color:{c['accent_text']}; margin-top:4px;'>{self._esc(label)} "
             f"({len(items)}{trunc_text})</div><div>{chips}</div>"
         )
 
@@ -323,9 +336,10 @@ class AgenticStepPanel(QFrame):
                     if k not in seen:
                         seen.add(k)
                         canonical_keys.append(k)
-        trunc_text = f" <span style='color:#ff79c6;'>+{truncated} more</span>" if truncated else ""
+        c = _c()
+        trunc_text = f" <span style='color:{c['accent_text']};'>+{truncated} more</span>" if truncated else ""
         rows: List[str] = [
-            f"<div style='color:#8be9fd; margin-top:6px; font-weight:bold;'>"
+            f"<div style='color:{c['accent_text']}; margin-top:6px; font-weight:bold;'>"
             f"{self._esc(label)} ({len(items)}{trunc_text})</div>"
         ]
         for idx, item in enumerate(items, start=1):
@@ -364,13 +378,14 @@ class AgenticStepPanel(QFrame):
                     v = ", ".join(str(x) for x in v)
                 id_parts.append(f"{ik}={v}")
 
+        c = _c()
         header_html = (
-            f"<div style='color:#50fa7b; font-weight:bold;'>"
+            f"<div style='color:{c['success']}; font-weight:bold;'>"
             f"#{idx} {self._esc(header_val) if header_val else '(ohne Titel)'}"
             f"</div>"
         )
         subheader_html = (
-            f"<div style='color:#f1fa8c; font-size:10px; margin-bottom:2px;'>"
+            f"<div style='color:{c['warning']}; font-size:10px; margin-bottom:2px;'>"
             f"{self._esc(' · '.join(id_parts))}</div>"
             if id_parts
             else ""
@@ -389,7 +404,7 @@ class AgenticStepPanel(QFrame):
             raw = item.get(k)
             missing = raw in (None, "", [], {})
             if missing:
-                v_html = "<span style='color:#6272a4; font-style:italic;'>— fehlt</span>"
+                v_html = f"<span style='color:{c['text_muted']}; font-style:italic;'>— fehlt</span>"
             else:
                 if isinstance(raw, list):
                     v_str = ", ".join(str(x) for x in raw)
@@ -398,18 +413,18 @@ class AgenticStepPanel(QFrame):
                 else:
                     v_str = str(raw)
                 v_html = (
-                    f"<span style='color:#f8f8f2; white-space:pre-wrap;'>"
+                    f"<span style='color:{c['text']}; white-space:pre-wrap;'>"
                     f"{self._esc(v_str)}</span>"
                 )
             lines.append(
                 f"<div style='margin-left:10px;'>"
-                f"<span style='color:#bd93f9'>{self._esc(k)}:</span> {v_html}"
+                f"<span style='color:{c['violet']}'>{self._esc(k)}:</span> {v_html}"
                 f"</div>"
             )
 
         return (
             f"<div style='margin-top:6px; padding:4px 6px;"
-            f" border-left:3px solid #44475a; background:#161616;"
+            f" border-left:3px solid {c['border']}; background:{c['background_light']};"
             f" border-radius:2px;'>"
             f"{header_html}{subheader_html}{''.join(lines)}</div>"
         )
@@ -429,19 +444,20 @@ class AgenticStepPanel(QFrame):
             if val and isinstance(val[0], dict):
                 return self._dict_list(label, val)
             return self._chips(label, [str(v) for v in val])
+        c = _c()
         if isinstance(val, dict):
             rows = [
-                f"<div><span style='color:#f1fa8c'>{self._esc(k)}:</span> "
-                f"<span style='color:#f8f8f2; white-space:pre-wrap;'>{self._esc(v)}</span></div>"
+                f"<div><span style='color:{c['warning']}'>{self._esc(k)}:</span> "
+                f"<span style='color:{c['text']}; white-space:pre-wrap;'>{self._esc(v)}</span></div>"
                 for k, v in val.items()
             ]
             return (
-                f"<div style='color:#8be9fd; margin-top:4px;'>{self._esc(label)}"
+                f"<div style='color:{c['accent_text']}; margin-top:4px;'>{self._esc(label)}"
                 f"</div>{''.join(rows)}"
             )
         return (
-            f"<div><span style='color:#8be9fd'>{self._esc(label)}:</span> "
-            f"<span style='color:#f8f8f2; white-space:pre-wrap;'>{self._esc(val)}</span></div>"
+            f"<div><span style='color:{c['accent_text']}'>{self._esc(label)}:</span> "
+            f"<span style='color:{c['text']}; white-space:pre-wrap;'>{self._esc(val)}</span></div>"
         )
 
     @staticmethod
@@ -459,9 +475,18 @@ class AgenticContextWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setStyleSheet("QWidget { background: #121212; }")
+        self.setObjectName("agenticContext")
         self.panels: Dict[str, AgenticStepPanel] = {}
         self._build()
+        self.refresh_styles()
+
+    def refresh_styles(self) -> None:
+        """Ground and header in the theme colours. - Claude Generated"""
+        c = _c()
+        self.setStyleSheet(f"QWidget#agenticContext {{ background: {c['background']}; }}")
+        self.header_label.setStyleSheet(
+            f"color: {c['accent_text']}; font-weight: bold; font-size: 11px; padding: 2px 4px;"
+        )
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)
@@ -469,9 +494,6 @@ class AgenticContextWidget(QWidget):
         outer.setSpacing(4)
 
         self.header_label = QLabel("🤖 Agentic Context")
-        self.header_label.setStyleSheet(
-            "color: #8be9fd; font-weight: bold; font-size: 11px; padding: 2px 4px;"
-        )
         outer.addWidget(self.header_label)
 
         scroll = QScrollArea()

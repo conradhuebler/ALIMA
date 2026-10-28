@@ -570,10 +570,6 @@ class ConfigManager:
         unified_config.pipeline_default_provider = data.get("pipeline_default_provider", "")
         unified_config.pipeline_default_model = data.get("pipeline_default_model", "")
 
-        # Parse agentic default provider/model - Claude Generated (default-model cleanup)
-        unified_config.agentic_default_provider = data.get("agentic_default_provider", "")
-        unified_config.agentic_default_model = data.get("agentic_default_model", "")
-
         # Parse the general default (preferred_provider/model) and per-model chunking
         # thresholds. These are written by save_config's preserve-merge but were
         # previously never read back here, so a restart silently reset them to the
@@ -582,6 +578,24 @@ class ConfigManager:
         unified_config.preferred_provider = data.get("preferred_provider", "")
         unified_config.preferred_model = data.get("preferred_model", "")
         unified_config.model_chunking_thresholds = data.get("model_chunking_thresholds", {})
+
+        # Agentik, Chat und Allgemein sind eine Einstellung (Oct 2026). Ein
+        # früher gesetzter "Agentisch und Chat"-Wert war der, mit dem Chat und
+        # Agentik tatsächlich liefen; er wird der allgemeine Standard. Weicht er
+        # vom bisherigen allgemeinen ab, gewinnt er und das wird geloggt.
+        legacy_provider = data.get("agentic_default_provider", "")
+        if legacy_provider:
+            legacy_model = data.get("agentic_default_model", "")
+            if (unified_config.preferred_provider, unified_config.preferred_model) not in (
+                ("", ""), (legacy_provider, legacy_model),
+            ):
+                self.logger.info(
+                    "agentic_default (%s/%s) ersetzt den allgemeinen Standard (%s/%s)",
+                    legacy_provider, legacy_model,
+                    unified_config.preferred_provider, unified_config.preferred_model,
+                )
+            unified_config.preferred_provider = legacy_provider
+            unified_config.preferred_model = legacy_model
 
         # Same bug, same fix, one field it had not yet been applied to: a Vision
         # default chosen in the resolution table was never read back, so a
@@ -839,12 +853,13 @@ class ConfigManager:
                         # legacy section stops being re-written forever.
                         # - Claude Generated
                         preserved_unified_config.pop('task_preferences', None)
+                        # Aufgegangen im allgemeinen Standard (siehe Parser).
+                        preserved_unified_config.pop('agentic_default_provider', None)
+                        preserved_unified_config.pop('agentic_default_model', None)
 
                         for key in (
                             'pipeline_default_provider',
                             'pipeline_default_model',
-                            'agentic_default_provider',
-                            'agentic_default_model',
                             'vision_default_provider',
                             'vision_default_model',
                             # Legacy gemini/anthropic mirror fields, kept in sync

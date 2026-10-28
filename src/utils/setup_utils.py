@@ -40,21 +40,22 @@ class OllamaConnectionValidator:
 
     @staticmethod
     def test_native(host: str, port: int, api_key: Optional[str] = None,
-                   timeout: int = 10) -> SetupResult:
-        """Test native Ollama connection - Claude Generated"""
+                   timeout: int = 10, use_ssl: bool = False) -> SetupResult:
+        """Test native Ollama connection - Claude Generated
+
+        Builds the URL exactly like the running client does (``ollama_endpoint``),
+        so the test and the real call cannot disagree about where they connect.
+        """
+        from .ollama_endpoint import base_url, clean_api_key
+
+        url = base_url(host, port, use_ssl)
         try:
             import ollama
 
-            # Build connection URL
-            url = f"http://{host}:{port}"
-
-            # Create client with timeout
-            client_params = {
-                "host": url,
-                "timeout": timeout
-            }
-            if api_key:
-                client_params["headers"] = {"Authorization": api_key}
+            client_params = {"host": url, "timeout": timeout}
+            key = clean_api_key(api_key or "")
+            if key:
+                client_params["headers"] = {"Authorization": f"Bearer {key}"}
 
             client = ollama.Client(**client_params)
 
@@ -78,7 +79,7 @@ class OllamaConnectionValidator:
                     []
                 )
 
-            return SetupResult(True, f"Verbindung erfolgreich. {len(models)} Modelle gefunden.", models)
+            return SetupResult(True, f"Verbindung erfolgreich ({url}). {len(models)} Modelle gefunden.", models)
 
         except ImportError:
             return SetupResult(
@@ -88,13 +89,21 @@ class OllamaConnectionValidator:
             )
         except Exception as e:
             error_msg = str(e)
-            if "refused" in error_msg.lower() or "connection" in error_msg.lower():
+            low = error_msg.lower()
+            if "401" in error_msg or "unauthorized" in low:
                 return SetupResult(
                     False,
-                    f"Keine Verbindung zu Ollama unter {host}:{port} möglich. Stellen Sie sicher, dass Ollama läuft.",
+                    f"{url} lehnt den Schlüssel ab (401). Schlüssel prüfen oder neu erzeugen.",
+                    [])
+            if "403" in error_msg or "forbidden" in low:
+                return SetupResult(False, f"{url} verweigert den Zugriff (403).", [])
+            if "refused" in low or "connect" in low or "timed out" in low or "name or service" in low:
+                return SetupResult(
+                    False,
+                    f"Keine Verbindung zu {url} möglich. Läuft der Dienst, stimmen Host, Port und SSL?",
                     []
                 )
-            return SetupResult(False, f"Verbindung fehlgeschlagen: {error_msg}", [])
+            return SetupResult(False, f"Verbindung zu {url} fehlgeschlagen: {error_msg}", [])
 
     @staticmethod
     def test_openai_compatible(base_url: str, api_key: str,
@@ -288,34 +297,48 @@ class ConfigurationBuilder:
         # Create UI config
         ui_config = UIConfig()
 
-        # ARCHITECTURAL FIX: Use OpenAI-compatible API for Ollama (simpler, more reliable)
-        # Ollama supports OpenAI-compatible API as primary interface
-        actual_provider_type = provider_type
-        actual_base_url = base_url or ""
-
+        # Ollama wird nativ gespeichert (Host/Port/SSL, optionaler Schlüssel für
+        # Ollama Cloud), denn der Wizard testet vorher ebenfalls nativ: Test und
+        # echter Aufruf gehen so durch denselben Pfad. Früher wurde daraus ein
+        # openai_compatible-Eintrag mit "/v1" und dem Platzhalter-Schlüssel
+        # "no-key-required"; ein Cloud-Schlüssel ging dabei verloren.
+        # - Claude Generated
         if provider_type == "ollama":
-            # Convert Ollama to openai_compatible provider type
-            actual_provider_type = "openai_compatible"
-            # Ensure base_url includes /v1 endpoint for OpenAI compatibility
-            if actual_base_url and not actual_base_url.endswith("/v1"):
-                actual_base_url = f"{actual_base_url}/v1"
-            # Ollama doesn't require API key
-            actual_api_key = "no-key-required"
-        else:
-            # For all other providers (OpenAI, Gemini, etc.), use provided API key
-            actual_api_key = api_key or ""
+            from .ollama_endpoint import (
+                base_url as ollama_base_url, clean_api_key, is_ollama_cloud_host,
+                parse_host,
+            )
 
-        # Create provider configuration - Claude Generated (fixed parameters)
-        provider = UnifiedProvider(
-            name=provider_type,  # Keep original type as display name (e.g., "ollama")
-            provider_type=actual_provider_type,  # Convert to openai_compatible if needed
-            base_url=actual_base_url,
-            api_key=actual_api_key,
-            connection_type="native_client" if provider_type == "ollama" else "native_client",
-            available_models=models or [],
-            enabled=True,
-            preferred_model=models[0] if models else ""
-        )
+            host, port, use_ssl = parse_host(
+                base_url or "http://localhost:11434", 11434, False
+            )
+            cloud = is_ollama_cloud_host(host)
+            if cloud:
+                port, use_ssl = 443, True
+            provider = UnifiedProvider(
+                name="ollama_cloud" if cloud else "ollama",
+                provider_type="ollama",
+                host=host or "localhost",
+                port=port,
+                use_ssl=use_ssl,
+                base_url=ollama_base_url(host or "localhost", port, use_ssl),
+                api_key=clean_api_key(api_key or ""),
+                connection_type="native_client",
+                available_models=models or [],
+                enabled=True,
+                preferred_model=models[0] if models else "",
+            )
+        else:
+            provider = UnifiedProvider(
+                name=provider_type,
+                provider_type=provider_type,
+                base_url=base_url or "",
+                api_key=api_key or "",
+                connection_type="native_client",
+                available_models=models or [],
+                enabled=True,
+                preferred_model=models[0] if models else "",
+            )
 
         # Pipeline + vision defaults from the wizard's two model questions.
         # Used to be six per-task TaskPreference entries (one per classic-pipeline
@@ -340,8 +363,14 @@ class ConfigurationBuilder:
                 )
 
         # Create unified provider config
+        # "Allgemein" (zugleich Agentik und Chat) wird ausdrücklich gesetzt, auf
+        # dasselbe Modell wie die Pipeline. Leer fiel es auf "erster nutzbarer
+        # Anbieter" zurück (dessen erstes Modell), und ein erneuter Lauf auf
+        # einer bestehenden Konfiguration leerte einen vorhandenen Wert.
         unified_config = UnifiedProviderConfig(
             providers=[provider],
+            preferred_provider=provider.name,
+            preferred_model=resolved_pipeline_model,
             pipeline_default_provider=provider.name,
             pipeline_default_model=resolved_pipeline_model,
             vision_default_provider=provider.name,

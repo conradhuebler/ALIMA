@@ -45,7 +45,6 @@ class ResolutionView(QGroupBox):
     EMPTY_LABELS = {
         "general": None,  # always concrete: everything else falls back to it
         "pipeline": "(erbt den allgemeinen)",
-        "agentic": "(erbt den allgemeinen)",
         "vision": "(erbt den allgemeinen)",
     }
 
@@ -208,7 +207,6 @@ class ResolutionView(QGroupBox):
         attr = {
             "general": ("preferred_provider", "preferred_model"),
             "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
-            "agentic": ("agentic_default_provider", "agentic_default_model"),
             "vision": ("vision_default_provider", "vision_default_model"),
         }[scope]
         return (

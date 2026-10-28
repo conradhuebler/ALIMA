@@ -41,7 +41,7 @@ from PyQt6.QtWidgets import (
     QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QBrush, QColor
 from typing import Any, Dict, List, Optional
 import logging
 import re
@@ -49,12 +49,16 @@ from pathlib import Path
 
 from .workers import DNBSyncWorker, GndSearchWorker
 from .styles import (
+    set_variant,
+    set_status,
     get_main_stylesheet,
     get_button_styles,
     get_status_label_styles,
     get_scaled_font,
     LAYOUT,
     COLORS,
+    DARK_COLORS,
+    get_colors,
 )
 
 
@@ -109,7 +113,25 @@ def format_classifications_compact(
 
 
 _RELATION_SYMBOLS = ["=", "≈", "≠"]
-_RELATION_COLORS = [QColor("#4caf50"), QColor("#ff9800"), QColor("#9e9e9e")]
+# Relation (=, ≈, ≠) → colour token; resolved per theme when a row is filled.
+_RELATION_TONES = ["success", "warning", "text_muted"]
+
+
+def _relation_color(relation: int) -> QColor:
+    """Colour of the relation symbol in the current theme. - Claude Generated"""
+    return QColor(get_colors()[_RELATION_TONES[relation]])
+
+
+def _tone(name: str) -> QColor:
+    """A theme colour as QColor (row highlights, item text). - Claude Generated"""
+    return QColor(get_colors()[name])
+
+
+def _is_manual_row_ground(color: QColor) -> bool:
+    """Manual additions keep their info ground when a selection is toggled
+    off. Both themes count, so a theme switch in between does not strip it.
+    - Claude Generated"""
+    return color.name() in (COLORS["info_bg"], DARK_COLORS["info_bg"])
 
 _CACHE_STATUS_ICONS = {"cache": "💾", "new": "🌐", "outdated": "⚠️"}
 _CACHE_STATUS_TOOLTIPS = {
@@ -175,7 +197,7 @@ class SearchTab(QWidget):
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(0, 0, 0, 5)
         self.status_label = QLabel("Aktueller Status: Bereit")
-        self.status_label.setStyleSheet(get_status_label_styles()["info"])
+        set_status(self.status_label, "info")
         control_bar.addWidget(self.status_label)
         control_bar.addStretch(1)
         self.progressBar = QProgressBar()
@@ -210,9 +232,7 @@ class SearchTab(QWidget):
 
         # Quellen-Zeile — wird von refresh_sources() live neu gebaut
         options_frame = QFrame()
-        options_frame.setStyleSheet(
-            f"background-color: {COLORS['background_dark']}; border-radius: 6px; padding: 4px;"
-        )
+        options_frame.setObjectName("optionsStrip")  # colours: styles._component_rules
         self.sources_layout = QHBoxLayout(options_frame)
         sources_label = QLabel("GND-Quellen (Plugins):")
         sources_label.setFont(get_scaled_font(size_delta=-1, bold=True))
@@ -238,7 +258,7 @@ class SearchTab(QWidget):
         # laufende ab (Operator-Wunsch Aug 4). - Claude Generated
         self._btn_styles = btn_styles
         self.search_button = QPushButton("Suche starten")
-        self.search_button.setStyleSheet(btn_styles["primary"])
+        set_variant(self.search_button, "primary")
         self.search_button.clicked.connect(self._on_search_button)
         self.search_button.setShortcut("Ctrl+Return")
         search_layout.addWidget(self.search_button)
@@ -290,7 +310,7 @@ class SearchTab(QWidget):
         details_layout.addWidget(self.details_display)
 
         self.update_button = QPushButton("🔄 DNB-Sync Selected")
-        self.update_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.update_button, "secondary")
         self.update_button.setToolTip(
             "Aktualisiert alle ausgewählten (✅) GND-Einträge mit aktuellen Daten von der DNB. "
             "Holt DDC-Klassifikationen und GND-Systematiken."
@@ -313,7 +333,7 @@ class SearchTab(QWidget):
         self.manual_search_input.setMaximumHeight(60)
         manual_layout.addWidget(self.manual_search_input)
         self.manual_search_button = QPushButton("Suchen")
-        self.manual_search_button.setStyleSheet(btn_styles["primary"])
+        set_variant(self.manual_search_button, "primary")
         self.manual_search_button.clicked.connect(self.perform_manual_search)
         manual_layout.addWidget(self.manual_search_button)
         results_box_layout.addWidget(self.manual_search_group)
@@ -323,7 +343,7 @@ class SearchTab(QWidget):
         actions_layout.setSpacing(10)
         self.toggle_manual_button = QPushButton("🔧 Manuelle Nachsuche")
         self.toggle_manual_button.setCheckable(True)
-        self.toggle_manual_button.setStyleSheet(btn_styles["secondary"])
+        set_variant(self.toggle_manual_button, "secondary")
         self.toggle_manual_button.setToolTip(
             "Aktiviert manuelle Suche für zusätzliche GND-Schlagwörter, "
             "die die Pipeline nicht gefunden hat"
@@ -333,7 +353,7 @@ class SearchTab(QWidget):
         actions_layout.addStretch(1)
 
         self.save_changes_button = QPushButton("💾 Änderungen Speichern")
-        self.save_changes_button.setStyleSheet(btn_styles["accent"])
+        set_variant(self.save_changes_button, "accent")
         self.save_changes_button.setEnabled(False)
         self.save_changes_button.setToolTip(
             "Speichert Ihre Änderungen an der GND-Auswahl zurück in den Analyse-Status. "
@@ -376,9 +396,8 @@ class SearchTab(QWidget):
 
     def refresh_styles(self):
         """Re-apply styles after theme change — Claude Generated"""
+        # The status line keeps its tone; its colour follows the theme.
         self.setStyleSheet(get_main_stylesheet())
-        if hasattr(self, "status_label"):
-            self.status_label.setStyleSheet(get_status_label_styles()["info"])
 
     # ── Quellen (Plugin-System, live) ────────────────────────────────────────
 
@@ -454,12 +473,12 @@ class SearchTab(QWidget):
 
     def _search_ui_idle(self):
         self.search_button.setText("Suche starten")
-        self.search_button.setStyleSheet(self._btn_styles["primary"])
+        set_variant(self.search_button, "primary")
         self.progressBar.setVisible(False)
 
     def _search_ui_running(self):
         self.search_button.setText("⏹ Abbrechen")
-        self.search_button.setStyleSheet(self._btn_styles["secondary"])
+        set_variant(self.search_button, "secondary")
         self.progressBar.setVisible(True)
 
     def perform_search(self):
@@ -588,7 +607,7 @@ class SearchTab(QWidget):
             self.results_table.setItem(row, _COL_COUNT, count_item)
 
             rel_item = QTableWidgetItem(_RELATION_SYMBOLS[r["relation"]])
-            rel_item.setForeground(_RELATION_COLORS[r["relation"]])
+            rel_item.setForeground(_relation_color(r["relation"]))
             rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.results_table.setItem(row, _COL_REL, rel_item)
 
@@ -685,7 +704,7 @@ class SearchTab(QWidget):
                     items = "".join(f"<li>{v}</li>" for v in values)
                     parts.append(f"<p><b>{label}:</b><ul>{items}</ul></p>")
             parts.append(
-                "<p style='font-size: 0.9em; color: #666;'>"
+                f"<p style='font-size: 0.9em; color: {get_colors()['text_muted']};'>"
                 f"<b>Erstellt am:</b> {gnd_entry.get('created_at', 'N/A')}<br>"
                 f"<b>Zuletzt aktualisiert:</b> {gnd_entry.get('updated_at', 'N/A')}</p>"
             )
@@ -760,7 +779,7 @@ class SearchTab(QWidget):
         if not analysis_state:
             self._set_status("Keine Pipeline-Ergebnisse verfügbar", "warning")
             self.transparency_text.setHtml(
-                "<p style='color: orange;'><b>Keine Pipeline-Daten geladen</b></p>"
+                f"<p style='color: {get_colors()['warning']};'><b>Keine Pipeline-Daten geladen</b></p>"
                 "<p>Führen Sie die Pipeline aus, um GND-Suchergebnisse zu sehen.</p>"
             )
             return
@@ -787,7 +806,7 @@ class SearchTab(QWidget):
             if not search_results:
                 self._set_status("Pipeline hat keine GND-Einträge gefunden", "warning")
                 self.transparency_text.setHtml(
-                    "<p style='color: orange;'><b>Keine Suchergebnisse</b></p>"
+                    f"<p style='color: {get_colors()['warning']};'><b>Keine Suchergebnisse</b></p>"
                     "<p>Die Pipeline hat keine GND-Schlagwörter gefunden. "
                     "Verwenden Sie die manuelle Nachsuche unten.</p>"
                 )
@@ -818,11 +837,11 @@ class SearchTab(QWidget):
         """Init-Keyword → GND-Einträge Mapping als HTML - Claude Generated"""
         mapping_text = "<h3>Pipeline-Mapping (Initial Keywords → GND-Einträge)</h3>"
         mapping_text += (
-            "<p style='color: gray; font-size: 0.9em;'>"
+            f"<p style='color: {get_colors()['text_muted']}; font-size: 0.9em;'>"
             "Zeigt welche Pipeline-Keywords zu welchen GND-Einträgen führten:</p>"
         )
         if not initial_keywords:
-            mapping_text += "<p style='color: orange;'><b>Keine Initial-Keywords gefunden</b></p>"
+            mapping_text += f"<p style='color: {get_colors()['warning']};'><b>Keine Initial-Keywords gefunden</b></p>"
             self.transparency_text.setHtml(mapping_text)
             return
 
@@ -838,9 +857,9 @@ class SearchTab(QWidget):
                 for gnd_id, entry_data in sr.results.items():
                     label = entry_data.get("label", "N/A")
                     if gnd_id in final_keywords:
-                        status = "✅ <span style='color: green; font-weight: bold;'>[Verwendet]</span>"
+                        status = f"✅ <span style='color: {get_colors()['success']}; font-weight: bold;'>[Verwendet]</span>"
                     else:
-                        status = "<span style='color: gray;'>[Nicht verwendet]</span>"
+                        status = f"<span style='color: {get_colors()['text_muted']};'>[Nicht verwendet]</span>"
                     mapping_text += f"<li>{label} (GND:{gnd_id}) {status}</li>"
             mapping_text += "</ul>"
 
@@ -863,7 +882,7 @@ class SearchTab(QWidget):
                 begriff_item = QTableWidgetItem(begriff)
                 if is_selected:
                     begriff_item.setFont(get_scaled_font(bold=True))
-                    begriff_item.setForeground(QColor("#2e7d32"))
+                    begriff_item.setForeground(_tone("success"))
                     begriff_item.setText(f"✅ {begriff}")
                 self.results_table.setItem(row, _COL_TERM, begriff_item)
 
@@ -875,7 +894,7 @@ class SearchTab(QWidget):
 
                 relation = determine_relation(begriff, init_keyword)
                 rel_item = QTableWidgetItem(_RELATION_SYMBOLS[relation])
-                rel_item.setForeground(_RELATION_COLORS[relation])
+                rel_item.setForeground(_relation_color(relation))
                 rel_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 rel_item.setToolTip(f"Initial-Keyword: {init_keyword}")
                 self.results_table.setItem(row, _COL_REL, rel_item)
@@ -895,7 +914,7 @@ class SearchTab(QWidget):
                 self.results_table.setItem(row, _COL_STATUS, status_item)
 
                 if is_selected:
-                    self._highlight_row(row, QColor("#e8f5e9"))
+                    self._highlight_row(row, _tone("success_bg"))
 
         self.logger.info(f"Displayed {self.results_table.rowCount()} pipeline results")
 
@@ -955,7 +974,7 @@ class SearchTab(QWidget):
                 row = self.results_table.rowCount()
                 self.results_table.insertRow(row)
                 begriff_item = QTableWidgetItem(f"🔧 {keyword}")
-                begriff_item.setForeground(QColor("#1976d2"))
+                begriff_item.setForeground(_tone("secondary"))
                 self.results_table.setItem(row, _COL_TERM, begriff_item)
                 self.results_table.setItem(row, _COL_GND, QTableWidgetItem(gnd_id))
                 count_item = QTableWidgetItem(str(preferred_display_count(data)))
@@ -974,7 +993,7 @@ class SearchTab(QWidget):
                 status_item.setToolTip("Manuelle Addition")
                 status_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.results_table.setItem(row, _COL_STATUS, status_item)
-                self._highlight_row(row, QColor("#e3f2fd"))
+                self._highlight_row(row, _tone("info_bg"))
 
                 self.manual_additions.append(
                     {"gnd_id": gnd_id, "label": keyword, "search_term": term}
@@ -1033,11 +1052,11 @@ class SearchTab(QWidget):
         if is_currently_selected:
             begriff_item.setText(begriff_text.replace("✅ ", ""))
             begriff_item.setFont(get_scaled_font())
-            begriff_item.setForeground(QColor("#000000"))
+            begriff_item.setForeground(QBrush())  # back to the table's text colour
             for col in range(len(_COLS)):
                 cell_item = self.results_table.item(row, col)
-                if cell_item and cell_item.background().color() != QColor("#e3f2fd"):
-                    cell_item.setBackground(QColor("#ffffff"))
+                if cell_item and not _is_manual_row_ground(cell_item.background().color()):
+                    cell_item.setBackground(QBrush())  # back to the table's ground
             if was_originally_selected:
                 self.modified_selections[gnd_id] = "deselected"
             else:
@@ -1045,8 +1064,8 @@ class SearchTab(QWidget):
         else:
             begriff_item.setText(f"✅ {begriff_text.replace('🔧 ', '')}")
             begriff_item.setFont(get_scaled_font(bold=True))
-            begriff_item.setForeground(QColor("#2e7d32"))
-            self._highlight_row(row, QColor("#e8f5e9"))
+            begriff_item.setForeground(_tone("success"))
+            self._highlight_row(row, _tone("success_bg"))
             if not was_originally_selected:
                 self.modified_selections[gnd_id] = "selected"
             else:

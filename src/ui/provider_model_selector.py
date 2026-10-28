@@ -24,6 +24,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from .workers import ModelLoadWorker
+from .styles import get_colors
 
 logger = logging.getLogger(__name__)
 
@@ -287,8 +288,13 @@ class ProviderModelSelector(QWidget):
             self.model_combo.setStyleSheet(base)
             return
         ok = self.is_model_valid()
-        invalid = "" if ok else "QComboBox { border: 1px solid #d32f2f; }"
+        invalid = "" if ok else f"QComboBox {{ border: 1px solid {get_colors()['error']}; }}"
         self.model_combo.setStyleSheet(base + invalid)
+
+    def refresh_styles(self) -> None:
+        """Re-colour the validation border after a theme switch. - Claude Generated"""
+        if hasattr(self, "model_combo"):
+            self._apply_validation_style()
 
 
 class _blocked:

@@ -31,49 +31,56 @@ class RepetitionWarningBar(QFrame):
     abort_requested = pyqtSignal()
     retry_requested = pyqtSignal(dict)
 
-    _STYLE_WARNING_GREEN = """
-        QFrame {
-            background-color: #1b3a1f;
-            border: 1px solid #4caf50;
-            border-radius: 3px;
-            padding: 1px;
-        }
-        QLabel { color: #a5d6a7; }
-        QPushButton {
-            background-color: #2e7d32;
-            color: #fff;
-            border: none;
-            border-radius: 3px;
-            padding: 1px 5px;
-            font-weight: bold;
-        }
-        QPushButton:hover { background-color: #43a047; }
-    """
+    @staticmethod
+    def _style_for(state: str) -> str:
+        """Bar stylesheet for ``hidden`` / ``orange`` / ``green``, coloured
+        from the current theme. ``hidden`` paints everything transparent (the
+        buttons are hidden by ``_set_buttons_visible``).
+        Children carry no colours of their own; the object names below address
+        them. - Claude Generated"""
+        from .styles import get_colors
 
-    _STYLE_WARNING_ORANGE = """
-        QFrame {
-            background-color: #3d2a00;
-            border: 1px solid #ff9800;
-            border-radius: 3px;
-            padding: 1px;
-        }
-        QLabel { color: #ffcc80; }
-        QPushButton {
-            background-color: #ff9800;
-            color: #1e1e1e;
-            border: none;
-            border-radius: 3px;
-            padding: 1px 5px;
-            font-weight: bold;
-        }
-        QPushButton:hover { background-color: #ffb74d; }
-    """
+        c = get_colors()
+        if state == "hidden":
+            return (
+                "QFrame { background: transparent; border: none; padding: 0; }"
+                "QLabel { color: transparent; }"
+                "QPushButton { background: transparent; border: none; color: transparent; }"
+            )
+        tone = "warning" if state == "orange" else "success"
+        fg, bg = c[tone], c[tone + "_bg"]
+        on = c["on_" + tone]
+        hover = c[tone + "_hover"]
+        continue_btn = (
+            f"QPushButton#repContinue {{ background-color: {c['surface_raised']}; "
+            f"color: {c['text']}; border: 1px solid {c['border']}; padding: 0px 4px; font-weight: normal; }}"
+            if state == "orange"
+            else "QPushButton#repContinue { background: transparent; border: none; color: transparent; }"
+        )
+        return (
+            f"QFrame {{ background-color: {bg}; border: 1px solid {fg}; "
+            f"border-radius: 3px; padding: 1px; }}"
+            f"QLabel {{ color: {c['text']}; border: none; background: transparent; padding: 0; }}"
+            f"QLabel#repTitle {{ color: {fg}; font-weight: bold; }}"
+            f"QLabel#repCountdown {{ font-weight: bold; }}"
+            f"QPushButton {{ background-color: {fg}; color: {on}; border: none; "
+            f"border-radius: 3px; padding: 1px 5px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {hover}; }}"
+            f"QPushButton#repAbort {{ background-color: {c['error']}; color: {c['on_error']}; }}"
+            f"QPushButton#repDismiss {{ background-color: transparent; color: {fg}; padding: 0; }}"
+            + continue_btn
+        )
 
-    _STYLE_WARNING_HIDDEN = """
-        QFrame { background: transparent; border: none; padding: 0; }
-        QLabel { color: transparent; }
-        QPushButton { background: transparent; border: none; color: transparent; }
-    """
+    def _set_buttons_visible(self, visible: bool) -> None:
+        """Knöpfe im Ruhezustand wirklich verstecken: nur transparent gemalt
+        waren sie weiter klickbar und ihre Emoji sichtbar. - Claude Generated"""
+        for btn in (self.abort_now_button, self.continue_button,
+                    self.dismiss_warning_button):
+            btn.setVisible(visible)
+
+    def refresh_styles(self):
+        """Re-colour the current state after a theme switch. - Claude Generated"""
+        self.setStyleSheet(self._style_for(self._warning_style_state))
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,26 +88,28 @@ class RepetitionWarningBar(QFrame):
         self._warning_style_state = "hidden"
         self._last_shown_detection_type = ""
         self.current_suggestions: List[Dict] = []
-        self.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+        self.setObjectName("repetitionBar")
+        self.setStyleSheet(self._style_for("hidden"))
 
         bar = QHBoxLayout(self)
         bar.setContentsMargins(6, 1, 4, 1)
         bar.setSpacing(6)
 
-        self.warning_icon_label = QLabel("⚠️")
+        # Leer im Ruhezustand: ein Emoji ignoriert "color: transparent" und
+        # bliebe sichtbar. - Claude Generated
+        self.warning_icon_label = QLabel("")
         bar.addWidget(self.warning_icon_label)
 
         self.warning_title_label = QLabel("Wiederholung erkannt")
-        self.warning_title_label.setStyleSheet("font-weight: bold; color: #ff9800;")
+        self.warning_title_label.setObjectName("repTitle")
         bar.addWidget(self.warning_title_label)
 
         self.warning_details_label = QLabel("")
         self.warning_details_label.setWordWrap(False)
-        self.warning_details_label.setStyleSheet("color: #ffe0b2;")
         bar.addWidget(self.warning_details_label, 1)
 
         self.countdown_label = QLabel("")
-        self.countdown_label.setStyleSheet("color: #fff; font-weight: bold;")
+        self.countdown_label.setObjectName("repCountdown")
         self.countdown_label.setVisible(False)
         bar.addWidget(self.countdown_label)
 
@@ -109,27 +118,30 @@ class RepetitionWarningBar(QFrame):
         bar.addLayout(self.suggestions_button_layout)
 
         self.abort_now_button = QPushButton("🛑 Abbrechen")
-        self.abort_now_button.setStyleSheet(
-            "background-color: #d32f2f; color: white; font-weight: bold;"
-            " border-radius: 3px; padding: 1px 5px;"
-        )
+        self.abort_now_button.setObjectName("repAbort")
         self.abort_now_button.clicked.connect(self._on_abort_requested)
         bar.addWidget(self.abort_now_button)
 
         self.continue_button = QPushButton("Fortfahren")
-        self.continue_button.setStyleSheet(
-            "background-color: #555; color: #ccc; padding: 1px 5px;"
-        )
+        self.continue_button.setObjectName("repContinue")
         self.continue_button.clicked.connect(self.hide_warning)
         bar.addWidget(self.continue_button)
 
         self.dismiss_warning_button = QPushButton("✕")
         self.dismiss_warning_button.setFixedSize(18, 18)
-        self.dismiss_warning_button.setStyleSheet(
-            "background-color: transparent; color: #ff9800; padding: 0;"
-        )
+        self.dismiss_warning_button.setObjectName("repDismiss")
         self.dismiss_warning_button.clicked.connect(self.hide_warning)
         bar.addWidget(self.dismiss_warning_button)
+
+        # Die Knöpfe behalten ihren Platz, auch versteckt (die Breite der
+        # übrigen Elemente springt beim Erscheinen nicht). Die Höhe der Leiste
+        # wechselt zwischen Ruhe und Warnung um wenige Pixel, wie zuvor.
+        for btn in (self.abort_now_button, self.continue_button,
+                    self.dismiss_warning_button):
+            policy = btn.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            btn.setSizePolicy(policy)
+        self._set_buttons_visible(False)
 
         self.grace_timer = QTimer(self)
         self.grace_timer.timeout.connect(self._update_countdown)
@@ -148,19 +160,14 @@ class RepetitionWarningBar(QFrame):
             self._warning_style_state == "orange"
             and self._last_shown_detection_type == detection_type
         )
+        self._set_buttons_visible(True)
         if self._warning_style_state != "orange":
-            self.setStyleSheet(self._STYLE_WARNING_ORANGE)
+            self.setStyleSheet(self._style_for("orange"))
             self._warning_style_state = "orange"
         self._last_shown_detection_type = detection_type
 
         if not already_showing:
             self.warning_icon_label.setText("⚠️")
-            self.warning_title_label.setStyleSheet(
-                "font-weight: bold; color: #ff9800;"
-            )
-            self.continue_button.setStyleSheet(
-                "background-color: #555; color: #ccc; padding: 1px 5px;"
-            )
 
             type_labels = {
                 "char_pattern": "Zeichenwiederholung erkannt",
@@ -214,34 +221,27 @@ class RepetitionWarningBar(QFrame):
 
         if resolved:
             if self._warning_style_state != "green":
-                self.setStyleSheet(self._STYLE_WARNING_GREEN)
+                self.setStyleSheet(self._style_for("green"))
                 self._warning_style_state = "green"
+            self._set_buttons_visible(True)
             self.warning_icon_label.setText("✅")
             self.warning_title_label.setText(
                 "Wiederholung behoben – Generation läuft weiter"
-            )
-            self.warning_title_label.setStyleSheet(
-                "font-weight: bold; color: #4caf50;"
             )
             self.warning_details_label.setText("")
             while self.suggestions_button_layout.count():
                 item = self.suggestions_button_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
-            self.continue_button.setStyleSheet(
-                "background: transparent; border: none; color: transparent;"
-            )
         else:
             if self._warning_style_state != "hidden":
-                self.setStyleSheet(self._STYLE_WARNING_HIDDEN)
+                self.setStyleSheet(self._style_for("hidden"))
                 self._warning_style_state = "hidden"
+            self._set_buttons_visible(False)
             self.warning_icon_label.setText("")
             self.warning_title_label.setText("")
             self.warning_details_label.setText("")
             self.countdown_label.setText("")
-            self.continue_button.setStyleSheet(
-                "background: transparent; border: none; color: transparent;"
-            )
             while self.suggestions_button_layout.count():
                 item = self.suggestions_button_layout.takeAt(0)
                 if item.widget():

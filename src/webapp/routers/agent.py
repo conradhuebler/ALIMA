@@ -173,7 +173,7 @@ def _build_agent_runner(req: AgentRunRequest):
     if not provider or not model:
         raise ValueError(
             "No provider/model — set it in the request body, or set "
-            "agentic_default_provider/model (or pipeline_default_*) in the config"
+            "the general default (Allgemein) provider/model in the config"
         )
 
     runner = HeadlessAgentRunner(
@@ -362,7 +362,7 @@ def _build_session_agent_runner(session: "Session", req: ChatMessageRequest):
     if not provider or not model:
         raise ValueError(
             "No provider/model — set it in the request body, or set "
-            "agentic_default_provider/model (or pipeline_default_*) in the config"
+            "the general default (Allgemein) provider/model in the config"
         )
 
     runner = HeadlessAgentRunner(
