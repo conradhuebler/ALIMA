@@ -149,6 +149,11 @@ steps:
       merge_key: keywords
       dedup_field: keyword
       max_merged: 80
+      # Greift nur, wenn Einstellungen ▸ Sprachmodelle ein Entscheidungsmodell
+      # nennt; sonst läuft der Schritt unverändert (siehe docs/decision_models.md).
+      decision_prefilter:
+        enabled: true
+        top_k: 80
 
     system_prompt: |
       Selektiver GND-Experte. Regeln:

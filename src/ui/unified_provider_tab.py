@@ -396,6 +396,7 @@ class UnifiedProviderTab(QWidget):
         "general": ("preferred_provider", "preferred_model"),
         "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
         "vision": ("vision_default_provider", "vision_default_model"),
+        "decision": ("decision_default_provider", "decision_default_model"),
     }
 
     def _populate_global_preferences(self):

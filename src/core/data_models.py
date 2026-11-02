@@ -122,6 +122,12 @@ class KeywordAnalysisState:
     # verified keyword candidates injected into the search pool under the
     # "input_record" bucket (merge_record_gnd_subjects). - Claude Generated
     input_record_gnd_subjects: List[Dict[str, str]] = field(default_factory=list)
+    # Messprotokoll des Entscheidungs-Vorfilters (``utils.decision_prefilter``):
+    # Modell, Pool vorher/nachher, Laufzeit und der Score je Kandidat. None,
+    # wenn kein Entscheidungsmodell lief. Damit lässt sich der Nutzen später aus
+    # der Ergebnisdatei nachrechnen, ohne das Modell erneut zu fragen.
+    # - Claude Generated
+    decision_prefilter: Optional[Dict[str, Any]] = None
     # The RSWK core of the keyword set (2-5 subject headings that carry the
     # work's actual subject) and the form headings (Lehrbuch, Kongressschrift,
     # …), both named separately by the selection step. The full keyword list

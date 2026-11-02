@@ -130,6 +130,10 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
     merge_key: keywords                        # response[merge_key] expected to be list
     dedup_field: keyword                       # dedupe merged items by lowercased field
     max_merged: 80                             # cap merged result length
+    decision_prefilter:                        # OPTIONAL — Pool vor dem Chunking per Entscheidungsmodell kürzen
+      enabled: true                            # wirkt nur mit gesetzter Rolle (Einstellungen ▸ Sprachmodelle)
+      top_k: 80                                # so viele Items bleiben (Standard 80)
+      text_field: title                        # Feld, das dem Modell vorgelegt wird (Standard title)
 
   system_prompt: |
     ...

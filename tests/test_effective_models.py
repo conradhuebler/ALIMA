@@ -50,9 +50,11 @@ def _row(rows, needle):
 
 
 class OneRowPerAxisTest(unittest.TestCase):
-    def test_there_are_three_rows_agentic_and_chat_are_the_general_one(self):
+    def test_there_are_four_rows_agentic_and_chat_are_the_general_one(self):
         rows = effective_rows(_config())
-        self.assertEqual([r.scope for r in rows], ["general", "pipeline", "vision"])
+        self.assertEqual(
+            [r.scope for r in rows], ["general", "pipeline", "vision", "decision"]
+        )
         self.assertIn("Agentisch", rows[0].task)
         self.assertIn("Chat", rows[0].task)
 

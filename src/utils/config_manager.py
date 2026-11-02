@@ -604,6 +604,12 @@ class ConfigManager:
         # list). - Claude Generated
         unified_config.vision_default_provider = data.get("vision_default_provider", "")
         unified_config.vision_default_model = data.get("vision_default_model", "")
+        unified_config.decision_default_provider = data.get("decision_default_provider", "")
+        unified_config.decision_default_model = data.get("decision_default_model", "")
+        try:
+            unified_config.decision_max_parallel = max(1, int(data.get("decision_max_parallel", 1)))
+        except (TypeError, ValueError):
+            unified_config.decision_max_parallel = 1
 
         # Parse individual provider configs (legacy support)
         unified_config.gemini_api_key = data.get("gemini_api_key", "")
@@ -862,6 +868,9 @@ class ConfigManager:
                             'pipeline_default_model',
                             'vision_default_provider',
                             'vision_default_model',
+                            'decision_default_provider',
+                            'decision_default_model',
+                            'decision_max_parallel',
                             # Legacy gemini/anthropic mirror fields, kept in sync
                             # from the authoritative provider objects on save.
                             'gemini_api_key',

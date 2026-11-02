@@ -42,6 +42,8 @@ from .smart_provider_selector import SmartProviderSelector
 from .config_models import TaskType
 from .pipeline_defaults import DEFAULT_DK_MAX_RESULTS, DEFAULT_DK_FREQUENCY_THRESHOLD
 from .chunking import split_into_equal_chunks
+from .decision_prefilter import DEFAULT_TOP_K as DECISION_PREFILTER_TOP_K
+from .decision_prefilter import prefilter_by_decision
 # Input extraction moved to pipeline_input.py — re-exported for backward compat
 from .pipeline_input import (
     execute_input_extraction,
@@ -164,6 +166,9 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
         self.cache_manager = cache_manager
         self.logger = logger
         self.config_manager = config_manager
+        # Messprotokoll des letzten Entscheidungs-Vorfilters (None = lief nicht);
+        # der Aufrufer überträgt es in den Analysezustand. - Claude Generated
+        self.last_decision_prefilter: Optional[Dict[str, Any]] = None
 
 
         # Initialize SmartProviderSelector if config_manager available
@@ -1421,6 +1426,27 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
 
         # Check if chunking is needed based on keyword count
         total_keywords = len(gnd_compliant_keywords)
+
+        # Optionaler Vorfilter: ein konfiguriertes Entscheidungsmodell kürzt den
+        # Pool, bevor er in Chunks an das LLM geht. Nur im Chunking-Fall, denn
+        # darunter gibt es nichts zu sparen. Ohne Rolle oder bei einem Fehler
+        # bleibt die Liste unverändert. 0 schaltet ihn ab. - Claude Generated
+        self.last_decision_prefilter = None
+        decision_top_k = kwargs.pop("decision_prefilter_top_k", DECISION_PREFILTER_TOP_K)
+        if total_keywords > keyword_chunking_threshold and decision_top_k:
+            step_id = kwargs.get("step_id", "keywords")
+            unified = self.config_manager.get_unified_config() if self.config_manager else None
+            outcome = prefilter_by_decision(
+                gnd_compliant_keywords,
+                lambda kw: re.sub(r"\s*\(GND-ID:.*$", "", kw),
+                original_abstract, unified, top_k=int(decision_top_k),
+                notify=(lambda m: stream_callback(m, step_id)) if stream_callback else None,
+            )
+            if outcome is not None:
+                gnd_compliant_keywords = outcome.kept
+                gnd_keywords_text = "".join(f"{kw}\n" for kw in gnd_compliant_keywords)
+                total_keywords = len(gnd_compliant_keywords)
+                self.last_decision_prefilter = outcome.record
 
         if total_keywords > keyword_chunking_threshold:
             # Session prompt override is not applied to chunk runs: they use the

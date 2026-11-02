@@ -38,6 +38,7 @@ class ProviderScope(str, Enum):
     GENERAL = "general"    # preferred -> first enabled
     PIPELINE = "pipeline"  # pipeline_default -> preferred -> first enabled
     VISION = "vision"      # vision_default -> preferred -> first enabled
+    DECISION = "decision"  # decision_default only: opt-in, kein Rückfall (ein Chat-Modell kann nicht entscheiden)
     AGENTIC = "agentic"    # Alias von GENERAL: Agentik, Chat und Allgemein sind eine Einstellung
 
 
@@ -526,6 +527,17 @@ class UnifiedProviderConfig:
     vision_default_provider: str = ""
     vision_default_model: str = ""
 
+    # Entscheidungsmodell (Ollama ``/v1/systemone``): bewertet Fragen mit einem
+    # Forward-Pass statt Text zu erzeugen. Opt-in: leer = aus, und anders als
+    # alle anderen Rollen ohne Rückfall auf den allgemeinen Standard, weil ein
+    # Chat-Modell diese Schnittstelle nicht bedient. - Claude Generated
+    decision_default_provider: str = ""
+    decision_default_model: str = ""
+    # Gleichzeitige Anfragen an den Entscheidungs-Host. 1 ist der sichere
+    # Wert: ein Laptop gewinnt durch Parallelität nichts (gemessen), ein Server
+    # mit OLLAMA_NUM_PARALLEL mehr. Höher stellt der Betreiber bewusst.
+    decision_max_parallel: int = 1
+
     # Retired as a live config surface (Oct 2026): no UI writes it, no live
     # resolution path reads it. Parsed from disk only so
     # adopt_vision_task_preference() has a legacy vision choice to migrate into
@@ -676,6 +688,7 @@ class UnifiedProviderConfig:
     #: labels, so a rename here is a visible break rather than a silent one.
     DEFAULT_SOURCES = {
         "vision_default": "Vision-Standard",
+        "decision_default": "Entscheidungs-Standard",
         "pipeline_default": "Pipeline Default",
         "preferred": "General Default",
         "first_enabled": "erster nutzbarer Provider (kein Default gesetzt)",
@@ -704,6 +717,17 @@ class UnifiedProviderConfig:
         Returns ``(provider, model, source)`` where ``source`` is a key of
         :attr:`DEFAULT_SOURCES`. - Claude Generated
         """
+        if scope == "decision":
+            # Opt-in ohne Rückfall: nur ein ausdrücklich gewähltes, nutzbares
+            # Paar zählt. Ein Anbieter ohne Modell wird nicht aufgefüllt, denn
+            # sein erstes Modell wäre ein Chat-Modell.
+            provider, model = self.decision_default_provider, self.decision_default_model
+            candidate_obj = self.get_provider_by_name(provider) if provider else None
+            if (candidate_obj is not None and candidate_obj.enabled
+                    and candidate_obj.is_usable and model):
+                return provider, model, "decision_default"
+            return "", "", "none"
+
         # Determine the ordered list of candidate (source, provider, model) settings.
         candidate_fields: list[tuple[str, str, str]] = []
         if scope == "vision":

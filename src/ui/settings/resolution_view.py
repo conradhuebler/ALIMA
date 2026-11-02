@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .decision_models import DecisionModelDetection
 from .effective_models import effective_rows
 
 
@@ -46,6 +47,7 @@ class ResolutionView(QGroupBox):
         "general": None,  # always concrete: everything else falls back to it
         "pipeline": "(erbt den allgemeinen)",
         "vision": "(erbt den allgemeinen)",
+        "decision": "(aus)",
     }
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -179,6 +181,7 @@ class ResolutionView(QGroupBox):
         selector = self._selectors.get(row.scope)
         if selector is None:
             selector = ProviderModelSelector(
+                DecisionModelDetection(unified_config) if row.scope == "decision" else None,
                 allow_empty=empty_label is not None,
                 empty_provider_label=empty_label or "",
                 # Non-editable: an editable QComboBox sizes itself from its
@@ -196,7 +199,11 @@ class ResolutionView(QGroupBox):
             )
             self._selectors[row.scope] = selector
 
-        selector.set_providers(list(self._provider_names), refresh=False)
+        names = (
+            DecisionModelDetection(unified_config).get_available_providers()
+            if row.scope == "decision" else list(self._provider_names)
+        )
+        selector.set_providers(names, refresh=False)
         own_provider, own_model = self._own_choice(row.scope, unified_config)
         selector.set_selection(own_provider, own_model)
         return selector
@@ -208,6 +215,7 @@ class ResolutionView(QGroupBox):
             "general": ("preferred_provider", "preferred_model"),
             "pipeline": ("pipeline_default_provider", "pipeline_default_model"),
             "vision": ("vision_default_provider", "vision_default_model"),
+            "decision": ("decision_default_provider", "decision_default_model"),
         }[scope]
         return (
             getattr(unified_config, attr[0], "") or "",

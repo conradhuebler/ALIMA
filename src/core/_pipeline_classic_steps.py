@@ -571,6 +571,9 @@ class ClassicStepExecutorMixin:
 
             # Update analysis state with final results
             self.current_analysis_state.final_llm_analysis = llm_analysis
+            self.current_analysis_state.decision_prefilter = getattr(
+                self.pipeline_executor, "last_decision_prefilter", None
+            )
 
             # Store keywords, LLM analysis, and verification data for UI display - Claude Generated
             step.output_data = {

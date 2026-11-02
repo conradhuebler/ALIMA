@@ -321,6 +321,8 @@ class LLMAgentStep(BaseStep):
         tool_names = self._resolve_tools(raw_cfg.get("tools"))
         params = self._llm_params(raw_cfg, context)
 
+        items = self._apply_decision_prefilter(chunk_cfg, items, resolved_inputs, context)
+
         # Classic-pipeline parity: chunk_size <= 0 / missing → auto-detect per
         # model via model_capabilities (same source as the rigid pipeline's
         # keyword_chunking_threshold; default 500) - Claude Generated
@@ -513,6 +515,49 @@ class LLMAgentStep(BaseStep):
             return system, user, updated
 
         return system, user, params
+
+    def _apply_decision_prefilter(
+        self,
+        chunk_cfg: Dict[str, Any],
+        items: List[Any],
+        resolved_inputs: Dict[str, Any],
+        context: Any,
+    ) -> List[Any]:
+        """Optional Vorfilter per Entscheidungsmodell vor dem Chunking - Claude Generated
+
+        Greift nur mit ``chunking.decision_prefilter.enabled`` im Workflow *und*
+        konfigurierter Rolle (``ProviderScope.DECISION``); sonst, und bei jedem
+        Fehler des Entscheidungs-Hosts, bleibt ``items`` unverändert. Das
+        Messprotokoll landet in ``context.extra["decision_prefilter"]``.
+        """
+        cfg = chunk_cfg.get("decision_prefilter")
+        if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            return items
+        from src.utils.decision_prefilter import DEFAULT_TOP_K, prefilter_by_decision
+
+        text_field = cfg.get("text_field", "title")
+
+        def text_of(item: Any) -> str:
+            return str(item.get(text_field, "")) if isinstance(item, dict) else str(item)
+
+        try:
+            from src.utils.config_manager import ConfigManager
+            unified = ConfigManager().get_unified_config()
+        except Exception as exc:  # Konfiguration nicht lesbar: weiter ohne Vorfilter
+            from src.utils.error_visibility import log_caught
+            log_caught(logger, exc, f"LLMAgentStep '{self.step_id}': Konfiguration für Vorfilter")
+            return items
+        outcome = prefilter_by_decision(
+            items, text_of, str(resolved_inputs.get("abstract", "") or ""), unified,
+            top_k=int(cfg.get("top_k", DEFAULT_TOP_K) or 0),
+            should_stop=self.should_stop, notify=self.stream_callback,
+        )
+        if outcome is None:
+            return items
+        extra = getattr(context, "extra", None)
+        if isinstance(extra, dict):
+            extra["decision_prefilter"] = outcome.record
+        return outcome.kept
 
     def _auto_chunk_size(self, params: Dict[str, Any]) -> int:
         """Resolve the chunk size like the classic pipeline - Claude Generated

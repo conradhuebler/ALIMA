@@ -32,6 +32,7 @@ from typing import Any, List
 #: Display label per source key.
 SOURCE_LABELS = {
     "vision_default": "Vision-Standard",
+    "decision_default": "Entscheidungs-Standard",
     "pipeline_default": "Pipeline-Standard",
     "preferred": "Allgemeiner Standard",
     "first_enabled": "erster nutzbarer Anbieter",
@@ -51,6 +52,8 @@ class EffectiveRow:
 
     @property
     def source_label(self) -> str:
+        if self.scope == "decision" and self.source == "none":
+            return "aus (optional, kein Rückfall)"
         return SOURCE_LABELS.get(self.source, self.source)
 
     @property
@@ -71,6 +74,7 @@ def effective_rows(unified_config: Any) -> List[EffectiveRow]:
         (ProviderScope.GENERAL, "general", "Allgemein, Agentisch und Chat"),
         (ProviderScope.PIPELINE, "pipeline", "Klassische Pipeline"),
         (ProviderScope.VISION, "vision", "Bild- und OCR-Analyse"),
+        (ProviderScope.DECISION, "decision", "Entscheidungsmodell (optional)"),
     ]
     rows: List[EffectiveRow] = []
     for scope, key, label in plan:

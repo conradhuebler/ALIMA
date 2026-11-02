@@ -507,6 +507,7 @@ class SharedContext(BaseSharedContext):
             dict(entry) for entry in (getattr(self, "applied_user_rules", None) or [])
         ]
         state.rule_output = str((self.extra or {}).get("rule_output", "") or "")
+        state.decision_prefilter = (self.extra or {}).get("decision_prefilter") or None
 
         # Shelf placement (local Aufstellungssystematik). ``shelf_final`` is what
         # survived the guard; the candidates travel with it so a result stays

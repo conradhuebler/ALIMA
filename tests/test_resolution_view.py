@@ -50,7 +50,7 @@ class ResolutionViewTest(unittest.TestCase):
 
     def test_there_is_one_row_per_axis(self):
         view = self._view(_config())
-        self.assertEqual(len(view.row_texts()), 3)
+        self.assertEqual(len(view.row_texts()), 4)
         labels = [r[0] for r in view.row_texts()]
         for expected in ("Allgemein", "Pipeline", "Agentisch", "Bild"):
             self.assertTrue(any(expected in l for l in labels), labels)
@@ -85,6 +85,38 @@ class ResolutionViewTest(unittest.TestCase):
         self.assertEqual(vision[2], "b-vision")
         self.assertIn("Vision", vision[3])
 
+    def test_the_decision_row_is_off_without_a_choice_and_never_inherits(self):
+        view = self._view(_config(preferred_provider="A", preferred_model="a1"))
+        decision = view.row_texts()[3]
+        self.assertEqual(decision[1], "—")
+        self.assertEqual(decision[2], "")
+        self.assertIn("aus", decision[3])
+        self.assertNotIn("geerbt", decision[3])
+
+    def test_the_decision_row_shows_its_own_choice(self):
+        view = self._view(_config(
+            preferred_provider="A", preferred_model="a1",
+            decision_default_provider="B", decision_default_model="d1",
+        ))
+        decision = view.row_texts()[3]
+        self.assertEqual((decision[1], decision[2]), ("B", "d1"))
+        self.assertIn("Entscheidung", decision[3])
+
+    def test_the_decision_picker_offers_only_ollama_providers(self):
+        from src.utils.config_models import UnifiedProvider
+
+        cfg = _config()
+        cfg.providers.append(UnifiedProvider(
+            name="C", provider_type="openai_compatible", enabled=True,
+            preferred_model="c1", base_url="http://c/v1"))
+        view = self._view(cfg)
+        decision_names = [view._selectors["decision"].provider_combo.itemData(i)
+                          for i in range(view._selectors["decision"].provider_combo.count())]
+        self.assertNotIn("C", decision_names)
+        general_names = [view._selectors["general"].provider_combo.itemData(i)
+                        for i in range(view._selectors["general"].provider_combo.count())]
+        self.assertIn("C", general_names)
+
     def test_nothing_configured_shows_a_dash_not_a_guess(self):
         view = self._view(UnifiedProviderConfig(providers=[]))
         for row in view.row_texts():
@@ -94,7 +126,7 @@ class ResolutionViewTest(unittest.TestCase):
     def test_refresh_replaces_instead_of_appending(self):
         view = self._view(_config())
         view.refresh(_config())
-        self.assertEqual(len(view.row_texts()), 3)
+        self.assertEqual(len(view.row_texts()), 4)
 
     def test_a_broken_config_does_not_raise(self):
         """The table must never be the thing that stops the dialog opening."""
@@ -124,7 +156,7 @@ class TheTableIsAlsoTheControlTest(unittest.TestCase):
     def test_every_axis_has_a_picker(self):
         view = self._view(_config())
         self.assertEqual(
-            sorted(view._selectors), ["general", "pipeline", "vision"]
+            sorted(view._selectors), ["decision", "general", "pipeline", "vision"]
         )
 
     def test_vision_is_reachable(self):

@@ -49,6 +49,9 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ## [Variable Section - Short-term Information]
 
+### ✅ ADDED (Nov 2026, Branch `feature/decision-models`): Entscheidungsmodell-Rolle + Vorfilter
+`decision_default_provider/model` (ohne Rückfall, `ProviderScope.DECISION`), `decision_client.py` (HTTP gegen `/v1/systemone`, höchstens 64 Fragen je Aufruf), `decision_prefilter.py` (kürzt den GND-Pool vor dem Chunking; Fallback bei jedem Fehler). Opt-in; ohne gesetzte Rolle unverändert. ⚠️ `input_tokens` zählt den State je Frage mit, bei bezahlten Anbietern kurz halten. Details und Grenzen: [`docs/decision_models.md`](../../docs/decision_models.md).
+
 ### ✅ CHANGED (Oct 2026): Allgemein, Agentisch und Chat sind eine Einstellung
 `agentic_default_provider/model` ist weg; `ProviderScope.AGENTIC` bleibt als Alias von `GENERAL` (Aufrufstellen unverändert), die Kette ist `preferred → erster nutzbarer Anbieter` (früher `agentic → pipeline → preferred`). Beim Laden ersetzt ein gesetzter alter `agentic_default_*` den allgemeinen Standard (er war der, mit dem Chat und Agentik tatsächlich liefen; weicht er ab, steht das im Log), beim Speichern werden die Schlüssel entfernt. Die Einstellungsansicht hat drei Zeilen (Allgemein/Agentisch/Chat, Pipeline, Bild). Der Einrichtungsassistent setzt „Allgemein“ jetzt ausdrücklich auf Anbieter und gewähltes Pipeline-Modell (vorher leer: Rückfall auf das erste Modell des ersten Anbieters, und ein erneuter Lauf leerte einen vorhandenen Wert). ⚠️ Ein `preferred_provider`, der auf einen nicht (mehr) konfigurierten Anbieter zeigt, wird beim Auflösen übersprungen, nicht gemeldet. Tests: `tests/test_config_section_tolerance.py`, `tests/test_default_resolution_explained.py`, `tests/test_wizard_ollama.py`.
 

@@ -6,6 +6,33 @@
 
 ## 2026
 
+### Entscheidungsmodelle: Rolle und Vorfilter (Branch `feature/decision-models`, November 2, 2026)
+
+Neue optionale Rolle „Entscheidungsmodell" (Ollama `/v1/systemone`, ein
+Forward-Pass statt Textgenerierung) und ein erster Anwendungsfall: der Pool von
+rund 1000 GND-Kandidaten wird vor dem Chunking per Relevanz-Score auf `top_k`
+(80) gekürzt. Beschreibung, Grenzen und Messwerte: [`docs/decision_models.md`](docs/decision_models.md).
+
+- **Konfiguration:** `decision_default_provider/model`, `decision_max_parallel`,
+  `ProviderScope.DECISION` ohne Rückfall (ein Chat-Modell bedient den Endpunkt
+  nicht); vierte Zeile in der Auflösungstabelle, Modellauswahl nur mit der
+  Fähigkeit `decision` aus `/api/tags`. Ein `save_config`-Merge-Test hält fest,
+  dass die Felder Speichern überleben.
+- **Anschluss:** agentisch über `chunking.decision_prefilter` in den fünf
+  Workflows mit `selection_chunks`, klassisch (GUI/CLI/Batch) im
+  Schlüsselwort-Schritt, wenn die Rolle gesetzt ist und ohnehin gechunkt würde.
+  Fehler des Hosts fallen auf den bisherigen Pfad zurück und werden gemeldet.
+- **Messprotokoll** `decision_prefilter` im Ergebnis (Score je Kandidat), damit
+  die Praxisläufe ohne neue Abfragen auswertbar sind.
+- **Befund beim Messen:** `input_tokens` zählt den State für jede Frage mit
+  (979 Fragen: 117 000 Token bei 165 Zeichen State, 351 000 bei 1451); der
+  Endpunkt nimmt höchstens 64 Fragen je Aufruf; die Reihenfolge der Qualität auf
+  einem Dokument war `d1` > `clef:27b-cloud` ≈ `d3` ≫ `d1-omni:600m`
+  (Stichprobe 1, Referenz = Pipeline-Auswahl).
+- Tests: `tests/test_decision_role_config.py`, `tests/test_decision_prefilter.py`
+  (echter lokaler HTTP-Server), `tests/test_decision_prefilter_integration.py`,
+  `tests/test_resolution_view.py`.
+
 ### Einstellungsdialog: Phase 1 aufgeräumt (September 10, 2026)
 
 Der Dialog war über 52 Commits auf 1624 Zeilen gewachsen. Die Analyse fand
