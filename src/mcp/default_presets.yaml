@@ -32,5 +32,11 @@ lookup:
   - k10plus_package
   - dnb_classification
 
+# Decision model (Ollama /v1/systemone). The tools exist only while a decision
+# model is configured; with none, a step that names this preset simply gets no tools.
+decision:
+  - decide
+  - rank_by_relevance
+
 # Empty preset (no tools)
 none: []

@@ -2,8 +2,8 @@
 
 Ein Entscheidungsmodell erzeugt keinen Text. Es bekommt einen `state` und benannte,
 typisierte Fragen und liefert je Frage eine Wahrscheinlichkeit aus einem
-Forward-Pass. ALIMA nutzt das an einer Stelle: den Vorfilter für große
-GND-Kandidatenlisten. Alles hier ist **opt-in**: ohne ein gesetztes
+Forward-Pass. ALIMA nutzt das in der Pipeline an einer Stelle (Vorfilter für große
+GND-Kandidatenlisten) und als Werkzeug des Agenten (Abschnitt „Agent-Werkzeuge“). Alles hier ist **opt-in**: ohne ein gesetztes
 Entscheidungsmodell läuft jeder Pfad unverändert.
 
 ## Was es gibt
@@ -41,6 +41,25 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
   `state_chars`, `max_parallel` und der Score **jedes** Kandidaten. Damit lässt
   sich der Recall gegen die späteren `final_keywords` aus der Datei nachrechnen.
 
+## Agent-Werkzeuge
+
+Mit gesetzter Rolle erscheinen im MCP-Katalog (`src/mcp/tool_registry.py`) zwei
+Werkzeuge; ohne Rolle gibt es sie nicht (`ToolRegistry.refresh()` wertet das nach
+einer Änderung der Einstellungen neu aus). Der Chat in GUI, CLI und HTTP bekommt
+sie über den MCP-Adapter; Workflow-Schritte nehmen sie mit `tools: {preset: decision}`.
+Logik in `src/utils/decision_tools.py`.
+
+- **`decide(state, questions)`**: typisierte Fragen (`noul`, `choice`) an einen
+  Text oder ein JSON-Objekt, Rückgabe sind die Wahrscheinlichkeiten des Modells.
+  Höchstens 64 Fragen je Aufruf, State höchstens 6000 Zeichen (er wird je Frage
+  mitgezählt). Eingaben werden vor dem Aufruf geprüft und mit lesbarer Meldung
+  abgewiesen.
+- **`rank_by_relevance(text, candidates, top_k)`**: Kandidatenliste (Texte oder
+  Objekte mit `keyword`/`title`, Zusatzfelder wie `gnd_id` bleiben erhalten) nach
+  Passung zum Text ordnen, die `top_k` besten (Standard 30, höchstens 200) mit
+  Score; höchstens 3000 Kandidaten. Der Chat-Systemprompt nennt das Werkzeug als
+  Schritt vor `select_from_gnd_pool`.
+
 ## Grenzen (nicht vorhanden)
 
 - Kein Bedienelement für `decision_max_parallel`: nur `config.json`. Standard 1.
@@ -48,9 +67,12 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
   (0 schaltet ab) existiert im Executor, hat aber keinen CLI- oder GUI-Schalter.
 - Die Webapp-Ergebnisansicht (`webapp/result_serialization.py`) übernimmt das
   Feld `decision_prefilter` nicht; in der JSON-Datei des Laufs steht es.
-- Nur Ollama-Anbieter. Kein Anschluss an den MetaAgent-Planer, keine Bild- oder
-  Audio-Eingabe, kein weiterer Anwendungsfall als der Vorfilter.
-- Kein Abbruch im klassischen Pfad (`should_stop` ist nur agentisch verdrahtet).
+- Nur Ollama-Anbieter. Kein Anschluss an den MetaAgent-Planer (der Planer wählt
+  Schritte, er stellt keine Entscheidungsfragen; die Werkzeuge gehören dem Agenten), keine Bild- oder
+  Audio-Eingabe, in der Pipeline kein weiterer Anwendungsfall als der Vorfilter.
+- Kein Abbruch im klassischen Pfad (`should_stop` ist nur agentisch verdrahtet);
+  die Agent-Werkzeuge sind ebenfalls nicht abbrechbar.
+- Typ `score` (laut Modellseite bei `clef` vorhanden) wird nicht angeboten.
 
 ## Messwerte (Orientierung, kein Nachweis)
 

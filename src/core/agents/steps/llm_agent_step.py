@@ -67,6 +67,7 @@ _TOOL_PRESETS_FALLBACK: Dict[str, List[str]] = {
         "rvk_search", "rvk_validate",
     ],
     "lookup": ["rvk_search", "rvk_validate", "k10plus_package", "dnb_classification"],
+    "decision": ["decide", "rank_by_relevance"],
     "none": [],
 }
 

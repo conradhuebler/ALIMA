@@ -336,6 +336,29 @@ class ToolRegistry(ToolGenerationMixin):
 
         return json.dumps(about_payload(), ensure_ascii=False)
 
+    def _decision_unified(self):
+        cfg = self._alima_config()
+        return getattr(cfg, "unified_config", None) if cfg is not None else None
+
+    def _decision_enabled(self) -> bool:
+        from src.utils.decision_prefilter import decision_role
+
+        return decision_role(self._decision_unified()) is not None
+
+    def _handle_decide(self, state, questions) -> str:
+        """Typed questions to the decision model (Ollama /v1/systemone) - Claude Generated"""
+        from src.utils.decision_tools import run_decide
+
+        return json.dumps(run_decide(self._decision_unified(), state, questions), ensure_ascii=False)
+
+    def _handle_rank_by_relevance(self, text, candidates, top_k=30) -> str:
+        """Rank candidates by fit to a text with the decision model - Claude Generated"""
+        from src.utils.decision_tools import run_rank
+
+        return json.dumps(
+            run_rank(self._decision_unified(), text, candidates, top_k), ensure_ascii=False
+        )
+
     def _handle_list_plugins(self, category: str = None, include_disabled: bool = False) -> str:
         """List active plugins (search providers + input sources) with self-docs.
 
@@ -1445,6 +1468,14 @@ class ToolRegistry(ToolGenerationMixin):
         self.register(tool_schemas.AGGREGATE_GND_RESULTS, self._handle_aggregate_gnd_results)
         self.register(tool_schemas.LIST_PLUGINS, self._handle_list_plugins)
         self.register(tool_schemas.ABOUT_ALIMA, self._handle_about_alima)
+
+        # Decision-model tools: only when the optional role is configured, so an
+        # install without the infrastructure never shows the agent a tool it
+        # cannot run. refresh() re-evaluates this after a settings change.
+        # - Claude Generated
+        if self._decision_enabled():
+            self.register(tool_schemas.DECIDE, self._handle_decide)
+            self.register(tool_schemas.RANK_BY_RELEVANCE, self._handle_rank_by_relevance)
 
         # Library tools — search tools generated from provider specs (P3)
         for td, handler in self._generated_search_tools():

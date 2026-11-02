@@ -538,6 +538,95 @@ EXECUTE_WORKFLOW = ToolDefinition(
 # Tool Sets (grouped for agent use)
 # ============================================================
 
+DECIDE = ToolDefinition(
+    name="decide",
+    description=(
+        "Ask typed questions about a text to the configured DECISION model and get "
+        "probabilities back. It does not write text: one forward pass scores every "
+        "answer of every question, so it is fast and repeatable. Use it for yes/no or "
+        "pick-one judgements ('does this abstract concern X?', 'which of these "
+        "headings fits best?'), not for explanations or generation. Question types: "
+        "`noul` (true/false, criteria must be exactly `true` and `false`) and "
+        "`choice` (criteria = one named option each). At most 64 questions per call. "
+        "The state is counted again for EVERY question, so keep it short (at most "
+        "6000 characters). Available only when a decision model is configured."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "state": {
+                "type": ["string", "object"],
+                "description": "The text (or a JSON object) the questions are about.",
+            },
+            "questions": {
+                "type": "object",
+                "description": (
+                    "Map name -> question. Names: letters, digits, _ . - only. Example: "
+                    '{"on_topic": {"type": "noul", "instructions": "Is the document about '
+                    'cadmium?", "criteria": {"true": "It is about cadmium.", "false": "It is not."}}}'
+                ),
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string", "enum": ["noul", "choice"]},
+                        "instructions": {"type": "string"},
+                        "criteria": {"type": "object", "additionalProperties": {"type": "string"}},
+                    },
+                    "required": ["type", "instructions", "criteria"],
+                },
+            },
+        },
+        "required": ["state", "questions"],
+    },
+)
+
+RANK_BY_RELEVANCE = ToolDefinition(
+    name="rank_by_relevance",
+    description=(
+        "Rank a (possibly large) candidate list by how well each candidate fits a text, "
+        "using the configured DECISION model, and return the best `top_k` with scores "
+        "(0 to 1). Cheaper and more repeatable than asking a chat model to filter, and "
+        "built for ~100 to 3000 candidates, e.g. a GND pool before select_from_gnd_pool: "
+        "first cut to ~80 here, then select. It ranks, it does not choose: the scores of "
+        "the cut-off region are close, so keep a margin. 1000 candidates take roughly "
+        "15 s to 2 min depending on the host. Available only when a decision model is "
+        "configured."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "Abstract or description the candidates are judged against (first 1500 characters are used).",
+            },
+            "candidates": {
+                "type": "array",
+                "items": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "keyword": {"type": "string"},
+                                "title": {"type": "string"},
+                                "gnd_id": {"type": "string"},
+                            },
+                        },
+                    ]
+                },
+                "description": "Candidate subject headings: strings, or objects with `keyword` (or `title`) and optional extra fields that are returned unchanged.",
+            },
+            "top_k": {
+                "type": "integer",
+                "description": "How many to return (default 30, at most 200).",
+                "default": 30,
+            },
+        },
+        "required": ["text", "candidates"],
+    },
+)
+
+
 KNOWLEDGE_TOOLS = [
     SEARCH_GND, GET_GND_ENTRY, GET_GND_BATCH,
     GET_SEARCH_CACHE, GET_DK_CACHE, STORE_SEARCH_RESULT,

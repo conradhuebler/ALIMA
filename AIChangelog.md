@@ -29,7 +29,11 @@ rund 1000 GND-Kandidaten wird vor dem Chunking per Relevanz-Score auf `top_k`
   Endpunkt nimmt höchstens 64 Fragen je Aufruf; die Reihenfolge der Qualität auf
   einem Dokument war `d1` > `clef:27b-cloud` ≈ `d3` ≫ `d1-omni:600m`
   (Stichprobe 1, Referenz = Pipeline-Auswahl).
-- Tests: `tests/test_decision_role_config.py`, `tests/test_decision_prefilter.py`
+- **Agent-Werkzeuge** `decide` (typisierte Fragen) und `rank_by_relevance`
+  (Kandidaten ordnen) im MCP-Katalog, nur bei gesetzter Rolle; Chat (GUI, CLI,
+  HTTP) über den MCP-Adapter, Workflow-Schritte über das Preset `decision`.
+  Gegen den echten Server mit `d1` geprüft (11 Fragen).
+- Tests: `tests/test_decision_agent_tools.py`, `tests/test_decision_role_config.py`, `tests/test_decision_prefilter.py`
   (echter lokaler HTTP-Server), `tests/test_decision_prefilter_integration.py`,
   `tests/test_resolution_view.py`.
 
