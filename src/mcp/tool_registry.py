@@ -351,24 +351,31 @@ class ToolRegistry(ToolGenerationMixin):
 
         return json.dumps(run_decide(self._decision_unified(), state, questions), ensure_ascii=False)
 
-    def _handle_rank_by_relevance(self, text, candidates=None, top_k=30, from_search_terms=None) -> str:
+    def _handle_rank_by_relevance(
+        self, text, candidates=None, top_k=30, from_search_terms=None,
+        balanced=False, question_variant=None,
+    ) -> str:
         """Rank candidates by fit to a text with the decision model - Claude Generated
 
         ``from_search_terms`` takes the pool from the raw response cache
         (``aggregate_gnd_results``) so the agent need not copy it into the call.
         """
         from src.utils.decision_client import DecisionError
-        from src.utils.decision_tools import pool_candidates, run_rank
+        from src.utils.decision_tools import pool_candidates, pool_terms, run_rank
 
         skipped = 0
+        groups = None
         if from_search_terms and not candidates:
             try:
-                candidates, skipped = pool_candidates(
-                    json.loads(self._handle_aggregate_gnd_results(list(from_search_terms)))
-                )
+                aggregate = json.loads(self._handle_aggregate_gnd_results(list(from_search_terms)))
+                candidates, skipped = pool_candidates(aggregate)
+                groups = pool_terms(aggregate)
             except (DecisionError, ValueError) as e:
                 return json.dumps({"error": str(e)}, ensure_ascii=False)
-        result = run_rank(self._decision_unified(), text, candidates, top_k)
+        result = run_rank(
+            self._decision_unified(), text, candidates, top_k,
+            variant=question_variant, balanced=bool(balanced), groups=groups,
+        )
         if skipped and "error" not in result:
             result["skipped_unlabeled"] = skipped
         return json.dumps(result, ensure_ascii=False)

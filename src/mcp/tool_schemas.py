@@ -634,6 +634,26 @@ RANK_BY_RELEVANCE = ToolDefinition(
                 "description": "How many to return (default 30, at most 200).",
                 "default": 30,
             },
+            "balanced": {
+                "type": "boolean",
+                "description": (
+                    "With `from_search_terms`: take the best candidates round-robin per search "
+                    "term instead of globally, so a facet (e.g. rice, a disease name) is not "
+                    "pushed out by generic terms. Rows then carry `terms`. Default false."
+                ),
+                "default": False,
+            },
+            "question_variant": {
+                "type": "string",
+                "enum": ["geeignet", "behandelt", "spezifisch"],
+                "description": (
+                    "Wording of the question put to the model: `geeignet` (default, 'suitable "
+                    "index term'), `behandelt` ('explicitly discussed'), `spezifisch` "
+                    "('more than a generic broader term'). For comparing; the default is the "
+                    "one the pipeline uses."
+                ),
+                "default": "geeignet",
+            },
         },
         "required": ["text"],
     },

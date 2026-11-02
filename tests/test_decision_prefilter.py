@@ -56,7 +56,8 @@ class _Fake(BaseHTTPRequestHandler):
         with cls.lock:
             cls.calls.append({"path": self.path, "n": len(body["questions"]),
                               "auth": self.headers.get("Authorization", ""),
-                              "state": body["state"], "model": body["model"]})
+                              "state": body["state"], "model": body["model"],
+                              "instr": next(iter(body["questions"].values()))["instructions"]})
             fail = cls.fail_first > 0
             if fail:
                 cls.fail_first -= 1

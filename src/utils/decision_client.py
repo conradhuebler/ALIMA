@@ -47,6 +47,27 @@ DEFAULT_TRUE = "Das Schlagwort '{t}' benennt ein Thema, um das es im Dokument ge
 DEFAULT_FALSE = "Das Schlagwort '{t}' hat mit dem Dokument nichts oder nur am Rande zu tun."
 
 
+#: Benannte Fragetexte für Vergleiche. "geeignet" ist die Voreinstellung der
+#: Pipeline; die anderen sind Versuchsvarianten ohne Messnachweis, siehe
+#: ``docs/decision_models.md``.
+QUESTION_VARIANTS = {
+    "geeignet": {
+        "instructions": DEFAULT_INSTRUCTIONS, "true_text": DEFAULT_TRUE, "false_text": DEFAULT_FALSE,
+    },
+    "behandelt": {
+        "instructions": "Wird das Thema '{t}' im Dokument im State ausdrücklich behandelt?",
+        "true_text": "Das Dokument behandelt '{t}' ausdrücklich als Thema.",
+        "false_text": "'{t}' wird im Dokument nicht oder nur beiläufig behandelt.",
+    },
+    "spezifisch": {
+        "instructions": ("Ist '{t}' ein spezifisches Schlagwort für den Inhalt des Dokuments im "
+                         "State, also mehr als ein bloßer Oberbegriff?"),
+        "true_text": "'{t}' trifft den Inhalt des Dokuments spezifisch.",
+        "false_text": "'{t}' ist ein bloßer Oberbegriff oder trifft den Inhalt nicht.",
+    },
+}
+
+
 class DecisionError(RuntimeError):
     """Der Entscheidungs-Aufruf ist gescheitert (Verbindung, Status, Antwortform)."""
 

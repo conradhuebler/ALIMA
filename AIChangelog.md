@@ -42,6 +42,16 @@ Bezeichnung nur die GND-ID war, wurden mitbewertet (Scores um 0,45 bis 0,55, als
 Rauschen mitten in den 80); sie werden übersprungen und als `skipped_unlabeled`
 gezählt. Das Ergebnis nennt zudem `input_tokens` (auch im Messprotokoll des
 Vorfilters), damit der Aufwand bei bezahlten Anbietern sichtbar ist.
+`score_items` halbiert einen Batch, wenn der Host "Context size has been exceeded" meldet: 64
+Fragen mit 1500 Zeichen State sprengten auf `d1`/`d3` (Kontext des Servers rund 16 000
+Token) jeden Lauf, im Vorfilter wäre das jedes Mal ein Rückfall gewesen. Messskript
+`scripts/eval_decision_rank.py` (Recall@K aus gespeicherten Scores).
+
+Neu zum Vergleichen (Versuchsparameter, ohne Messnachweis): `rank_by_relevance`
+nimmt `balanced` (reihum je Suchbegriff statt global die besten; ein Kandidat mit mehreren
+Suchbegriffen zählt einmal und verbraucht keinen fremden Zug) und `question_variant`
+(`geeignet`/`behandelt`/`spezifisch`); das Ergebnis meldet beides.
+
 Zurückgenommen: die Katalog-Häufigkeit (`display_count`) in den Zeilen von
 `rank_by_relevance`. Im dritten Chat-Test kopierte der Agent sie als `count` in
 `select_from_gnd_pool`, das nach `count` sortiert und hohe Werte bevorzugt; die 15

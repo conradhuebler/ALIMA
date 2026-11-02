@@ -245,6 +245,63 @@ class RegistryTest(_ServerCase):
             src = pathlib.Path(path).read_text(encoding="utf-8")
             self.assertIn("ToolRegistry(llm_service=llm_service)", src, path)
 
+    def _two_term_pool(self):
+        pool = [{"title": f"Cadmium {i}", "gnd_ids": [str(i)], "count": 1} for i in range(30)]
+        pool += [{"title": f"Reis {i}", "gnd_ids": [str(100 + i)], "count": 1} for i in range(10)]
+        terms_map = {e["title"]: ["Cadmium"] if e["title"].startswith("Cadmium") else ["Reis"] for e in pool}
+        terms_map["Cadmium 0"] = ["Cadmium", "Reis"]       # ein Kandidat, zwei Suchbegriffe
+        return json.dumps({"pool": pool, "sources": ["lobid"], "missing": {}, "terms_map": terms_map})
+
+    def _rank(self, reg, **args):
+        reg._handle_aggregate_gnd_results = lambda terms, **kw: self._two_term_pool()
+        base = {"text": "Cadmium", "from_search_terms": ["Cadmium", "Reis"], "top_k": 10}
+        return json.loads(reg.execute("rank_by_relevance", {**base, **args}))
+
+    def test_balanced_takes_the_best_per_search_term_instead_of_the_global_best(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        plain = self._rank(reg)
+        self.assertEqual(sum(r["keyword"].startswith("Reis") for r in plain["ranked"]), 0)
+
+        out = self._rank(reg, balanced=True)
+        titles = [r["keyword"] for r in out["ranked"]]
+        self.assertEqual(len(titles), len(set(titles)), "kein Kandidat doppelt")
+        self.assertEqual(len(titles), 10)
+        self.assertGreaterEqual(sum(t.startswith("Reis") for t in titles), 5)   # Facette überlebt
+        self.assertTrue(all("terms" in r for r in out["ranked"]))
+        self.assertTrue(out["balanced"])
+        scores = [r["score"] for r in out["ranked"]]
+        self.assertEqual(scores, sorted(scores, reverse=True), "Ausgabe bleibt nach Score geordnet")
+
+    def test_balanced_without_search_terms_is_refused(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        out = json.loads(reg.execute("rank_by_relevance", {
+            "text": "t", "candidates": ["a", "b"], "balanced": True}))
+        self.assertIn("from_search_terms", out["error"])
+        self.assertEqual(_Fake.calls, [])
+
+    def test_question_variant_changes_the_question_and_is_reported(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        for variant, marker in (("behandelt", "ausdrücklich"), ("spezifisch", "Oberbegriff"),
+                                (None, "Sacherschließungs-Schlagwort")):
+            _Fake.calls = []
+            args = {"text": "t", "candidates": ["Cadmium"]}
+            if variant:
+                args["question_variant"] = variant
+            out = json.loads(reg.execute("rank_by_relevance", args))
+            self.assertIn(marker, _Fake.calls[0]["instr"], variant)
+            self.assertEqual(out["question_variant"], variant or "geeignet")
+
+    def test_an_unknown_question_variant_names_the_valid_ones(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        out = json.loads(reg.execute("rank_by_relevance", {
+            "text": "t", "candidates": ["a"], "question_variant": "nope"}))
+        self.assertIn("behandelt", out["error"])
+        self.assertEqual(_Fake.calls, [])
+
     def test_without_candidates_or_terms_the_error_names_both_ways(self):
         reg, _ = self.registry(self.config())
         reg.register_all_tools()

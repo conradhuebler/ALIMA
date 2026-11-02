@@ -23,6 +23,7 @@ from typing import Any, Dict, List
 
 from .decision_client import (
     MAX_QUESTIONS,
+    QUESTION_VARIANTS,
     DecisionError,
     provider_base_url,
     score_items,
@@ -124,10 +125,50 @@ def _candidate_text(item: Any) -> str:
     return str(item).strip()
 
 
+def _balanced_pick(sorted_texts: List[str], groups: Dict[str, List[str]], k: int) -> List[str]:
+    """Reihum je Suchbegriff den nächstbesten Kandidaten nehmen, bis ``k`` erreicht sind.
+
+    ``sorted_texts`` ist nach Score absteigend. Ein Kandidat zählt einmal, auch wenn
+    mehrere Suchbegriffe auf ihn führen; ohne Zuordnung bildet er eine eigene Gruppe.
+    So verdrängt ein Allgemeinbegriff mit vielen Treffern die Facette eines anderen
+    Suchbegriffs (Reis, Itai-Itai) nicht aus dem Schnitt.
+    """
+    per: Dict[str, List[str]] = {}
+    for t in sorted_texts:
+        for term in groups.get(t) or [""]:
+            per.setdefault(term, []).append(t)
+    chosen: List[str] = []
+    seen: set = set()
+    pos = {term: 0 for term in per}
+    while len(chosen) < k:
+        progressed = False
+        for term, lst in per.items():
+            i = pos[term]
+            while i < len(lst) and lst[i] in seen:   # von einem anderen Begriff schon genommen
+                i += 1
+            if i < len(lst):
+                seen.add(lst[i])
+                chosen.append(lst[i])
+                i += 1
+                progressed = True
+            pos[term] = i
+            if len(chosen) >= k:
+                break
+        if not progressed:
+            break
+    return chosen
+
+
 def run_rank(
-    unified_config: Any, text: Any, candidates: Any, top_k: Any = DEFAULT_RANK_TOP_K
+    unified_config: Any, text: Any, candidates: Any, top_k: Any = DEFAULT_RANK_TOP_K,
+    *, variant: Any = None, balanced: bool = False, groups: Any = None,
 ) -> Dict[str, Any]:
-    """Kandidaten nach Passung zu ``text`` ordnen; die ``top_k`` besten mit Score."""
+    """Kandidaten nach Passung zu ``text`` ordnen; die ``top_k`` besten mit Score.
+
+    ``variant`` wählt einen Fragetext aus ``QUESTION_VARIANTS``. ``balanced`` nimmt
+    die besten reihum je Suchbegriff (``groups``: Kandidatentext → Suchbegriffe,
+    nur mit ``from_search_terms`` bekannt) statt global die besten.
+    """
     try:
         provider, model = _role(unified_config)
         if not isinstance(text, str) or not text.strip():
@@ -147,6 +188,14 @@ def run_rank(
             k = DEFAULT_RANK_TOP_K
         k = max(1, min(k, MAX_RANK_TOP_K))
 
+        variant = variant or "geeignet"
+        if variant not in QUESTION_VARIANTS:
+            raise DecisionError(
+                f"question_variant '{variant}' unbekannt; möglich: {', '.join(QUESTION_VARIANTS)}."
+            )
+        if balanced and not groups:
+            raise DecisionError("`balanced` braucht `from_search_terms` (nur dann sind die Suchbegriffe je Kandidat bekannt).")
+
         entries = [(c, _candidate_text(c)) for c in candidates]
         entries = [(c, t) for c, t in entries if t]
         if not entries:
@@ -158,7 +207,7 @@ def run_rank(
             provider_base_url(provider), model, text[:DEFAULT_MAX_STATE_CHARS], texts,
             api_key=getattr(provider, "api_key", "") or "",
             max_parallel=getattr(unified_config, "decision_max_parallel", 1),
-            usage_sink=usage,
+            usage_sink=usage, **QUESTION_VARIANTS[variant],
         )
     except DecisionError as e:
         return {"error": str(e)}
@@ -171,12 +220,19 @@ def run_rank(
         seen.add(t)
         row = dict(c) if isinstance(c, dict) else {"keyword": t}
         row["score"] = round(scores.get(t, 0.0), 4)
+        if balanced:
+            row["terms"] = list((groups or {}).get(t) or [])
         ranked.append(row)
+    if balanced:
+        keep = set(_balanced_pick([r["keyword"] for r in ranked], groups, k))
+        ranked = [r for r in ranked if r["keyword"] in keep]
     return {
         "provider": provider.name,
         "model": model,
         "n_in": len(texts),
         "n_out": min(k, len(ranked)),
+        "question_variant": variant,
+        "balanced": bool(balanced),
         "seconds": round(time.time() - t0, 2),
         "input_tokens": usage.get("input_tokens", 0),
         "ranked": ranked[:k],
@@ -224,3 +280,9 @@ def pool_candidates(aggregate: Any) -> tuple:
     if not out:
         raise DecisionError("Der Pool enthält nur Einträge ohne Bezeichnung (nur GND-IDs).")
     return out, skipped
+
+
+def pool_terms(aggregate: Any) -> Dict[str, List[str]]:
+    """Kandidatentext → Suchbegriffe, die ihn geliefert haben (``terms_map`` des Pools)."""
+    tm = aggregate.get("terms_map") if isinstance(aggregate, dict) else None
+    return {str(t): [str(x) for x in terms] for t, terms in (tm or {}).items()}

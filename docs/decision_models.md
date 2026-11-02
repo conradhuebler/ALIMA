@@ -20,7 +20,9 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
 - **Client:** `src/utils/decision_client.py`, Qt-frei, direkt per HTTP (der
   gepinnte `ollama==0.6.1` kennt `systemone` nicht). Batches zu höchstens 64
   Fragen (mehr ergibt HTTP 400), 429/503 und Verbindungsfehler werden bis zu
-  dreimal wiederholt, `decision_max_parallel` gleichzeitige Anfragen.
+  dreimal wiederholt, `decision_max_parallel` gleichzeitige Anfragen. Der Host zählt
+  den State bei lokalen Modellen für jede Frage mit; sprengt ein Batch den Kontext
+  („Context size has been exceeded“), halbiert der Client ihn, bis er passt.
 - **Vorfilter:** `src/utils/decision_prefilter.py`. Je Kandidat eine deutsche
   `noul`-Frage („Ist das Schlagwort … ein geeignetes Sacherschließungs-Schlagwort
   für das Dokument im State?"), die `top_k` besten bleiben in ursprünglicher
@@ -60,7 +62,11 @@ Logik in `src/utils/decision_tools.py`.
   Score; höchstens 3000 Kandidaten. Statt `candidates` kann `from_search_terms`
   (die Suchbegriffe der vorherigen `search_*`-Aufrufe) angegeben werden: der Pool
   kommt dann aus `aggregate_gnd_results` (Rohantwort-Cache), und der Agent muss ihn
-  nicht abtippen; das Ergebnis trägt `keyword`, `gnd_id` und `count`. Die Katalog-Häufigkeit
+  nicht abtippen; mit `balanced` nimmt es die besten reihum je Suchbegriff statt global
+  (Zeilen tragen dann `terms`), damit Facetten nicht von Allgemeinbegriffen verdrängt
+  werden; `question_variant` (`geeignet` als Voreinstellung, `behandelt`, `spezifisch`)
+  wählt den Fragetext. Beides sind Versuchsparameter ohne Messnachweis; die Pipeline
+  nutzt weiter `geeignet` und die global besten. Das Ergebnis trägt `keyword`, `gnd_id` und `count`. Die Katalog-Häufigkeit
   (`display_count`) steht bewusst nicht darin: `select_from_gnd_pool` sortiert nach
   `count` und bevorzugt hohe Werte, ein dorthin kopierter Häufigkeitswert stellt
   Allgemeinbegriffe wie „Krankheit“ nach vorn. Pool-Einträge, deren Bezeichnung nur die GND-ID ist, werden
@@ -71,6 +77,17 @@ Logik in `src/utils/decision_tools.py`.
   mit gesetzter Rolle kürzt der Vorfilter große Pools selbst. `get_workflow` zeigt
   dafür je Schritt `decision_prefilter {top_k, active}`; die Beschreibungen beider
   Werkzeuge und der Chat-Systemprompt sagen es dem Agenten.
+
+## Messskript
+
+`scripts/eval_decision_rank.py` vergleicht Modelle und Fragetexte an einer Soll-Liste.
+Pro Modell und Fragetext wird jeder Kandidat einmal bewertet und der Score in
+`--out` gespeichert; Recall@K (`--ks`) und `balanced` rechnet das Skript danach aus
+denselben Scores, ohne weitere Abfragen (`--reuse` rechnet gespeicherte Läufe neu aus).
+Pool aus dem Rohantwort-Cache (`--from-cache --terms …`, nach den `search_*`-Aufrufen)
+oder aus einer Datei im Format von `aggregate_gnd_results` (`--pool`). Ohne `--yes`
+druckt es nur den Plan (Anzahl Anfragen) und fragt nichts an. Es liefert eine
+Übereinstimmung mit der Soll-Liste je Dokument, keine allgemeine Aussage.
 
 ## Grenzen (nicht vorhanden)
 
