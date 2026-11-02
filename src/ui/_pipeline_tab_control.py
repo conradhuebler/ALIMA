@@ -47,6 +47,7 @@ class PipelineTabControlMixin:
 
         # Apply LLM model selection + DK config - Claude Generated
         self._apply_global_override_from_gui()
+        self._apply_decision_prefilter_from_gui()
         self._update_dk_config_from_gui()
         # Ensure run mode matches the workflow picker (agentic vs. classic).
         self._apply_workflow_selection()
@@ -164,6 +165,44 @@ class PipelineTabControlMixin:
                 config.global_max_tokens_override = budget_override
                 if think_override is not None:
                     config.apply_global_override()
+
+    def _decision_role_configured(self) -> bool:
+        """True when Settings name a usable decision model - Claude Generated"""
+        try:
+            from ..utils.config_manager import ConfigManager
+
+            unified = ConfigManager().get_unified_config()
+            return bool(unified.explain_default_provider_model(scope="decision")[0])
+        except Exception:
+            return False
+
+    def _refresh_decision_check(self):
+        """Enable the "mit Decision" tick only when a decision model is set - Claude Generated
+
+        The tick is a per-run switch for A/B comparisons, not a setting: without a
+        configured decision model it has nothing to switch.
+        """
+        check = getattr(self, "decision_prefilter_check", None)
+        if check is None:
+            return
+        configured = self._decision_role_configured()
+        check.setEnabled(configured)
+        check.setToolTip(
+            "Entscheidungsmodell für diesen Lauf nutzen (nur bei großen GND-Pools, die sonst "
+            "in mehreren Chunks ausgewählt würden).\nAus = Lauf wie ohne Entscheidungsmodell, "
+            "für den direkten Vergleich. Ändert keine Einstellung."
+            if configured else
+            "Kein Entscheidungsmodell eingerichtet (Einstellungen ▸ Sprachmodelle ▸ "
+            "Entscheidungsmodell)."
+        )
+
+    def _apply_decision_prefilter_from_gui(self):
+        """Copy the tick into the pipeline config for this run - Claude Generated"""
+        check = getattr(self, "decision_prefilter_check", None)
+        config = getattr(self.pipeline_manager, "config", None)
+        if check is None or config is None:
+            return
+        config.use_decision_prefilter = bool(check.isChecked()) if check.isEnabled() else True
 
     def _get_global_think_override(self):
         """Read the global thinking override combo → None/True/False - Claude Generated"""
@@ -293,6 +332,7 @@ class PipelineTabControlMixin:
             self._populate_global_override_combo()
         if hasattr(self, "stream_widget") and hasattr(self.stream_widget, "refresh_providers"):
             self.stream_widget.refresh_providers()
+        self._refresh_decision_check()
 
     # Preferred display order for the workflow picker. ``__classic__`` is the
     # synthetic non-agentic entry (rigid pipeline); every other key is a YAML

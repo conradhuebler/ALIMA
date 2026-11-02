@@ -114,6 +114,12 @@ class PipelineConfig:
     # five places each. Reaches the steps as ``SharedContext.max_tokens_override``;
     # the classic path takes no budget parameter at all. - Claude Generated
     global_max_tokens_override: Optional[int] = None
+    # Per-run switch for the decision-model prefilter. True = use it when a decision
+    # model is configured (and the pool needs more than one chunk); False = off for
+    # this run, so the same input can be run with and without it for an A/B
+    # comparison. Not a configuration setting: it never touches the settings.
+    # - Claude Generated
+    use_decision_prefilter: bool = True
 
     def __post_init__(self):
         """Initialize step configs with proper defaults - Claude Generated"""

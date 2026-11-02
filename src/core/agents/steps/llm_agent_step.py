@@ -537,6 +537,11 @@ class LLMAgentStep(BaseStep):
         cfg = chunk_cfg.get("decision_prefilter")
         if not isinstance(cfg, dict) or not cfg.get("enabled"):
             return items
+        if getattr(context, "use_decision_prefilter", True) is False:
+            logger.info(f"LLMAgentStep '{self.step_id}': Vorfilter für diesen Lauf ausgeschaltet")
+            if self.stream_callback:
+                self.stream_callback("⏭ Entscheidungsmodell für diesen Lauf aus.\n")
+            return items
         min_pool = int(cfg.get("min_pool") or chunk_size or 0)
         if len(items) <= min_pool:
             logger.info(

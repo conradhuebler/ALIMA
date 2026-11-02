@@ -108,6 +108,9 @@ def create_argument_parser():
     pipeline_parser.add_argument("--step-think", action="append", help="Enable/disable thinking mode for step: STEP=true|false")
     pipeline_parser.add_argument("--max-tokens", type=int, default=None,
                                  help="Token budget for all agentic LLM steps; outranks the workflow YAML")
+    pipeline_parser.add_argument("--no-decision-prefilter", action="store_true",
+                                 help="Switch the decision-model prefilter off for this run (A/B comparison); "
+                                      "without it, a configured decision model is used for large GND pools")
 
     # Step control
     pipeline_parser.add_argument("--enable-step", help="Comma-separated list of steps to enable")

@@ -290,6 +290,7 @@ class AgenticPipelineMixin:
                 "Token budget override: max_tokens=%s for all agentic steps",
                 ctx.max_tokens_override,
             )
+        ctx.use_decision_prefilter = bool(getattr(self.config, "use_decision_prefilter", True))
         ctx.verbose = self.config.agentic_verbose
         ctx.prompt_service = self.alima_manager.prompt_service
 

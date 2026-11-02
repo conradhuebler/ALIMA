@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QSizePolicy,
     QSpinBox,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from typing import Optional, Dict, List
@@ -525,6 +526,13 @@ class PipelineTab(
         )
         self.global_max_tokens_spin.setFixedWidth(110)
         tb_layout.addWidget(self.global_max_tokens_spin)
+
+        # Per-run switch for the decision-model prefilter, for A/B runs - Claude Generated
+        self.decision_prefilter_check = QCheckBox("mit Decision")
+        self.decision_prefilter_check.setChecked(True)
+        self.decision_prefilter_check.setStyleSheet("padding-left: 8px;")
+        tb_layout.addWidget(self.decision_prefilter_check)
+        self._refresh_decision_check()
 
         # Agentic vs. classic is driven by the workflow_combo selection
         # (see _on_workflow_changed). The agentic context dock is shown only

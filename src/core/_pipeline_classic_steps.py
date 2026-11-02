@@ -476,6 +476,11 @@ class ClassicStepExecutorMixin:
                 if p in step_config.custom_params:
                     filtered_config[p] = step_config.custom_params[p]
 
+            # Per-run switch: 0 turns the decision-model prefilter off for this run
+            # (execute_final_keyword_analysis pops it). - Claude Generated
+            if not getattr(self.config, "use_decision_prefilter", True):
+                filtered_config["decision_prefilter_top_k"] = 0
+
             # Session prompt override lives in custom_params (GUI Prompt tab / CLI override) - Claude Generated
             if step_config.custom_params.get("prompt_template"):
                 filtered_config["prompt_template"] = step_config.custom_params["prompt_template"]

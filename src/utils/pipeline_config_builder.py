@@ -412,6 +412,11 @@ class PipelineConfigBuilder:
             builder.baseline.global_max_tokens_override = int(args.max_tokens)
             logger.info(f"Token budget override: max_tokens={args.max_tokens}")
 
+        # --no-decision-prefilter: off for this run, settings untouched - Claude Generated
+        if getattr(args, "no_decision_prefilter", False):
+            builder.baseline.use_decision_prefilter = False
+            logger.info("Decision-model prefilter switched off for this run")
+
         # Apply all overrides with validation
         config = builder.apply_overrides(overrides)
 

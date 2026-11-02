@@ -32,6 +32,8 @@ class BaseSharedContext:
     # per-step value. None = the YAML decides (and ``max_tokens`` above is the
     # fallback for steps that name no budget). - Claude Generated
     max_tokens_override: Optional[int] = None
+    # False = the decision-model prefilter is off for this run (see PipelineConfig).
+    use_decision_prefilter: bool = True
     seed: Optional[int] = None
     # None = leave the provider default; True/False = explicit thinking control.
     think: Optional[bool] = None
@@ -63,6 +65,7 @@ class BaseSharedContext:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "max_tokens_override": self.max_tokens_override,
+            "use_decision_prefilter": self.use_decision_prefilter,
             "seed": self.seed,
             "think": self.think,
             "execution_history": self.execution_history,
@@ -77,6 +80,7 @@ class BaseSharedContext:
             temperature=data.get("temperature", 0.5),
             max_tokens=data.get("max_tokens", 32768),
             max_tokens_override=data.get("max_tokens_override"),
+            use_decision_prefilter=data.get("use_decision_prefilter", True),
             seed=data.get("seed"),
             think=data.get("think"),
         )

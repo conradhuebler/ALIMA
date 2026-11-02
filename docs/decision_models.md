@@ -38,6 +38,12 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
 - **Klassisch (GUI, CLI, Batch):** greift im Schlüsselwort-Schritt
   (`execute_final_keyword_analysis`), wenn die Rolle gesetzt ist **und** der Pool
   ohnehin gechunkt würde, mit `top_k` 80.
+- **Schalter je Lauf (A/B):** In der GUI steht in der Werkzeugleiste des Pipeline-Tabs das
+  Kontrollkästchen „mit Decision“ (nur aktiv, wenn ein Entscheidungsmodell eingerichtet ist),
+  in der CLI `alima pipeline … --no-decision-prefilter`. Beides setzt
+  `PipelineConfig.use_decision_prefilter` für diesen Lauf und ändert keine Einstellung; so
+  läuft derselbe Text mit und ohne Vorfilter, in beiden Pfaden (agentisch über den Kontext,
+  klassisch über `decision_prefilter_top_k=0`). Die Webapp hat keinen Schalter.
 - **Fallback:** Rolle aus, Pool nicht größer als `top_k`, Host nicht erreichbar
   oder Fehlerantwort: die Liste bleibt unverändert, der Lauf meldet es im Stream
   („Weiter mit der bisherigen Auswahl") und im Log.
