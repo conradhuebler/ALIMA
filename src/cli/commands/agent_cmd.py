@@ -21,7 +21,11 @@ from datetime import datetime
 from typing import Any, Optional, Tuple
 
 from src.core.alima_manager import AlimaManager
-from src.core.headless_agent import HeadlessAgentRunner, resolve_provider_model
+from src.core.headless_agent import (
+    HeadlessAgentRunner,
+    resolve_provider_model,
+    shared_context_for_text,
+)
 from src.core.headless_gateway import StdinProposalGateway
 from src.core.pipeline_manager import PipelineManager
 from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
@@ -189,6 +193,9 @@ def handle_agent(args, config_manager: ConfigManager, llm_service, prompt_servic
             provider=provider,
             model=model,
             context_str=context_str,
+            shared_context=shared_context_for_text(
+                context_text, input_type=input_type, source=source
+            ),
             temperature=getattr(args, "temperature", None),
             on_token=_emit_token,
             on_status=_emit_status,

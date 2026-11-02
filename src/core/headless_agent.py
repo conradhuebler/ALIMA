@@ -101,6 +101,25 @@ def resolve_provider_model(
     return "", ""
 
 
+def shared_context_for_text(
+    text: str, *, title: str = "", input_type: str = "text", source: str = ""
+) -> Any:
+    """Hinterlegt den vollen Eingabetext für ``get_input_text`` - Claude Generated
+
+    Die Kontextzeile im Prompt ist gekürzt (``context_str``); ohne einen
+    ``SharedContext`` hätte der Agent keinen Weg zum vollständigen Text. ``None``
+    bei leerem Text (dann ist kein Werk geladen).
+    """
+    if not (text or "").strip():
+        return None
+    from src.core.agents.shared_context import SharedContext
+
+    return SharedContext(
+        abstract=text, working_title=title or "", input_type=input_type or "text",
+        source_value=source or None,
+    )
+
+
 def _resolve_kb_manager(pipeline_manager: Any) -> Any:
     """Pull the knowledge manager off the pipeline.
 

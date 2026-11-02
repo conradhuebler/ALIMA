@@ -124,6 +124,12 @@ def _agent_context_from_input(input_data: Dict[str, Any]) -> str:
     Accepts ``{"abstract": "..."}`` / ``{"text": "..."}`` directly, or
     ``{"doi": "10.x/y"}`` which is resolved to text. Empty ⇒ no work loaded.
     """
+    text = _agent_input_text(input_data)
+    return (text[:1500] + "…") if len(text) > 1500 else text
+
+
+def _agent_input_text(input_data: Dict[str, Any]) -> str:
+    """The request's full input text (untrimmed) - Claude Generated"""
     text = input_data.get("abstract") or input_data.get("text") or ""
     if not text and input_data.get("doi"):
         from src.utils.doi_resolver import resolve_input_to_text
@@ -131,7 +137,7 @@ def _agent_context_from_input(input_data: Dict[str, Any]) -> str:
         if not success:
             raise ValueError(f"DOI resolution failed: {error}")
         text = resolved or ""
-    return (text[:1500] + "…") if len(text) > 1500 else text
+    return text
 
 
 def _build_agent_runner(req: AgentRunRequest):
@@ -218,11 +224,12 @@ async def agent_run(req: AgentRunRequest):
     ``autonomous: true`` to let the agent apply mutations / start pipelines.
     """
     import queue as _queue
-    from src.core.headless_agent import StoppableAgentThread
+    from src.core.headless_agent import StoppableAgentThread, shared_context_for_text
 
     try:
         runner, pm, provider, model = _build_agent_runner(req)
-        context_str = _agent_context_from_input(req.input or {})
+        input_text = _agent_input_text(req.input or {})
+        context_str = (input_text[:1500] + "…") if len(input_text) > 1500 else input_text
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -239,6 +246,11 @@ async def agent_run(req: AgentRunRequest):
             provider=provider,
             model=model,
             context_str=context_str,
+            shared_context=shared_context_for_text(
+                input_text,
+                input_type="doi" if (req.input or {}).get("doi") else "text",
+                source=str((req.input or {}).get("doi") or ""),
+            ),
             temperature=req.temperature,
             on_token=lambda t: _q.put(("token", t)),
             on_status=lambda s: _q.put(("status", s)),

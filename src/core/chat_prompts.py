@@ -343,7 +343,8 @@ MODE_GENERAL = (
 
 USER_PROMPT_VERSCHLAGWORTUNG = (
     "Aktuelles Werk: {context}\n\n"
-    "Die vollständigen Pipeline-Daten (Keywords, GND-Einträge, "
+    "Ist ein Eingabetext geladen, liefert `get_input_text` ihn vollständig "
+    "(die Kontextzeile ist gekürzt). Die vollständigen Pipeline-Daten (Keywords, GND-Einträge, "
     "DK-Codes, Schlagwortketten, fehlende Konzepte) hole dir bei "
     "Bedarf via Tool-Calls. Beginne ggf. mit `list_available_data`.\n\n"
     "Nutzer-Frage: {user_message}"
@@ -359,6 +360,8 @@ USER_PROMPT_SUCHE = (
 
 USER_PROMPT_GENERAL = (
     "Kontext: {context}\n\n"
+    "Ist ein Eingabetext geladen, liefert `get_input_text` ihn vollständig "
+    "(die Kontextzeile ist gekürzt).\n"
     "Beantworte die Frage unter Nutzung der verfügbaren Tools.\n\n"
     "Nutzer-Frage: {user_message}"
 )

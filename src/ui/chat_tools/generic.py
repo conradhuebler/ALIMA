@@ -49,6 +49,52 @@ class ListAvailableDataTool(BaseChatTool):
         )
 
 
+class GetInputTextTool(BaseChatTool):
+    name = "get_input_text"
+    description = (
+        "Return the full input text of the current work (the abstract / description "
+        "the analysis is based on) together with its title. The context line in the "
+        "conversation shows only the first part; call this when you need the whole "
+        "text, e.g. to judge candidates against it or to quote from it. Long texts are "
+        "cut at `max_chars` (default 20000) and the result says so."
+    )
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "max_chars": {
+                "type": "integer",
+                "description": "Upper bound for the returned text (default 20000).",
+                "default": 20000,
+            },
+        },
+    }
+
+    def available_for(self, session: Any) -> bool:
+        ctx = _shared_context(session)
+        return bool(ctx and getattr(ctx, "abstract", ""))
+
+    def execute(self, session: Any, max_chars: Any = 20000, **_: Any) -> str:
+        ctx = _shared_context(session)
+        text = (getattr(ctx, "abstract", "") or "") if ctx is not None else ""
+        if not text:
+            return json.dumps({"error": "Kein Eingabetext geladen."}, ensure_ascii=False)
+        try:
+            limit = max(1, int(max_chars))
+        except (TypeError, ValueError):
+            limit = 20000
+        return json.dumps(
+            {
+                "title": getattr(ctx, "working_title", "") or "",
+                "input_type": getattr(ctx, "input_type", "") or "",
+                "source": getattr(ctx, "source_value", "") or "",
+                "length": len(text),
+                "truncated": len(text) > limit,
+                "text": text[:limit],
+            },
+            ensure_ascii=False,
+        )
+
+
 class GetExtraTool(BaseChatTool):
     name = "get_extra"
     description = (
@@ -168,6 +214,7 @@ def generic_tools() -> List[BaseChatTool]:
     """Instantiate one of each generic tool. Used by build_chat_toolset."""
     return [
         ListAvailableDataTool(),
+        GetInputTextTool(),
         GetExtraTool(),
         GetStepResultTool(),
         GetMessagesHistoryTool(),

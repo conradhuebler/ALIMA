@@ -6,6 +6,21 @@
 
 ## 2026
 
+### Chat-Agent: voller Eingabetext über `get_input_text` (November 2, 2026)
+
+Die Kontextzeile im Prompt kürzt den Abstract (GUI 500 Zeichen, CLI und
+Webapp-Einzelabruf 1500); ein Werkzeug für den ganzen Text gab es nicht
+(`list_available_data` nennt nur Längen, `get_pipeline_abstract` liest gespeicherte
+Dateien). Neu: `get_input_text` (Chat-Toolset, `chat_tools/generic.py`) liest
+`abstract`/Titel/Quelle aus dem `SharedContext` der Sitzung, mit `max_chars`
+(Standard 20 000) und Hinweis bei Kürzung; es erscheint nur, wenn ein Text
+geladen ist. Einstiegspfade, die den Text bisher nur gekürzt in `context_str`
+hatten, hinterlegen ihn jetzt über `headless_agent.shared_context_for_text`
+(`alima agent`, Webapp `/agent`); GUI-Chat und die Webapp-Sitzung hatten ihn
+über den Analysezustand schon im `SharedContext`. Die Nutzer-Prompts verweisen
+auf das Werkzeug. Tests: `tests/test_get_input_text.py` (der Wächter für die
+zwei Einstiegspfade prüft nur den Quelltext der Verdrahtung).
+
 ### Entscheidungsmodelle: Rolle und Vorfilter (Branch `feature/decision-models`, November 2, 2026)
 
 Neue optionale Rolle „Entscheidungsmodell" (Ollama `/v1/systemone`, ein
