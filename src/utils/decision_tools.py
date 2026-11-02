@@ -189,7 +189,7 @@ _BARE_ID = re.compile(r"^[0-9]+(?:-[0-9Xx])?$")
 def pool_candidates(aggregate: Any) -> tuple:
     """Kandidaten aus dem Ergebnis von ``aggregate_gnd_results`` - Claude Generated
 
-    ``({keyword, gnd_id, count[, display_count]}, anzahl_übersprungen)``. Pool-Einträge,
+    ``({keyword, gnd_id, count}, anzahl_übersprungen)``. Pool-Einträge,
     deren "Titel" nur die GND-ID ist (die Quelle lieferte kein Label), werden nicht
     bewertet: das Modell sähe nur eine Nummer, und der Score wäre Rauschen. Fehler
     und leerer Pool werden zu ``DecisionError`` mit einer Meldung, die dem Agenten
@@ -214,11 +214,13 @@ def pool_candidates(aggregate: Any) -> tuple:
             skipped += 1
             continue
         ids = entry.get("gnd_ids") or []
-        row = {"keyword": title, "gnd_id": str(ids[0]) if ids else "",
-               "count": entry.get("count", 1)}
-        if entry.get("display_count") is not None:
-            row["display_count"] = entry["display_count"]
-        out.append(row)
+        # Only the pool ``count`` (the selection's own ranking input). The catalogue
+        # frequency (``display_count``) is deliberately left out: select_from_gnd_pool
+        # sorts by ``count`` and tells the model to prefer high counts, so handing
+        # the agent a frequency to copy there put "Krankheit" (7692 hits) and
+        # "Medizin" first, ahead of the terms the ranking had put on top.
+        out.append({"keyword": title, "gnd_id": str(ids[0]) if ids else "",
+                    "count": entry.get("count", 1)})
     if not out:
         raise DecisionError("Der Pool enthält nur Einträge ohne Bezeichnung (nur GND-IDs).")
     return out, skipped

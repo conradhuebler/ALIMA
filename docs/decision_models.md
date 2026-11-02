@@ -60,8 +60,10 @@ Logik in `src/utils/decision_tools.py`.
   Score; höchstens 3000 Kandidaten. Statt `candidates` kann `from_search_terms`
   (die Suchbegriffe der vorherigen `search_*`-Aufrufe) angegeben werden: der Pool
   kommt dann aus `aggregate_gnd_results` (Rohantwort-Cache), und der Agent muss ihn
-  nicht abtippen; das Ergebnis trägt `keyword`, `gnd_id`, `count` (und `display_count`, wenn
-  der Pool es kennt). Pool-Einträge, deren Bezeichnung nur die GND-ID ist, werden
+  nicht abtippen; das Ergebnis trägt `keyword`, `gnd_id` und `count`. Die Katalog-Häufigkeit
+  (`display_count`) steht bewusst nicht darin: `select_from_gnd_pool` sortiert nach
+  `count` und bevorzugt hohe Werte, ein dorthin kopierter Häufigkeitswert stellt
+  Allgemeinbegriffe wie „Krankheit“ nach vorn. Pool-Einträge, deren Bezeichnung nur die GND-ID ist, werden
   nicht bewertet und als `skipped_unlabeled` gezählt. Das Ergebnis nennt außerdem
   `input_tokens`, die der Host gezählt hat (bei bezahlten Anbietern der Aufwand). Der Chat-Systemprompt nennt das Werkzeug als
   Schritt vor `select_from_gnd_pool`.

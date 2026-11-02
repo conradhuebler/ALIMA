@@ -42,6 +42,13 @@ Bezeichnung nur die GND-ID war, wurden mitbewertet (Scores um 0,45 bis 0,55, als
 Rauschen mitten in den 80); sie werden übersprungen und als `skipped_unlabeled`
 gezählt. Das Ergebnis nennt zudem `input_tokens` (auch im Messprotokoll des
 Vorfilters), damit der Aufwand bei bezahlten Anbietern sichtbar ist.
+Zurückgenommen: die Katalog-Häufigkeit (`display_count`) in den Zeilen von
+`rank_by_relevance`. Im dritten Chat-Test kopierte der Agent sie als `count` in
+`select_from_gnd_pool`, das nach `count` sortiert und hohe Werte bevorzugt; die 15
+Ergebnisse standen in streng absteigender Häufigkeit (Krankheit 7692, Medizin 1823,
+Bewegungsapparat 728, Gesundheit 507 …) statt in der Reihenfolge des Rankings. Mit
+`count` 1 für alle (wie zuvor) bleibt die Eingabe neutral.
+
 `select_from_gnd_pool` nennt im Ergebnis jetzt `provider` und `model` der Auswahl: es ist
 der Standard aus den Einstellungen (Allgemein/Agentisch/Chat), nicht die Wahl in der
 Toolbar des Chats.

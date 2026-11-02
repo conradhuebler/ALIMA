@@ -200,7 +200,9 @@ class RegistryTest(_ServerCase):
         self.assertEqual(out["skipped_unlabeled"], 2)
         self.assertEqual(out["n_in"], 30)
         self.assertNotIn("4014613-3", [r["keyword"] for r in out["ranked"]])
-        self.assertEqual(out["ranked"][0].get("display_count"), 42)
+        # Katalog-Häufigkeit darf nicht im Ergebnis stehen: kopiert der Agent sie als
+        # ``count`` in select_from_gnd_pool, führt die Auswahl mit "Krankheit" und "Medizin".
+        self.assertTrue(all("display_count" not in r for r in out["ranked"]))
 
     def test_a_pool_of_only_ids_is_an_error(self):
         reg, _ = self.registry(self.config())
