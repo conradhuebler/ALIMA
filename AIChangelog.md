@@ -21,6 +21,19 @@ hatten, hinterlegen ihn jetzt über `headless_agent.shared_context_for_text`
 auf das Werkzeug. Tests: `tests/test_get_input_text.py` (der Wächter für die
 zwei Einstiegspfade prüft nur den Quelltext der Verdrahtung).
 
+### Chat-Agent: Text im Eingabefeld sichtbar (November 2, 2026)
+
+`get_input_text` fand im GUI-Chat nichts, solange kein Lauf vorlag: der Chat las
+nur den Kontext eines geladenen Ergebnisses, nie das Eingabefeld des
+Pipeline-Tabs. Jetzt liest `PipelineChatPanel` den Feldtext einmal pro Nachricht
+(`_seed_input_text`, GUI-Thread, über `set_input_text_provider` aus dem Tab) und
+legt ihn als Kopie in den Sitzungskontext; ein Kontext mit eigenem Abstract hat
+Vorrang. Dazu behoben: Bus-Ereignisse mitten im Zug ersetzten den Sitzungskontext
+durch den (leeren) des PipelineManagers; der gemerkte Feldtext wird danach
+erneut angewandt (`_apply_seeded_input`), ohne den Kontext des Managers zu
+verändern. Test: `tests/test_chat_input_field_text.py` (Stub-gebunden; die
+Verdrahtung im Tab prüft nur der Quelltext).
+
 ### Entscheidungsmodelle: Rolle und Vorfilter (Branch `feature/decision-models`, November 2, 2026)
 
 Neue optionale Rolle „Entscheidungsmodell" (Ollama `/v1/systemone`, ein

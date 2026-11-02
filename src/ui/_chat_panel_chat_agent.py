@@ -17,7 +17,8 @@ that resolves to.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import copy
+from typing import Any, Callable, Optional, Tuple
 
 from PyQt6.QtCore import pyqtSlot
 
@@ -222,6 +223,73 @@ class ChatAgentMixin:
             self.logger.exception("PipelineChatPanel: tool-name lookup failed")
         return None
 
+    # -- Text from the input field --------------------------------------
+
+    #: Returns ``(text, input_type, source)`` of the pipeline tab's input field;
+    #: set by the embedding tab. Class-level defaults keep stub-built panels
+    #: (tests) valid. - Claude Generated
+    _input_text_provider: Optional[Callable[[], Tuple[str, str, str]]] = None
+    _seeded_input: Optional[Tuple[str, str, str]] = None
+    _context_from_input: bool = False
+
+    def set_input_text_provider(self, provider: Optional[Callable[[], Tuple[str, str, str]]]) -> None:
+        """Let the chat see the text in the pipeline tab's input field.
+
+        Called by the embedding pipeline tab. Without it the agent only knew
+        what a loaded result carried, so a text typed or pasted into the input
+        field (not yet run) was invisible to ``get_input_text``.
+        - Claude Generated
+        """
+        self._input_text_provider = provider
+
+    def _seed_input_text(self) -> None:
+        """Remember the input field's text for this turn and apply it.
+
+        GUI thread only (it reads a widget): called once per send. The text is
+        stored, not re-read, so ``_refresh_shared_context`` — which also runs
+        from bus events mid-turn and replaces the session context with the
+        pipeline manager's — can re-apply it without touching the widget.
+        """
+        self._seeded_input = None
+        provider = self._input_text_provider
+        if provider is not None:
+            try:
+                text, input_type, source = provider()
+            except Exception as exc:
+                log_caught(self.logger, exc, "PipelineChatPanel: reading the input field")
+                text, input_type, source = "", "", ""
+            if (text or "").strip():
+                self._seeded_input = (text, input_type or "text", source or "")
+        self._apply_seeded_input()
+
+    def _apply_seeded_input(self) -> None:
+        """Put the remembered input text into the session context.
+
+        A context that already carries an abstract (a loaded or finished result)
+        wins: the field may have been edited since, but the agent is then
+        working on that result. The pipeline manager's own context object is
+        never mutated — the session gets a copy.
+        """
+        seed = self._seeded_input
+        ctx = self.session.last_shared_context
+        if seed is None or (ctx is not None and getattr(ctx, "abstract", "")):
+            return
+        text, input_type, source = seed
+        if ctx is None:
+            from ..core.agents.shared_context import SharedContext
+
+            new_ctx = SharedContext()
+        else:
+            new_ctx = copy.copy(ctx)
+        new_ctx.abstract = text
+        new_ctx.input_type = input_type
+        new_ctx.source_value = source or None
+        self.session.last_shared_context = new_ctx
+        if not self.current_context or self._context_from_input:
+            snippet = text if len(text) <= 500 else text[:500] + "..."
+            self.current_context = f"Abstract: {snippet}"
+            self._context_from_input = True
+
     # -- Context loading -------------------------------------------------
 
     def load_context(self, analysis_state) -> None:
@@ -234,6 +302,8 @@ class ChatAgentMixin:
             self._renderer._assistant_cell_cursor = None
 
         self.session.reset()
+        self._seeded_input = None
+        self._context_from_input = False
 
         if analysis_state is None:
             self.current_context = ""
@@ -303,6 +373,11 @@ class ChatAgentMixin:
             return
 
         chat_config = self._get_chat_config()
+
+        # The input field's text and any fresh pipeline context must be in place
+        # before the prompt's context line is built. - Claude Generated
+        self._refresh_shared_context()
+        self._seed_input_text()
 
         # Mode-aware prompt assembly + tier + language/history directives - Claude Generated
         mode = detect_mode(text, self.current_context)
@@ -467,6 +542,7 @@ class ChatAgentMixin:
             ctx = getattr(self.pipeline_manager, "last_shared_context", None)
             if ctx is not None:
                 self.session.last_shared_context = ctx
+            self._apply_seeded_input()
         except Exception:
             self.logger.exception(
                 "PipelineChatPanel: shared-context refresh failed"

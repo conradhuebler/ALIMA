@@ -205,6 +205,7 @@ class PipelineTab(
 
         # Connect streaming widget signals
         self.stream_widget.cancel_pipeline.connect(self.reset_pipeline)
+        self.stream_widget.set_input_text_provider(self._chat_input_text)
         self.stream_widget.abort_generation_requested.connect(self.on_abort_current_step_requested)  # Claude Generated
 
         self.main_splitter.addWidget(self.stream_widget)
@@ -236,6 +237,22 @@ class PipelineTab(
         except Exception as e:
             self.logger.warning(f"Could not resolve the pipeline default: {e}")
             return "", ""
+
+    def _chat_input_text(self):
+        """``(text, input_type, source)`` of the input field, for the chat agent.
+
+        The chat reads it once per message (GUI thread) so a text typed or pasted
+        into the field is available to ``get_input_text`` before any run.
+        - Claude Generated
+        """
+        widget = getattr(self, "unified_input", None)
+        if widget is None:
+            return "", "", ""
+        return (
+            widget.get_current_text(),
+            getattr(widget, "current_source_type", "text") or "text",
+            getattr(widget, "current_source_data", "") or "",
+        )
 
     def create_pipeline_step_tabs(self):
         """Create pipeline step tabs - Claude Generated"""
