@@ -163,7 +163,7 @@ class HeadlessAgentRunner:
         self.kb_manager = kb_manager if kb_manager is not None else _resolve_kb_manager(pipeline_manager)
         if mcp_registry is None:
             from src.mcp.tool_registry import ToolRegistry
-            mcp_registry = ToolRegistry()
+            mcp_registry = ToolRegistry(llm_service=llm_service)
             mcp_registry.register_all_tools()
         self.mcp_registry = mcp_registry
         self.chat_config = chat_config

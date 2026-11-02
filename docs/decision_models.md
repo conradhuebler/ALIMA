@@ -38,7 +38,7 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
   („Weiter mit der bisherigen Auswahl") und im Log.
 - **Messprotokoll:** `decision_prefilter` im Ergebnis (`KeywordAnalysisState`, geht
   mit `asdict` in die JSON-Ausgabe): Anbieter, Modell, `n_in`/`n_out`, Sekunden,
-  `state_chars`, `max_parallel` und der Score **jedes** Kandidaten. Damit lässt
+  `state_chars`, `input_tokens`, `max_parallel` und der Score **jedes** Kandidaten. Damit lässt
   sich der Recall gegen die späteren `final_keywords` aus der Datei nachrechnen.
 
 ## Agent-Werkzeuge
@@ -57,8 +57,18 @@ Logik in `src/utils/decision_tools.py`.
 - **`rank_by_relevance(text, candidates, top_k)`**: Kandidatenliste (Texte oder
   Objekte mit `keyword`/`title`, Zusatzfelder wie `gnd_id` bleiben erhalten) nach
   Passung zum Text ordnen, die `top_k` besten (Standard 30, höchstens 200) mit
-  Score; höchstens 3000 Kandidaten. Der Chat-Systemprompt nennt das Werkzeug als
+  Score; höchstens 3000 Kandidaten. Statt `candidates` kann `from_search_terms`
+  (die Suchbegriffe der vorherigen `search_*`-Aufrufe) angegeben werden: der Pool
+  kommt dann aus `aggregate_gnd_results` (Rohantwort-Cache), und der Agent muss ihn
+  nicht abtippen; das Ergebnis trägt `keyword`, `gnd_id`, `count` (und `display_count`, wenn
+  der Pool es kennt). Pool-Einträge, deren Bezeichnung nur die GND-ID ist, werden
+  nicht bewertet und als `skipped_unlabeled` gezählt. Das Ergebnis nennt außerdem
+  `input_tokens`, die der Host gezählt hat (bei bezahlten Anbietern der Aufwand). Der Chat-Systemprompt nennt das Werkzeug als
   Schritt vor `select_from_gnd_pool`.
+- **Pipeline starten:** `run_pipeline` und `execute_workflow` brauchen nichts davon;
+  mit gesetzter Rolle kürzt der Vorfilter große Pools selbst. `get_workflow` zeigt
+  dafür je Schritt `decision_prefilter {top_k, active}`; die Beschreibungen beider
+  Werkzeuge und der Chat-Systemprompt sagen es dem Agenten.
 
 ## Grenzen (nicht vorhanden)
 

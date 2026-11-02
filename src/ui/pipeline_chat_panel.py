@@ -147,7 +147,7 @@ class PipelineChatPanel(PipelineLogMixin, ChatAgentMixin, BusEventMixin, QWidget
         self.pipeline_manager = pipeline_manager
         if mcp_registry is None:
             from src.mcp.tool_registry import ToolRegistry
-            mcp_registry = ToolRegistry()
+            mcp_registry = ToolRegistry(llm_service=llm_service)
             mcp_registry.register_all_tools()
         self.mcp_registry = mcp_registry
 

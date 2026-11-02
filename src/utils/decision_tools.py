@@ -133,7 +133,9 @@ def run_rank(
         if not isinstance(text, str) or not text.strip():
             raise DecisionError("`text` fehlt.")
         if not isinstance(candidates, list) or not candidates:
-            raise DecisionError("`candidates` muss eine nicht leere Liste sein.")
+            raise DecisionError(
+                "`candidates` muss eine nicht leere Liste sein (oder `from_search_terms` angeben)."
+            )
         if len(candidates) > MAX_RANK_CANDIDATES:
             raise DecisionError(
                 f"{len(candidates)} Kandidaten; höchstens {MAX_RANK_CANDIDATES}. "
@@ -151,10 +153,12 @@ def run_rank(
             raise DecisionError("Keine Kandidaten mit Text.")
         texts = list(dict.fromkeys(t for _, t in entries))
         t0 = time.time()
+        usage: Dict[str, int] = {}
         scores = score_items(
             provider_base_url(provider), model, text[:DEFAULT_MAX_STATE_CHARS], texts,
             api_key=getattr(provider, "api_key", "") or "",
             max_parallel=getattr(unified_config, "decision_max_parallel", 1),
+            usage_sink=usage,
         )
     except DecisionError as e:
         return {"error": str(e)}
@@ -174,5 +178,47 @@ def run_rank(
         "n_in": len(texts),
         "n_out": min(k, len(ranked)),
         "seconds": round(time.time() - t0, 2),
+        "input_tokens": usage.get("input_tokens", 0),
         "ranked": ranked[:k],
     }
+
+
+_BARE_ID = re.compile(r"^[0-9]+(?:-[0-9Xx])?$")
+
+
+def pool_candidates(aggregate: Any) -> tuple:
+    """Kandidaten aus dem Ergebnis von ``aggregate_gnd_results`` - Claude Generated
+
+    ``({keyword, gnd_id, count[, display_count]}, anzahl_übersprungen)``. Pool-Einträge,
+    deren "Titel" nur die GND-ID ist (die Quelle lieferte kein Label), werden nicht
+    bewertet: das Modell sähe nur eine Nummer, und der Score wäre Rauschen. Fehler
+    und leerer Pool werden zu ``DecisionError`` mit einer Meldung, die dem Agenten
+    sagt, was fehlt.
+    """
+    if not isinstance(aggregate, dict):
+        raise DecisionError("Pool nicht lesbar.")
+    if aggregate.get("error"):
+        raise DecisionError(str(aggregate["error"]))
+    pool = aggregate.get("pool") or []
+    if not pool:
+        missing = aggregate.get("missing") or {}
+        hint = " Erst die search_*-Werkzeuge für diese Begriffe aufrufen." if missing else ""
+        raise DecisionError("Der Pool zu diesen Suchbegriffen ist leer." + hint)
+    out: List[Dict[str, Any]] = []
+    skipped = 0
+    for entry in pool:
+        title = str(entry.get("title") or entry.get("keyword") or "").strip()
+        if not title:
+            continue
+        if _BARE_ID.match(title):
+            skipped += 1
+            continue
+        ids = entry.get("gnd_ids") or []
+        row = {"keyword": title, "gnd_id": str(ids[0]) if ids else "",
+               "count": entry.get("count", 1)}
+        if entry.get("display_count") is not None:
+            row["display_count"] = entry["display_count"]
+        out.append(row)
+    if not out:
+        raise DecisionError("Der Pool enthält nur Einträge ohne Bezeichnung (nur GND-IDs).")
+    return out, skipped

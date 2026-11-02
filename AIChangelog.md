@@ -21,6 +21,31 @@ hatten, hinterlegen ihn jetzt über `headless_agent.shared_context_for_text`
 auf das Werkzeug. Tests: `tests/test_get_input_text.py` (der Wächter für die
 zwei Einstiegspfade prüft nur den Quelltext der Verdrahtung).
 
+### Entscheidungsmodell im Agenten: Pool per Suchbegriffen, Hinweise (November 2, 2026)
+
+Aus einem echten Chat-Test: der Agent hielt die Pipeline für nicht anpassbar und
+baute ihre Schritte von Hand nach. Dabei tippte er hunderte GND-Kandidaten in sein
+Reasoning und in die Werkzeugargumente ab (15 700 Zeichen Reasoning, Budget
+erschöpft, `rank_by_relevance` nie aufgerufen). Jetzt: `rank_by_relevance` nimmt
+`from_search_terms` und holt den Pool aus dem Rohantwort-Cache; `get_workflow` weist
+je Schritt `decision_prefilter {top_k, active}` aus; Beschreibungen von
+`execute_workflow`/`run_pipeline` und der Chat-Systemprompt sagen, dass die
+Pipeline das Modell bei großen Pools selbst nutzt. Tests:
+`tests/test_decision_agent_tools.py`.
+
+Der anschließende Chat-Test (778 Kandidaten auf 80 in 12,5 s mit `clef:27b`)
+zeigte zwei weitere Funde. (1) `select_from_gnd_pool` meldete im GUI-Chat und im
+Headless-Runner immer „requires LLM service“: beide bauen ihr `ToolRegistry`
+ohne `LlmService`, der Handler las nur das Feld; er nimmt jetzt `_get_llm_service()`,
+und beide Aufbaustellen reichen den Dienst durch. (2) Pool-Einträge, deren
+Bezeichnung nur die GND-ID war, wurden mitbewertet (Scores um 0,45 bis 0,55, also
+Rauschen mitten in den 80); sie werden übersprungen und als `skipped_unlabeled`
+gezählt. Das Ergebnis nennt zudem `input_tokens` (auch im Messprotokoll des
+Vorfilters), damit der Aufwand bei bezahlten Anbietern sichtbar ist.
+`select_from_gnd_pool` nennt im Ergebnis jetzt `provider` und `model` der Auswahl: es ist
+der Standard aus den Einstellungen (Allgemein/Agentisch/Chat), nicht die Wahl in der
+Toolbar des Chats.
+
 ### Chat-Agent: Text im Eingabefeld sichtbar (November 2, 2026)
 
 `get_input_text` fand im GUI-Chat nichts, solange kein Lauf vorlag: der Chat las

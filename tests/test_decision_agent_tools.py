@@ -149,6 +149,128 @@ class RegistryTest(_ServerCase):
         names = {t.name for t in build_mcp_chat_tools(no_cache_writes=True, mcp_registry=reg)}
         self.assertTrue({"decide", "rank_by_relevance"} <= names)
 
+    def _pool(self, n=120):
+        return json.dumps({"pool": [
+            {"title": ("Cadmium %d" % i) if i % 10 == 0 else f"Boden {i}",
+             "gnd_ids": [str(700 + i)], "count": i, "sources": ["lobid"]}
+            for i in range(n)], "sources": ["lobid"], "missing": {}, "terms_map": {}})
+
+    def test_rank_takes_the_pool_from_the_search_terms(self):
+        """Der Agent tippt den Pool nicht ab: die Suchbegriffe genügen."""
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        seen = {}
+
+        def fake_aggregate(terms, **kw):
+            seen["terms"] = terms
+            return self._pool()
+
+        reg._handle_aggregate_gnd_results = fake_aggregate
+        out = json.loads(reg.execute("rank_by_relevance", {
+            "text": "Cadmium im Boden", "from_search_terms": ["Cadmium", "Itai-Itai"], "top_k": 5}))
+        self.assertEqual(seen["terms"], ["Cadmium", "Itai-Itai"])
+        self.assertNotIn("error", out)
+        self.assertEqual(out["n_in"], 120)
+        self.assertTrue(all(r["keyword"].startswith("Cadmium") for r in out["ranked"]))
+        self.assertTrue(all(r["gnd_id"] and "count" in r for r in out["ranked"]))
+
+    def test_rank_from_search_terms_explains_an_empty_or_failed_pool(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        reg._handle_aggregate_gnd_results = lambda terms, **kw: json.dumps(
+            {"pool": [], "missing": {"lobid": ["Cadmium"]}})
+        out = json.loads(reg.execute("rank_by_relevance", {"text": "t", "from_search_terms": ["Cadmium"]}))
+        self.assertIn("search_*", out["error"])
+        reg._handle_aggregate_gnd_results = lambda terms, **kw: json.dumps({"pool": [], "error": "keine Quelle"})
+        out = json.loads(reg.execute("rank_by_relevance", {"text": "t", "from_search_terms": ["Cadmium"]}))
+        self.assertEqual(out["error"], "keine Quelle")
+        self.assertEqual(_Fake.calls, [])
+
+    def test_unlabeled_pool_entries_are_not_scored_and_the_count_is_reported(self):
+        """Einträge, deren Titel nur die GND-ID ist, bekamen mittlere Scores wie Rauschen."""
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        pool = json.loads(self._pool(30))
+        pool["pool"] += [{"title": "4014613-3", "gnd_ids": ["4014613-3"], "count": 1},
+                         {"title": "35439-9", "gnd_ids": ["35439-9"], "count": 1}]
+        pool["pool"][0]["display_count"] = 42
+        reg._handle_aggregate_gnd_results = lambda terms, **kw: json.dumps(pool)
+        out = json.loads(reg.execute("rank_by_relevance", {
+            "text": "Cadmium", "from_search_terms": ["x"], "top_k": 40}))
+        self.assertEqual(out["skipped_unlabeled"], 2)
+        self.assertEqual(out["n_in"], 30)
+        self.assertNotIn("4014613-3", [r["keyword"] for r in out["ranked"]])
+        self.assertEqual(out["ranked"][0].get("display_count"), 42)
+
+    def test_a_pool_of_only_ids_is_an_error(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        reg._handle_aggregate_gnd_results = lambda terms, **kw: json.dumps(
+            {"pool": [{"title": "4014613-3", "gnd_ids": ["4014613-3"]}]})
+        out = json.loads(reg.execute("rank_by_relevance", {"text": "t", "from_search_terms": ["x"]}))
+        self.assertIn("nur GND-IDs", out["error"])
+
+    def test_the_result_reports_the_input_tokens_the_host_counted(self):
+        """Bei einem bezahlten Anbieter ist das die Zahl, auf die es ankommt."""
+        out = run_rank(self.config(), "Cadmium", [f"Begriff {i}" for i in range(70)], 5)
+        self.assertEqual(out["input_tokens"], 100 * 70)
+
+    def test_select_from_gnd_pool_gets_an_llm_service_when_none_was_injected(self):
+        """GUI-Chat und Headless-Runner bauen ihr Registry ohne LlmService; das Werkzeug
+        meldete dort immer "requires LLM service"."""
+        from unittest.mock import MagicMock as MM
+
+        llm = MM()
+        llm.alima_config.unified_config.resolve_default_provider_model.return_value = ("p", "m")
+        llm.generate_response.return_value = '{"keywords": [{"keyword": "Cadmium", "gnd_id": "1"}]}'
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        self.assertIsNone(reg._llm_service)
+        reg._get_llm_service = lambda: llm
+        out = json.loads(reg.execute("select_from_gnd_pool", {
+            "abstract": "Cadmium", "gnd_entries": [{"keyword": "Cadmium", "gnd_id": "1"}]}))
+        self.assertNotIn("requires LLM service", json.dumps(out))
+        self.assertTrue(llm.generate_response.called)
+        # the result names the model that selected (the settings default, not the toolbar)
+        self.assertEqual((out["provider"], out["model"]), ("p", "m"))
+        self.assertEqual(llm.generate_response.call_args.kwargs["model"], "m")
+
+    def test_the_registry_builders_hand_the_llm_service_on(self):
+        """Quelltext-Wächter für die zwei Stellen, die ein Registry selbst bauen."""
+        import pathlib
+
+        for path in ("src/ui/pipeline_chat_panel.py", "src/core/headless_agent.py"):
+            src = pathlib.Path(path).read_text(encoding="utf-8")
+            self.assertIn("ToolRegistry(llm_service=llm_service)", src, path)
+
+    def test_without_candidates_or_terms_the_error_names_both_ways(self):
+        reg, _ = self.registry(self.config())
+        reg.register_all_tools()
+        out = json.loads(reg.execute("rank_by_relevance", {"text": "t"}))
+        self.assertIn("from_search_terms", out["error"])
+
+    def test_get_workflow_tells_the_agent_that_the_prefilter_is_active(self):
+        """Der Agent hielt die Pipeline für nicht anpassbar und baute sie von Hand nach."""
+        reg, cm = self.registry(self.config())
+        reg.register_all_tools()
+        steps = {s["id"]: s for s in json.loads(reg.execute("get_workflow", {"name": "alima_classic"}))["steps"]}
+        self.assertEqual(steps["selection_chunks"]["decision_prefilter"], {"top_k": 80, "active": True})
+        self.assertNotIn("decision_prefilter", steps["extraction"])
+
+        cm.load_config.return_value = self.alima(
+            self.config(decision_default_provider="", decision_default_model=""))
+        steps = {s["id"]: s for s in json.loads(reg.execute("get_workflow", {"name": "alima_classic"}))["steps"]}
+        self.assertFalse(steps["selection_chunks"]["decision_prefilter"]["active"])
+
+    def test_the_tool_descriptions_say_the_pipeline_uses_it_by_itself(self):
+        from src.mcp import tool_schemas
+        from src.ui.chat_tools.pipeline import RunPipelineTool
+
+        self.assertIn("decision model", tool_schemas.EXECUTE_WORKFLOW.description)
+        self.assertIn("decision model", RunPipelineTool.description)
+        self.assertIn("from_search_terms", tool_schemas.RANK_BY_RELEVANCE.description)
+        self.assertEqual(tool_schemas.RANK_BY_RELEVANCE.parameters["required"], ["text"])
+
     def test_the_decision_preset_names_exactly_the_two_tools(self):
         reg, _ = self.registry(self.config())
         self.assertEqual(reg.get_preset("decision"), ["decide", "rank_by_relevance"])

@@ -75,12 +75,13 @@ def prefilter_by_decision(
     texts = [text_of(it) for it in items]
     state = (state or "")[:max_state_chars]
     t0 = time.time()
+    usage: Dict[str, int] = {}
     try:
         scores = score_items(
             provider_base_url(provider), model, state, texts,
             api_key=getattr(provider, "api_key", "") or "",
             max_parallel=getattr(unified_config, "decision_max_parallel", 1),
-            should_stop=should_stop,
+            should_stop=should_stop, usage_sink=usage,
         )
     except DecisionError as e:
         logger.warning("Entscheidungs-Vorfilter fehlgeschlagen (%s/%s): %s", provider.name, model, e)
@@ -105,6 +106,7 @@ def prefilter_by_decision(
         "n_out": len(kept),
         "seconds": round(time.time() - t0, 2),
         "state_chars": len(state),
+        "input_tokens": usage.get("input_tokens", 0),
         "max_parallel": getattr(unified_config, "decision_max_parallel", 1),
         "scores": {t: round(scores.get(t, 0.0), 4) for t in texts},
     }

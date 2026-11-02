@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -179,9 +180,13 @@ def score_items(
     timeout: float = 120.0,
     should_stop: Optional[Callable[[], bool]] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    usage_sink: Optional[Dict[str, int]] = None,
     **question_texts: str,
 ) -> Dict[str, float]:
     """Relevanz-Score (0 bis 1) je Kandidat; ``{item: P(true)}``.
+
+    ``usage_sink`` (optional) sammelt die vom Host gemeldeten ``input_tokens``,
+    damit sich der Aufwand bei bezahlten Anbietern beziffern lässt.
 
     Aufteilung in Batches zu ``MAX_QUESTIONS``. Bei Abbruch (``should_stop``)
     oder einem Fehler in einem Batch wird ``DecisionError`` geworfen: ein
@@ -192,15 +197,22 @@ def score_items(
     batches = [items[i:i + MAX_QUESTIONS] for i in range(0, len(items), MAX_QUESTIONS)]
     scores: Dict[str, float] = {}
     done = [0]
+    usage_lock = threading.Lock()
     session = requests.Session()
 
     def run(batch: List[str]) -> List[float]:
         if should_stop is not None and should_stop():
             raise DecisionError("abgebrochen")
-        answers = systemone(
+        reply = systemone(
             base_url, model, state, relevance_questions(batch, **question_texts),
             api_key=api_key, timeout=timeout, session=session,
-        ).get("answers") or {}
+        )
+        if usage_sink is not None:
+            with usage_lock:
+                usage_sink["input_tokens"] = usage_sink.get("input_tokens", 0) + int(
+                    (reply.get("usage") or {}).get("input_tokens", 0) or 0
+                )
+        answers = reply.get("answers") or {}
         try:
             values = [float(answers[f"q{i}"]["noul"]) for i in range(len(batch))]
         except (KeyError, TypeError, ValueError) as e:

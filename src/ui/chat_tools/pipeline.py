@@ -219,7 +219,10 @@ class RunPipelineTool(_MutationToolBase):
         "Run a full ALIMA pipeline against the given input. DESTRUCTIVE: "
         "overwrites the current pipeline state and SharedContext. Requires "
         "user confirmation unless autonomous_pipeline is True. Use 'classic' "
-        "mode for the 5-step linear pipeline, 'agentic' for a YAML workflow."
+        "mode for the 5-step linear pipeline, 'agentic' for a YAML workflow. "
+        "With a decision model configured, large GND pools are cut with it "
+        "automatically (agentic: selection_chunks; classic: the keyword step); "
+        "do not rebuild the steps by hand for that."
     )
     parameters_schema = {
         "type": "object",

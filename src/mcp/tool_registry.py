@@ -351,13 +351,27 @@ class ToolRegistry(ToolGenerationMixin):
 
         return json.dumps(run_decide(self._decision_unified(), state, questions), ensure_ascii=False)
 
-    def _handle_rank_by_relevance(self, text, candidates, top_k=30) -> str:
-        """Rank candidates by fit to a text with the decision model - Claude Generated"""
-        from src.utils.decision_tools import run_rank
+    def _handle_rank_by_relevance(self, text, candidates=None, top_k=30, from_search_terms=None) -> str:
+        """Rank candidates by fit to a text with the decision model - Claude Generated
 
-        return json.dumps(
-            run_rank(self._decision_unified(), text, candidates, top_k), ensure_ascii=False
-        )
+        ``from_search_terms`` takes the pool from the raw response cache
+        (``aggregate_gnd_results``) so the agent need not copy it into the call.
+        """
+        from src.utils.decision_client import DecisionError
+        from src.utils.decision_tools import pool_candidates, run_rank
+
+        skipped = 0
+        if from_search_terms and not candidates:
+            try:
+                candidates, skipped = pool_candidates(
+                    json.loads(self._handle_aggregate_gnd_results(list(from_search_terms)))
+                )
+            except (DecisionError, ValueError) as e:
+                return json.dumps({"error": str(e)}, ensure_ascii=False)
+        result = run_rank(self._decision_unified(), text, candidates, top_k)
+        if skipped and "error" not in result:
+            result["skipped_unlabeled"] = skipped
+        return json.dumps(result, ensure_ascii=False)
 
     def _handle_list_plugins(self, category: str = None, include_disabled: bool = False) -> str:
         """List active plugins (search providers + input sources) with self-docs.
@@ -857,6 +871,13 @@ class ToolRegistry(ToolGenerationMixin):
                     "inputs": list(step.get("inputs", {}).keys()),
                     "outputs": list(step.get("outputs", {}).keys()),
                 })
+                pre = (step.get("chunking") or {}).get("decision_prefilter")
+                if isinstance(pre, dict) and pre.get("enabled"):
+                    # Whether it will really run depends on the configured role.
+                    steps[-1]["decision_prefilter"] = {
+                        "top_k": pre.get("top_k", 80),
+                        "active": self._decision_enabled(),
+                    }
             return json.dumps({
                 "name": data.get("name", name),
                 "version": data.get("version", ""),
@@ -916,7 +937,11 @@ class ToolRegistry(ToolGenerationMixin):
 
         from src.utils.config_models import ProviderScope
 
-        llm = self._llm_service
+        # The GUI chat and the headless runner build their registry without an
+        # LlmService, so a bare ``self._llm_service`` made this tool fail with
+        # "requires LLM service" in both. ``_get_llm_service`` returns the injected
+        # one or builds it once. - Claude Generated
+        llm = self._get_llm_service()
         if llm is None:
             return json.dumps({"error": "select_from_gnd_pool requires LLM service"})
 
@@ -1034,11 +1059,16 @@ class ToolRegistry(ToolGenerationMixin):
         if len(merged) > max_merged:
             merged = merged[:max_merged]
 
+        # Name the model that made the selection: it is the settings default
+        # (Allgemein/Agentisch/Chat), not the chat toolbar's pick, so a result
+        # alone could not say who dropped what. - Claude Generated
         return json.dumps({
             "keywords": merged,
             "count": len(merged),
             "chunks_processed": len(chunks),
             "total_iterations": total_iterations,
+            "provider": default_provider,
+            "model": default_model,
         }, ensure_ascii=False)
 
     def _handle_rvk_lookup(

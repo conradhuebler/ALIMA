@@ -75,7 +75,8 @@ class _Fake(BaseHTTPRequestHandler):
                                  "probabilities": probs}
             else:
                 answers[name] = {"type": "noul", "noul": 0.95 if hot else 0.05}
-        out = json.dumps({"model": body["model"], "answers": answers}).encode()
+        out = json.dumps({"model": body["model"], "answers": answers,
+                          "usage": {"input_tokens": 100 * n, "output_tokens": 0}}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()

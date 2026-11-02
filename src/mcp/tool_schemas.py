@@ -515,7 +515,10 @@ EXECUTE_WORKFLOW = ToolDefinition(
     name="execute_workflow",
     description=(
         "Execute a named agentic v4 workflow. Returns the workflow's final execution report "
-        "as a JSON string. Use this to delegate complex, multi-step tasks to specialized workflows."
+        "as a JSON string. Use this to delegate complex, multi-step tasks to specialized workflows. "
+        "With a decision model configured, workflows whose selection_chunks step has a "
+        "decision_prefilter (see get_workflow) cut large GND pools with it automatically; "
+        "there is no need to rebuild the steps by hand."
     ),
     parameters={
         "type": "object",
@@ -587,7 +590,8 @@ RANK_BY_RELEVANCE = ToolDefinition(
         "using the configured DECISION model, and return the best `top_k` with scores "
         "(0 to 1). Cheaper and more repeatable than asking a chat model to filter, and "
         "built for ~100 to 3000 candidates, e.g. a GND pool before select_from_gnd_pool: "
-        "first cut to ~80 here, then select. It ranks, it does not choose: the scores of "
+        "first cut to ~80 here, then select. After search_* calls, pass the same search "
+        "terms as `from_search_terms` instead of copying the pool into `candidates`. It ranks, it does not choose: the scores of "
         "the cut-off region are close, so keep a margin. 1000 candidates take roughly "
         "15 s to 2 min depending on the host. Available only when a decision model is "
         "configured."
@@ -598,6 +602,15 @@ RANK_BY_RELEVANCE = ToolDefinition(
             "text": {
                 "type": "string",
                 "description": "Abstract or description the candidates are judged against (first 1500 characters are used).",
+            },
+            "from_search_terms": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Instead of `candidates`: rank the GND pool aggregated from the cached "
+                    "responses of these search terms (run the search_* tools for them first). "
+                    "Saves retyping hundreds of candidates; the result carries `gnd_id` and `count`."
+                ),
             },
             "candidates": {
                 "type": "array",
@@ -622,7 +635,7 @@ RANK_BY_RELEVANCE = ToolDefinition(
                 "default": 30,
             },
         },
-        "required": ["text", "candidates"],
+        "required": ["text"],
     },
 )
 
