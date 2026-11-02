@@ -42,6 +42,10 @@ Bezeichnung nur die GND-ID war, wurden mitbewertet (Scores um 0,45 bis 0,55, als
 Rauschen mitten in den 80); sie werden übersprungen und als `skipped_unlabeled`
 gezählt. Das Ergebnis nennt zudem `input_tokens` (auch im Messprotokoll des
 Vorfilters), damit der Aufwand bei bezahlten Anbietern sichtbar ist.
+Der agentische Vorfilter läuft nur noch, wenn der Pool mehr als einen Chunk braucht
+(`min_pool`, Standard `chunk_size`), wie der klassische Pfad: bei einem Chunk spart er
+keinen LLM-Aufruf. Messung an einem Werk (Pool 619, Auswahl mit `beam:cloud`): 44 s auf
+80 Kandidaten gegen 94 s auf allen, plus etwa 10 s Vorfilter.
 `score_items` halbiert einen Batch, wenn der Host "Context size has been exceeded" meldet: 64
 Fragen mit 1500 Zeichen State sprengten auf `d1`/`d3` (Kontext des Servers rund 16 000
 Token) jeden Lauf, im Vorfilter wäre das jedes Mal ein Rückfall gewesen. Messskript

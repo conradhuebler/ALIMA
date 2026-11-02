@@ -133,6 +133,7 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
     decision_prefilter:                        # OPTIONAL — Pool vor dem Chunking per Entscheidungsmodell kürzen
       enabled: true                            # wirkt nur mit gesetzter Rolle (Einstellungen ▸ Sprachmodelle)
       top_k: 80                                # so viele Items bleiben (Standard 80)
+      min_pool: 0                              # nur ab dieser Poolgröße (Standard: chunk_size, also nur bei mehr als einem Chunk)
       text_field: title                        # Feld, das dem Modell vorgelegt wird (Standard title)
 
   system_prompt: |

@@ -25,8 +25,8 @@ POOL = [
 ]
 
 
-def _step(prefilter) -> LLMAgentStep:
-    chunking = {"enabled": True, "chunk_field": "keywords", "chunk_size": 500,
+def _step(prefilter, chunk_size: int = 100) -> LLMAgentStep:
+    chunking = {"enabled": True, "chunk_field": "keywords", "chunk_size": chunk_size,
                 "chunk_fields": ["title", "gnd_id"], "merge_key": "keywords",
                 "dedup_field": "keyword"}
     if prefilter is not None:
@@ -42,7 +42,7 @@ def _step(prefilter) -> LLMAgentStep:
 
 
 class AgenticHookTest(_ServerCase):
-    def run_step(self, prefilter, cfg):
+    def run_step(self, prefilter, cfg, chunk_size: int = 100):
         seen: list = []
 
         def run(**kw):
@@ -52,7 +52,7 @@ class AgenticHookTest(_ServerCase):
         loop = MagicMock()
         loop.run.side_effect = run
         ctx = SharedContext(abstract="Schwermetall im Boden", provider="p", model="m")
-        step = _step(prefilter)
+        step = _step(prefilter, chunk_size)
         fake_cm = MagicMock()
         fake_cm.return_value.get_unified_config.return_value = cfg
         with patch("src.core.agents.steps.llm_agent_step.AgentLoop", return_value=loop), \
@@ -74,6 +74,19 @@ class AgenticHookTest(_ServerCase):
         _, ctx, _ = self.run_step({"enabled": True, "top_k": 30}, self.config())
         again = json.loads(json.dumps(ctx.to_dict()))
         self.assertEqual(again["extra"]["decision_prefilter"]["n_out"], 30)
+
+    def test_a_pool_that_fits_one_chunk_is_not_prefiltered(self):
+        """Bei einem Chunk spart der Vorfilter keinen LLM-Aufruf, er kostet nur Zeit."""
+        seen, ctx, _ = self.run_step({"enabled": True, "top_k": 30}, self.config(), chunk_size=500)
+        self.assertEqual(len(seen), 1)
+        self.assertIn('"title": "Boden', seen[0])
+        self.assertNotIn("decision_prefilter", ctx.extra)
+        self.assertEqual(_Fake.calls, [])
+
+    def test_min_pool_overrides_the_chunk_size_threshold(self):
+        seen, ctx, _ = self.run_step({"enabled": True, "top_k": 30, "min_pool": 100},
+                                     self.config(), chunk_size=500)
+        self.assertEqual(ctx.extra["decision_prefilter"]["n_out"], 30)
 
     def test_role_off_changes_nothing(self):
         cfg = self.config(decision_default_provider="", decision_default_model="")

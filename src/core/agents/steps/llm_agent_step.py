@@ -322,14 +322,14 @@ class LLMAgentStep(BaseStep):
         tool_names = self._resolve_tools(raw_cfg.get("tools"))
         params = self._llm_params(raw_cfg, context)
 
-        items = self._apply_decision_prefilter(chunk_cfg, items, resolved_inputs, context)
-
         # Classic-pipeline parity: chunk_size <= 0 / missing → auto-detect per
         # model via model_capabilities (same source as the rigid pipeline's
         # keyword_chunking_threshold; default 500) - Claude Generated
         chunk_size = int(chunk_cfg.get("chunk_size", 0) or 0)
         if chunk_size <= 0:
             chunk_size = self._auto_chunk_size(params)
+
+        items = self._apply_decision_prefilter(chunk_cfg, items, resolved_inputs, context, chunk_size)
 
         sort_by = chunk_cfg.get("sort_by")
         if sort_by:
@@ -523,16 +523,26 @@ class LLMAgentStep(BaseStep):
         items: List[Any],
         resolved_inputs: Dict[str, Any],
         context: Any,
+        chunk_size: int,
     ) -> List[Any]:
         """Optional Vorfilter per Entscheidungsmodell vor dem Chunking - Claude Generated
 
         Greift nur mit ``chunking.decision_prefilter.enabled`` im Workflow *und*
-        konfigurierter Rolle (``ProviderScope.DECISION``); sonst, und bei jedem
-        Fehler des Entscheidungs-Hosts, bleibt ``items`` unverändert. Das
-        Messprotokoll landet in ``context.extra["decision_prefilter"]``.
+        konfigurierter Rolle (``ProviderScope.DECISION``) und nur, wenn der Pool
+        mehr als einen Chunk braucht (``min_pool``, Standard ``chunk_size``): bei
+        einem Chunk spart der Vorfilter keinen LLM-Aufruf und kostet Zeit. Sonst,
+        und bei jedem Fehler des Entscheidungs-Hosts, bleibt ``items`` unverändert.
+        Das Messprotokoll landet in ``context.extra["decision_prefilter"]``.
         """
         cfg = chunk_cfg.get("decision_prefilter")
         if not isinstance(cfg, dict) or not cfg.get("enabled"):
+            return items
+        min_pool = int(cfg.get("min_pool") or chunk_size or 0)
+        if len(items) <= min_pool:
+            logger.info(
+                f"LLMAgentStep '{self.step_id}': Vorfilter übersprungen "
+                f"({len(items)} Items passen in einen Chunk, min_pool {min_pool})"
+            )
             return items
         from src.utils.decision_prefilter import DEFAULT_TOP_K, prefilter_by_decision
 

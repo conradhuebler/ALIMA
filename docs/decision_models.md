@@ -29,7 +29,10 @@ Entscheidungsmodell läuft jeder Pfad unverändert.
   Reihenfolge, Gleichstand entscheidet die ursprüngliche Position. Der State ist
   auf 1500 Zeichen gekürzt (der Endpunkt zählt ihn für jede Frage mit).
 - **Agentisch:** Block `decision_prefilter` unter `chunking:` des Schritts
-  `selection_chunks` (`enabled`, `top_k`, `text_field`). Die fünf mitgelieferten
+  `selection_chunks` (`enabled`, `top_k`, `text_field`, `min_pool`). Er läuft nur, wenn der Pool
+  mehr als einen Chunk braucht (`min_pool`, Standard die Chunkgröße des Schritts): bei
+  einem Chunk spart er keinen LLM-Aufruf. Bei einem Beispiel (Pool 619, `beam:cloud`)
+  brauchte die Auswahl auf 80 Kandidaten 44 s statt 94 s auf allen, plus etwa 10 s Vorfilter. Die fünf mitgelieferten
   Workflows mit diesem Schritt tragen `enabled: true, top_k: 80`; wirksam wird er
   erst mit gesetzter Rolle.
 - **Klassisch (GUI, CLI, Batch):** greift im Schlüsselwort-Schritt
