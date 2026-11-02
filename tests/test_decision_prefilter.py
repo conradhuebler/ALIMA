@@ -29,6 +29,7 @@ class _Fake(BaseHTTPRequestHandler):
     calls: list = []
     fail_first: int = 0       # so viele 503 vor der ersten Antwort
     status_override = None    # z. B. 400 für jede Anfrage
+    max_questions = None      # mehr Fragen je Aufruf: 500 "Context size has been exceeded"
     lock = threading.Lock()
 
     def log_message(self, *a):  # still
@@ -60,6 +61,11 @@ class _Fake(BaseHTTPRequestHandler):
             if fail:
                 cls.fail_first -= 1
         n = len(body["questions"])
+        if cls.max_questions is not None and n > cls.max_questions:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b'{"error":"Context size has been exceeded."}')
+            return
         if cls.status_override or not 1 <= n <= 64 or fail:
             code = cls.status_override or (503 if fail else 400)
             self.send_response(code)
@@ -88,6 +94,7 @@ class _ServerCase(unittest.TestCase):
         _Fake.calls = []
         _Fake.fail_first = 0
         _Fake.status_override = None
+        _Fake.max_questions = None
         self.server = HTTPServer(("127.0.0.1", 0), _Fake)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -132,6 +139,20 @@ class ClientTest(_ServerCase):
         out = systemone(self.url, "d1", "s", relevance_questions(["Cadmium"]))
         self.assertIn("answers", out)
         self.assertEqual(len(_Fake.calls), 3)
+
+    def test_a_batch_that_exceeds_the_context_is_split_until_it_fits(self):
+        """Der Host zählt den State je Frage; 64 Fragen mit langem State sprengten den Kontext."""
+        _Fake.max_questions = 20
+        items = [f"Cadmium {i}" for i in range(64)]
+        scores = score_items(self.url, "d1", "state", items)
+        self.assertEqual(len(scores), 64)
+        self.assertTrue(all(v > 0.5 for v in scores.values()))
+        self.assertTrue(all(c["n"] <= 20 for c in _Fake.calls if c["n"] <= 20) and len(_Fake.calls) > 4)
+
+    def test_a_single_question_that_still_exceeds_the_context_is_an_error(self):
+        _Fake.max_questions = 0
+        with self.assertRaises(DecisionError):
+            score_items(self.url, "d1", "state", ["a"])
 
     def test_a_400_is_not_retried(self):
         _Fake.status_override = 400

@@ -203,10 +203,19 @@ def score_items(
     def run(batch: List[str]) -> List[float]:
         if should_stop is not None and should_stop():
             raise DecisionError("abgebrochen")
-        reply = systemone(
-            base_url, model, state, relevance_questions(batch, **question_texts),
-            api_key=api_key, timeout=timeout, session=session,
-        )
+        try:
+            reply = systemone(
+                base_url, model, state, relevance_questions(batch, **question_texts),
+                api_key=api_key, timeout=timeout, session=session,
+            )
+        except DecisionError as e:
+            # The host counts the state for every question, so 64 questions with a
+            # long state can exceed the model's context (HTTP 500 "Context size has
+            # been exceeded"). Halve the batch instead of giving up. - Claude Generated
+            if "context size" in str(e).lower() and len(batch) > 1:
+                half = len(batch) // 2
+                return run(batch[:half]) + run(batch[half:])
+            raise
         if usage_sink is not None:
             with usage_lock:
                 usage_sink["input_tokens"] = usage_sink.get("input_tokens", 0) + int(
