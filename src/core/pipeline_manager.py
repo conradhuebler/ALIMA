@@ -38,6 +38,7 @@ from ..utils.pipeline_utils import (
     extract_source_identifier,  # For title generation - Claude Generated
 )
 from ..utils.smart_provider_selector import SmartProviderSelector
+from ..utils import run_timing
 from ..utils.config_models import (
     UnifiedProviderConfig,
     PipelineMode,
@@ -649,6 +650,7 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
 
         # WP10 P-δ.1: invalidate retained SharedContext + broadcast start.
         self.last_shared_context = None
+        run_timing.begin_run()
         self.logger.info("🔵 [DEBUG] start_pipeline: before AlimaStateBus")
         try:
             from src.core.state_bus import AlimaStateBus
@@ -940,6 +942,20 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
         if self.stream_callback:
             self.stream_callback(token, step_id)
 
+    def _finish_run_timing(self) -> None:
+        """Store the run's time split in the result and announce it - Claude Generated"""
+        try:
+            summary = run_timing.finish_run()
+            if self.current_analysis_state is not None:
+                self.current_analysis_state.timings = summary
+            text = run_timing.format_summary(summary)
+            self.logger.info(text)
+            from src.core.state_bus import AlimaStateBus
+
+            AlimaStateBus().emit_event("state.notice", {"text": text, "level": "info"})
+        except Exception:
+            self.logger.warning("run timing summary failed", exc_info=True)
+
     def _execute_next_step(self):
         """Execute the next step in the pipeline - Claude Generated"""
         try:
@@ -976,7 +992,13 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
                     # chat-driven path.
                     self._emit_pipeline_step_bus(current_step, "running")
 
-                    success = self.execute_step(current_step.step_id)
+                    # Input (DOI/URL), GND search and catalogue search are retrieval;
+                    # the LLM steps are timed at the call. - Claude Generated
+                    if current_step.step_id in ("input", "search", "dk_search"):
+                        with run_timing.timed("retrieval"):
+                            success = self.execute_step(current_step.step_id)
+                    else:
+                        success = self.execute_step(current_step.step_id)
                     self.logger.info(
                         f"Step {current_step.step_id} completed with success: {success}"
                     )
@@ -1040,6 +1062,7 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
                     except Exception:
                         self.logger.exception("from_keyword_analysis_state failed")
                         self.last_shared_context = None
+                self._finish_run_timing()
                 try:
                     from src.core.state_bus import AlimaStateBus
                     AlimaStateBus().emit_event("state.pipeline_completed", {})

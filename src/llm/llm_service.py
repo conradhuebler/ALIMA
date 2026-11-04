@@ -18,6 +18,8 @@ import platform
 from enum import Enum
 from urllib.parse import urlparse
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
+
+from ..utils.run_timing import timed_method
 from PyQt6.QtNetwork import QTcpSocket, QHostInfo
 
 # Native Ollama client import - Claude Generated
@@ -1145,6 +1147,7 @@ class LlmService(QObject):
         # If it's already bytes, return as is
         return image_input
 
+    @timed_method("llm")
     def generate_response(
         self,
         provider: str,
@@ -2416,6 +2419,7 @@ class LlmService(QObject):
     # Tool-Calling / Agent Support - Claude Generated
     # ================================================================
 
+    @timed_method("llm")
     def generate_with_tools(
         self,
         provider: str,

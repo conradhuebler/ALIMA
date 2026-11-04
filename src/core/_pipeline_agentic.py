@@ -367,6 +367,7 @@ class AgenticPipelineMixin:
                 raise RuntimeError(report.error or "v4 workflow failed")
 
             self.current_analysis_state = ctx.to_keyword_analysis_state()
+            self._finish_run_timing()
             # WP10 P-δ.1: retain the raw SharedContext for chat tools.
             self.last_shared_context = ctx
             try:

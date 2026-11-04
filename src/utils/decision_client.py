@@ -29,6 +29,7 @@ import requests
 
 from .ollama_endpoint import base_url as _ollama_base_url
 from .ollama_endpoint import clean_api_key, normalize_ollama_cloud_url
+from .run_timing import timed_method
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,7 @@ def list_decision_models(provider: Any, timeout: float = 5.0) -> List[str]:
     )
 
 
+@timed_method("decision")
 def systemone(
     base_url: str,
     model: str,

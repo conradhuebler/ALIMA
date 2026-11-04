@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, Optional, List, Callable
 
 from src.utils.error_visibility import log_caught
+from src.utils.run_timing import timed
 from dataclasses import asdict
 
 from src.mcp.mcp_types import ToolDefinition
@@ -124,7 +125,10 @@ class ToolRegistry(ToolGenerationMixin):
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
         try:
-            result = self._handlers[tool_name](**arguments)
+            # Tools fetch (cache, DB, web, catalogue); a model they call themselves
+            # is carved out of this time by run_timing. - Claude Generated
+            with timed("retrieval"):
+                result = self._handlers[tool_name](**arguments)
             if isinstance(result, str):
                 return result
             return json.dumps(result, ensure_ascii=False, default=str)

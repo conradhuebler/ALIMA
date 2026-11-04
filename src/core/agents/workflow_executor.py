@@ -20,6 +20,7 @@ from src.core.agents.conditional_engine import ConditionalEngine
 from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import BaseStep, StepResult
 from src.core.agents.workflow_loader import WorkflowDef
+from src.utils.run_timing import timed
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,14 @@ class WorkflowExecutor:
             self._emit_snapshot(context, cfg, status="running")
 
             try:
-                result = step.execute(context)
+                # Deterministic steps are searches, lookups and local post-processing;
+                # LLM steps are timed at the call (LlmService) and their tools at
+                # ToolRegistry.execute. - Claude Generated
+                if cfg.type == "deterministic":
+                    with timed("retrieval"):
+                        result = step.execute(context)
+                else:
+                    result = step.execute(context)
             except Exception as exc:
                 # Step implementations should return StepResult(success=False),
                 # but an escaping exception must not kill the whole workflow

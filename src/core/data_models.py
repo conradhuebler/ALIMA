@@ -128,6 +128,10 @@ class KeywordAnalysisState:
     # der Ergebnisdatei nachrechnen, ohne das Modell erneut zu fragen.
     # - Claude Generated
     decision_prefilter: Optional[Dict[str, Any]] = None
+    # Time split of the run: total / LLM / decision model / retrieval (DB, catalogue,
+    # web) / other, with call counts (``utils.run_timing``). None for states that
+    # were not produced by a run. - Claude Generated
+    timings: Optional[Dict[str, Any]] = None
     # The RSWK core of the keyword set (2-5 subject headings that carry the
     # work's actual subject) and the form headings (Lehrbuch, Kongressschrift,
     # …), both named separately by the selection step. The full keyword list

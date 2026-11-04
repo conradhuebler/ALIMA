@@ -72,6 +72,19 @@ Bewegungsapparat 728, Gesundheit 507 …) statt in der Reihenfolge des Rankings.
 der Standard aus den Einstellungen (Allgemein/Agentisch/Chat), nicht die Wahl in der
 Toolbar des Chats.
 
+### Zeitmessung des Gesamtlaufs nach Art der Arbeit (November 2, 2026)
+
+Jeder Pipeline-Lauf (klassisch und agentisch) meldet am Ende eine Zeile wie „⏱ Gesamt 124 s: LLM
+91 s (7 Aufrufe), Entscheidung 10 s (10), Abruf 20 s (35), Sonstiges 3 s“ (Log, `state.notice` in
+GUI, Webapp und CLI) und legt sie als `timings` im Ergebnis ab. `utils/run_timing.py` rechnet
+**ausschließlich**: ein Modell, das ein Abruf-Werkzeug selbst aufruft (z. B. `select_from_gnd_pool`),
+zählt zu LLM, nur der Rest zu Abruf. Messpunkte: `LlmService.generate_response`/`generate_with_tools`
+(LLM), `systemone` (Entscheidung), `ToolRegistry.execute`, deterministische Workflow-Schritte und die
+klassischen Schritte input/search/dk_search (Abruf). „Abruf“ umfasst bei deterministischen Schritten
+auch deren lokale Aufbereitung; „Sonstiges“ ist die Differenz zur Gesamtzeit. Es gibt einen globalen
+Zähler (ein Lauf zugleich je Prozess); bei parallelen Entscheidungs-Anfragen übersteigt die Summe der
+Aufrufzeiten die Laufzeit und das Ergebnis trägt `parallel: true`. Tests: `tests/test_run_timing.py`.
+
 ### Chat-Agent: Text im Eingabefeld sichtbar (November 2, 2026)
 
 `get_input_text` fand im GUI-Chat nichts, solange kein Lauf vorlag: der Chat las

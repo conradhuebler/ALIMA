@@ -49,6 +49,9 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ## [Variable Section - Short-term Information]
 
+### ✅ ADDED (Nov 2026): Zeitmessung der Läufe
+`run_timing.py`: LLM / Entscheidung / Abruf / Sonstiges je Lauf, ausschließlich gerechnet (verschachtelte Zeit wird abgezogen), Ergebnis als `timings` im Zustand und als `state.notice`. Ein globaler Zähler, ein Lauf zugleich.
+
 ### ✅ ADDED (Nov 2026, Branch `feature/decision-models`): Entscheidungsmodell-Rolle + Vorfilter
 `decision_default_provider/model` (ohne Rückfall, `ProviderScope.DECISION`), `decision_client.py` (HTTP gegen `/v1/systemone`, höchstens 64 Fragen je Aufruf), `decision_prefilter.py` (kürzt den GND-Pool vor dem Chunking; Fallback bei jedem Fehler). Opt-in; ohne gesetzte Rolle unverändert. ⚠️ `input_tokens` zählt den State je Frage mit, bei bezahlten Anbietern kurz halten. Details und Grenzen: [`docs/decision_models.md`](../../docs/decision_models.md).
 
