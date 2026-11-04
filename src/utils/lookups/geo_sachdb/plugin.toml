@@ -1,0 +1,20 @@
+# Manifest des Lookup-Plugins geo_sachdb. Das Verzeichnis ist NICHT als Built-in
+# registriert (src/utils/lookups/__init__.py importiert es nicht). Nutzung als
+# Tier-2-Code-Plugin: Verzeichnis nach ~/.config/alima/plugins/geo_sachdb/
+# kopieren, Code-Plugins erlauben, im Plugins-Tab freigeben.
+
+[plugin]
+id = "geo_sachdb"
+label = "Lokale Sacherschließungsdatenbank (SQLite)"
+category = "lookup"
+type = "code"
+api_version = "1"
+
+[entry]
+module = "provider.py"
+class = "GeoSachdbLookup"
+
+[doc]
+description = "Lokale Sacherschließungsdatenbank (aus Access nach SQLite überführt): Schlagwortsätze zu einem Begriff, ein Satz vollständig, Abgleich einer Notation mit den lokalen Notationssätzen. Die Rollen der Tabellen und Spalten stehen in der Plugin-Konfiguration."
+input = "Suchbegriff, Satz-ID oder Notation."
+output = "Lokale Sätze mit Ansetzung, Typ, Kennungen, Verweisungen, Oberbegriff, verknüpften Notationen und Herkunft der Datenbank."

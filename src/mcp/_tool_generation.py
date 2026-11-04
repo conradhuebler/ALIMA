@@ -196,6 +196,9 @@ class ToolGenerationMixin:
             specs = specs_by_provider.get(provider_id)
             if not specs:
                 continue
+            instances = [inst for inst in instances if self._lookup_instance_available(provider_id, inst)]
+            if not instances:
+                continue
             canonical = self._canonical_instance(instances)
             for inst in instances:
                 for spec in specs:
@@ -214,6 +217,29 @@ class ToolGenerationMixin:
                         self._make_lookup_handler(spec, inst),
                     ))
         return tools
+
+    def _lookup_instance_available(self, provider_id, inst):
+        """Optional availability gate for lookup plugins.
+
+        A lookup class that declares ``is_available()`` (e.g. ``geo_sachdb``
+        without its database file) gets no tools while it reports False. Classes
+        without the method are not built here and keep their tools unchanged.
+        - Claude Generated"""
+        from src.utils.lookups import get_lookup
+
+        try:
+            cls = get_lookup(provider_id)
+        except KeyError:
+            return True
+        if not hasattr(cls, "is_available"):
+            return True
+        try:
+            return bool(self._lookup_for(inst).is_available())
+        except Exception as exc:  # noqa: BLE001 - a broken plugin must not break tool generation
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, f"lookup availability {provider_id}/{getattr(inst, 'instance_id', '?')}")
+            return False
 
     def _make_lookup_handler(self, spec, inst):
         """Handler for a lookup tool: build the plugin, call its method, and cache
