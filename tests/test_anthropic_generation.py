@@ -227,6 +227,67 @@ class ToolPathDoesNotSendRejectedFieldsTest(unittest.TestCase):
         self.assertNotIn("top_p", fake_messages.captured_params)
 
 
+class PromptCacheBreakpointsTest(unittest.TestCase):
+    """System-Prompt und Verlaufsende tragen einen Cache-Haltepunkt - Claude Generated."""
+
+    EPHEMERAL = {"type": "ephemeral"}
+
+    def _tool_call(self, messages, system=None):
+        svc = _make_service()
+        fake = _FakeNonStreamingMessages([TextBlock(type="text", text="ok")])
+        svc.clients = {PROVIDER_NAME: MagicMock(messages=fake)}
+        msgs = ([{"role": "system", "content": system}] if system else []) + messages
+        svc._generate_anthropic_with_tools(
+            provider=PROVIDER_NAME, model="claude-opus-5-5", messages=msgs,
+            tools=[], temperature=0.1, top_p=0.1, max_tokens=4096,
+        )
+        return fake.captured_params
+
+    def test_text_path_marks_the_system_prompt(self):
+        svc = _make_service()
+        fake = _FakeNonStreamingMessages([TextBlock(type="text", text="ok")])
+        svc.clients = {PROVIDER_NAME: MagicMock(messages=fake)}
+        svc._generate_anthropic(model="claude-opus-5-5", prompt="hi", temperature=0.1,
+                                p_value=0.1, seed=None, system="Regeln", stream=False)
+        self.assertEqual(fake.captured_params["system"],
+                         [{"type": "text", "text": "Regeln", "cache_control": self.EPHEMERAL}])
+
+    def test_text_path_without_system_sends_none(self):
+        svc = _make_service()
+        fake = _FakeNonStreamingMessages([TextBlock(type="text", text="ok")])
+        svc.clients = {PROVIDER_NAME: MagicMock(messages=fake)}
+        svc._generate_anthropic(model="claude-opus-5-5", prompt="hi", temperature=0.1,
+                                p_value=0.1, seed=None, stream=False)
+        self.assertNotIn("system", fake.captured_params)
+
+    def test_tool_path_marks_system_and_last_message(self):
+        params = self._tool_call([{"role": "user", "content": "frage"}], system="Regeln")
+        self.assertEqual(params["system"][0]["cache_control"], self.EPHEMERAL)
+        last = params["messages"][-1]["content"][-1]
+        self.assertEqual(last["text"], "frage")
+        self.assertEqual(last["cache_control"], self.EPHEMERAL)
+
+    def test_the_callers_message_list_is_not_modified(self):
+        from src.llm.llm_service import _anthropic_mark_last_block
+        original = [{"role": "user", "content": "frage"}]
+        marked = _anthropic_mark_last_block(original)
+        self.assertEqual(original, [{"role": "user", "content": "frage"}])
+        self.assertIsNot(marked, original)
+
+    def test_block_content_gets_the_mark_on_its_last_block_only(self):
+        from src.llm.llm_service import _anthropic_mark_last_block
+        msgs = [{"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "a", "content": "x"},
+            {"type": "tool_result", "tool_use_id": "b", "content": "y"}]}]
+        blocks = _anthropic_mark_last_block(msgs)[0]["content"]
+        self.assertNotIn("cache_control", blocks[0])
+        self.assertEqual(blocks[1]["cache_control"], self.EPHEMERAL)
+
+    def test_empty_history_stays_empty(self):
+        from src.llm.llm_service import _anthropic_mark_last_block
+        self.assertEqual(_anthropic_mark_last_block([]), [])
+
+
 class ResponseParsingSkipsThinkingBlocksTest(unittest.TestCase):
     """The headline bug: adaptive thinking is on by default on every current
     model and cannot be disabled - the first content block is routinely a
@@ -786,7 +847,9 @@ class GenericAssistantToolCallsConvertCorrectlyTest(unittest.TestCase):
         ])
         self.assertEqual(messages, [
             {"role": "user", "content": "hallo"},
-            {"role": "assistant", "content": "hi!"},
+            # letzter Block trägt den Cache-Haltepunkt (PromptCacheBreakpointsTest)
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "hi!", "cache_control": {"type": "ephemeral"}}]},
         ])
 
 
