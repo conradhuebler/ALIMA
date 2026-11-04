@@ -2,7 +2,7 @@
 
 Extracted from ``pipeline_tab.py`` (F-5 god-file split): starting the pipeline
 worker, global provider/model + think overrides, save/load, workflow-combo
-population + selection, agentic-panel rebuild, catalog config, and result
+population + selection, agentic-panel rebuild, and result
 emission to other tabs. Method bodies are moved verbatim.
 ``PipelineTabControlMixin`` is mixed into ``PipelineTab`` (which provides
 ``__init__``, ``setup_ui`` and the widgets/state these drive); not a standalone
@@ -45,9 +45,8 @@ class PipelineTabControlMixin:
             )
             return
 
-        # Apply LLM model selection + DK config - Claude Generated
+        # Apply LLM model selection - Claude Generated
         self._apply_global_override_from_gui()
-        self._update_dk_config_from_gui()
         # Ensure run mode matches the workflow picker (agentic vs. classic).
         self._apply_workflow_selection()
 
@@ -64,10 +63,6 @@ class PipelineTabControlMixin:
         self.pipeline_status_label.setText("Pipeline läuft...")
         self.auto_pipeline_button.setEnabled(False)
         self.stop_pipeline_button.setVisible(True)
-
-        # Get force_update flag from checkbox - Claude Generated
-        force_update = getattr(self, 'force_update_checkbox', None)
-        force_update_enabled = force_update.isChecked() if force_update else False
 
         # Determine source metadata for working title - Claude Generated
         # Priority: cached value from last text_ready > widget's current_source_type > doi_url_input field
@@ -97,7 +92,6 @@ class PipelineTabControlMixin:
             self.pipeline_manager, input_text,
             input_type=input_type,
             input_source=input_source,
-            force_update=force_update_enabled
         )
 
         # Connect worker signals
@@ -180,33 +174,6 @@ class PipelineTabControlMixin:
         if not hasattr(self, 'global_max_tokens_spin'):
             return None
         return self.global_max_tokens_spin.value() or None
-
-    def _update_dk_config_from_gui(self):
-        """
-        Update DK pipeline configuration from GUI widgets - Claude Generated
-        Applies current GUI spinner values to PipelineManager configuration
-        """
-        if not hasattr(self.pipeline_manager, 'config') or not self.pipeline_manager.config:
-            return
-
-        config = self.pipeline_manager.config
-
-        # Update dk_search step config
-        if 'dk_search' in config.step_configs:
-            dk_search_config = config.step_configs['dk_search']
-            if hasattr(self, 'dk_search_max_results'):
-                dk_search_config.custom_params['max_results'] = self.dk_search_max_results.value()
-
-        # Update dk_classification step config
-        if 'dk_classification' in config.step_configs:
-            dk_classification_config = config.step_configs['dk_classification']
-            if hasattr(self, 'dk_frequency_threshold'):
-                dk_classification_config.custom_params['dk_frequency_threshold'] = self.dk_frequency_threshold.value()
-
-        self.logger.info(
-            f"✅ DK config updated from GUI: max_results={self.dk_search_max_results.value()}, "
-            f"frequency_threshold={self.dk_frequency_threshold.value()}"
-        )
 
     def load_json_state(self):
         """Load pipeline state from JSON file - Claude Generated"""

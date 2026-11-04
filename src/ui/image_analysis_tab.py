@@ -168,7 +168,14 @@ class ImageAnalysisTab(QWidget):
         )
 
         # Control bar at the top
-        control_bar = QHBoxLayout()
+        # Statuszeile und Fortschrittsbalken schreibt die Bildanalyse laufend,
+        # die Leiste ist aber nicht Teil des sichtbaren Layouts. Ein versteckter
+        # Container im Tab hält beide als Kinder; ohne Eltern öffnete
+        # progress_bar.setVisible(True) den Balken als eigenes Fenster.
+        # Einblenden: main_layout.addWidget(control_bar_widget), hide() entfernen.
+        # - Claude Generated
+        control_bar_widget = QWidget(self)
+        control_bar = QHBoxLayout(control_bar_widget)
         control_bar.setContentsMargins(0, 0, 0, 5)
 
         # Status label
@@ -184,8 +191,7 @@ class ImageAnalysisTab(QWidget):
         self.progress_bar.setFixedWidth(200)
         self.progress_bar.setFormat("Analysiere... %p%")
         control_bar.addWidget(self.progress_bar)
-
-        #main_layout.addLayout(control_bar)
+        control_bar_widget.hide()
 
         # Create splitter for main layout
         main_splitter = QSplitter(Qt.Orientation.Horizontal)

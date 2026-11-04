@@ -24,7 +24,6 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -436,38 +435,10 @@ class PipelineTabUiMixin:
         set_tone(config_header, "heading")
         controls_layout.addWidget(config_header)
 
-        # Kompakte Grid-Layout statt 3 separate Rows
-        config_grid = QGridLayout()
-        config_grid.setSpacing(8)
-
-        # Row 0: Max Results + Frequency (nebeneinander)
-        config_grid.addWidget(QLabel("Max. Ergebnisse:"), 0, 0)
-        self.dk_search_max_results = QSpinBox()
-        self.dk_search_max_results.setRange(5, 100)
-        from ..utils.pipeline_defaults import DEFAULT_DK_MAX_RESULTS
-        self.dk_search_max_results.setValue(DEFAULT_DK_MAX_RESULTS)
-        self.dk_search_max_results.setToolTip("Max. Katalog-Suchergebnisse pro Keyword")
-        config_grid.addWidget(self.dk_search_max_results, 0, 1)
-
-        config_grid.addWidget(QLabel("Min. Häufigkeit:"), 0, 2)
-        self.dk_frequency_threshold = QSpinBox()
-        self.dk_frequency_threshold.setRange(1, 50)
-        from ..utils.pipeline_defaults import DEFAULT_DK_FREQUENCY_THRESHOLD
-        self.dk_frequency_threshold.setValue(DEFAULT_DK_FREQUENCY_THRESHOLD)
-        self.dk_frequency_threshold.setToolTip("Nur Klassifikationen mit >= N Vorkommen")
-        config_grid.addWidget(self.dk_frequency_threshold, 0, 3)
-
-        config_grid.setColumnStretch(4, 1)  # Push to left
-        #controls_layout.addLayout(config_grid)
-
-        # Row 1: Force Update Checkbox
-        from PyQt6.QtWidgets import QCheckBox
-        self.force_update_checkbox = QCheckBox("Katalog-Cache ignorieren")
-        self.force_update_checkbox.setToolTip(
-            "Erzwingt Live-Suche im Katalog und ignoriert gecachte Ergebnisse."
-        )
-        self.force_update_checkbox.setChecked(False)
-        #controls_layout.addWidget(self.force_update_checkbox)
+        # Keine Regler für Max. Ergebnisse / Min. Häufigkeit / Katalog-Cache:
+        # der klassische DK-Schritt nimmt die Standards aus pipeline_defaults.
+        # Früher hier gebaut, aber nie eingehängt; ein Widget ohne Eltern ist
+        # ein eigenes (verstecktes) Fenster. - Claude Generated
 
         # Filter Section (kompakter)
         filter_header = QLabel("🔍 Ergebnisse filtern")
