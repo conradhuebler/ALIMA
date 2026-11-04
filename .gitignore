@@ -342,3 +342,6 @@ my_backup.json
 # Claude Code local session files
 .claude/settings.local.json
 .claude/plans/
+
+# Lokale Arbeitskopien (Access-Quelldaten, Wegwerf-venv) - nie einchecken
+.scratch/
