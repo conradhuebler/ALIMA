@@ -152,6 +152,11 @@ def main():
     # loaded (the config load itself must be able to log). - Claude Generated
     setup_logging(level=1, log_file="alima.log")
     app = QApplication(sys.argv)
+    # Diagnose: meldet Widgets, die als eigenes Fenster erscheinen (Log + stderr). - Claude Generated
+    if os.environ.get("ALIMA_TRACE_WINDOWS"):
+        from src.ui.window_trace import install as _install_window_trace
+
+        _install_window_trace(app)
     # The system palette, before Fusion and ALIMA's own palettes replace it
     # (Desktop colour scheme). - Claude Generated
     take_desktop_snapshot(app)
