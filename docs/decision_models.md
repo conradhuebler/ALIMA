@@ -87,6 +87,36 @@ Logik in `src/utils/decision_tools.py`.
   dafür je Schritt `decision_prefilter {top_k, active}`; die Beschreibungen beider
   Werkzeuge und der Chat-Systemprompt sagen es dem Agenten.
 
+## Blockgröße und Parallelität (Messung vom 4.11.2026)
+
+Ein Werk, 128 Kandidaten, Text 1500 Zeichen, Fragetext `geeignet`, ein Lauf je Zelle, Sekunden bei
+einer Anfrage zur Zeit (`scripts/bench_decision_batching.py`):
+
+| Fragen je Anfrage | LLMachine d1 | LLMachine d3 | Cloud clef | Laptop d1 |
+|---|---|---|---|---|
+| 1 | 7,2 | 13,6 | 66,1 | 46,5 |
+| 8 | 2,6 | 5,3 | 10,5 | 18,3 |
+| 16 | 2,4 | 6,2 | 6,3 | 16,9 |
+| 32 | 2,3 | 5,8 | 3,3 | 15,8 |
+| 64 | 2,2 | 5,7 | 1,8 | 22,7 |
+
+- Größere Blöcke sind schneller; bei `d1` flach ab etwa 16, bei der Cloud bis 64 (36-fach schneller als 1
+  Frage je Anfrage), auf dem Laptop am besten bei 32. Gleichzeitige Anfragen (2 oder 4) brachten bei
+  Blöcken ab 16 keinen Gewinn und auf dem Laptop eine Verschlechterung.
+- Tokens: Lokal (`d1`, `d3`) zählt der Text je Frage, die Summe ist von der Blockgröße unabhängig
+  (53 371 für `d1`). Die Cloud zählt den Text je Anfrage: 64 708 bei 1 Frage, 17 298 bei 64 Fragen.
+- **Cloud-Scores hängen von der Nachbarschaft in der Anfrage ab:** gegenüber Block 64 weichen sie bei
+  kleineren Blöcken bis 0,38 ab; dieselben Kandidaten in umgekehrter Reihenfolge ändern sie um bis zu
+  0,29 (Top-40-Überlappung 36 von 40), dieselbe Reihenfolge wiederholt nur um 0,03. Bei `d1` bleibt die
+  Abweichung unter 0,07.
+- Auf die Trefferquote (11 Soll-Begriffe im Pool, Schnitt 80) schlägt das nicht durch: `clef` Block 1
+  10, Block 8 11, Block 64 11 Treffer; `d1` in allen Fällen 10. Block 64 bleibt deshalb die
+  Voreinstellung. Ein Mittel aus zwei Reihenfolgen brachte nur bei Schnitt 40 einen Treffer mehr.
+- Passt ein Block nicht in den Kontext des Modells ("Context size has been exceeded", `d3`), halbiert
+  der Client ihn und merkt sich die Größe für den Rest des Laufs.
+- Grenzen: ein Werk, eine Soll-Liste (vorläufig, nicht fachreferatlich), ein Lauf je Zelle. Die
+  Rohdaten und das Protokoll stehen im Laborjournal "ALIMA Entscheidungsmodelle" des Obsidian-Vaults.
+
 ## Messskript
 
 `scripts/eval_decision_rank.py` vergleicht Modelle und Fragetexte an einer Soll-Liste.
@@ -97,6 +127,11 @@ Pool aus dem Rohantwort-Cache (`--from-cache --terms …`, nach den `search_*`-A
 oder aus einer Datei im Format von `aggregate_gnd_results` (`--pool`). Ohne `--yes`
 druckt es nur den Plan (Anzahl Anfragen) und fragt nichts an. Es liefert eine
 Übereinstimmung mit der Soll-Liste je Dokument, keine allgemeine Aussage.
+
+`scripts/bench_decision_batching.py` misst Blockgröße und Parallelität (Zeit, Anfragen, Tokens und
+Abweichung der Scores gegenüber dem größten Block); `--max-requests` begrenzt die Last je Modell.
+`scripts/eval_decision_rank.py` kennt `--batch-size`, `--save-pool` (Pool als Datei, unabhängig vom
+24-Stunden-Rohantwort-Cache) und `--ignore-cache-age`.
 
 ## Grenzen (nicht vorhanden)
 

@@ -60,6 +60,19 @@ QUESTION_VARIANTS = {
         "true_text": "Das Dokument behandelt '{t}' ausdrücklich als Thema.",
         "false_text": "'{t}' wird im Dokument nicht oder nur beiläufig behandelt.",
     },
+    # Verkürzt: das Schlagwort steht nur in der Frage, die Kriterien sind allgemein.
+    # Weniger Eingabetoken je Frage (lokal zählt jede Frage voll); Qualität gegen
+    # "geeignet" mit scripts/eval_decision_rank.py messen.
+    "kurz": {
+        "instructions": "Ist '{t}' ein geeignetes Schlagwort für das Dokument im State?",
+        "true_text": "Ja, das Schlagwort passt zum Dokument.",
+        "false_text": "Nein, das Schlagwort passt nicht zum Dokument.",
+    },
+    "knapp": {
+        "instructions": "Passt '{t}' zum Dokument?",
+        "true_text": "passt",
+        "false_text": "passt nicht",
+    },
     "spezifisch": {
         "instructions": ("Ist '{t}' ein spezifisches Schlagwort für den Inhalt des Dokuments im "
                          "State, also mehr als ein bloßer Oberbegriff?"),
@@ -204,6 +217,7 @@ def score_items(
     should_stop: Optional[Callable[[], bool]] = None,
     on_progress: Optional[Callable[[int, int], None]] = None,
     usage_sink: Optional[Dict[str, int]] = None,
+    batch_size: int = MAX_QUESTIONS,
     **question_texts: str,
 ) -> Dict[str, float]:
     """Relevanz-Score (0 bis 1) je Kandidat; ``{item: P(true)}``.
@@ -211,21 +225,32 @@ def score_items(
     ``usage_sink`` (optional) sammelt die vom Host gemeldeten ``input_tokens``,
     damit sich der Aufwand bei bezahlten Anbietern beziffern lässt.
 
-    Aufteilung in Batches zu ``MAX_QUESTIONS``. Bei Abbruch (``should_stop``)
+    Aufteilung in Batches zu ``batch_size`` (höchstens ``MAX_QUESTIONS``). Bei Abbruch (``should_stop``)
     oder einem Fehler in einem Batch wird ``DecisionError`` geworfen: ein
     halber Score wäre eine Auswahl nach Reihenfolge der Batches, nicht nach
     Relevanz.
     """
     items = list(items)
-    batches = [items[i:i + MAX_QUESTIONS] for i in range(0, len(items), MAX_QUESTIONS)]
+    size = max(1, min(int(batch_size or MAX_QUESTIONS), MAX_QUESTIONS))
+    batches = [items[i:i + size] for i in range(0, len(items), size)]
     scores: Dict[str, float] = {}
     done = [0]
     usage_lock = threading.Lock()
     session = requests.Session()
 
+    # Größe, die der Host verträgt; nach einer Kontext-Ablehnung gemerkt, damit die
+    # folgenden Blöcke nicht dieselben fehlgeschlagenen Anfragen wiederholen.
+    limit = [size]
+
     def run(batch: List[str]) -> List[float]:
         if should_stop is not None and should_stop():
             raise DecisionError("abgebrochen")
+        if len(batch) > limit[0]:
+            step = limit[0]
+            out: List[float] = []
+            for i in range(0, len(batch), step):
+                out += run(batch[i:i + step])
+            return out
         try:
             reply = systemone(
                 base_url, model, state, relevance_questions(batch, **question_texts),
@@ -236,8 +261,8 @@ def score_items(
             # long state can exceed the model's context (HTTP 500 "Context size has
             # been exceeded"). Halve the batch instead of giving up. - Claude Generated
             if "context size" in str(e).lower() and len(batch) > 1:
-                half = len(batch) // 2
-                return run(batch[:half]) + run(batch[half:])
+                limit[0] = max(1, len(batch) // 2)
+                return run(batch)
             raise
         if usage_sink is not None:
             with usage_lock:

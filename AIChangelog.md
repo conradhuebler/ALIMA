@@ -51,6 +51,12 @@ Der agentische Vorfilter läuft nur noch, wenn der Pool mehr als einen Chunk bra
 (`min_pool`, Standard `chunk_size`), wie der klassische Pfad: bei einem Chunk spart er
 keinen LLM-Aufruf. Messung an einem Werk (Pool 619, Auswahl mit `beam:cloud`): 44 s auf
 80 Kandidaten gegen 94 s auf allen, plus etwa 10 s Vorfilter.
+`score_items` merkt sich die Blockgröße, die der Host verträgt: nach "Context size has been exceeded" gilt die
+halbierte Größe für alle folgenden Blöcke des Laufs (vorher scheiterte jeder Block neu an derselben Grenze).
+Messung (128 Kandidaten, 1500 Zeichen Text, ein Werk): Blockgröße 64 ist bei LLMachine-`d1` und Cloud-`clef`
+die schnellste Stufe (`clef` 66 s bei 1 Frage je Anfrage, 1,8 s bei 64); die Cloud-Scores hängen von der
+Blockgröße und der Reihenfolge ab (bis 0,29), die Trefferquote bei Schnitt 80 nicht.
+
 `score_items` halbiert einen Batch, wenn der Host "Context size has been exceeded" meldet: 64
 Fragen mit 1500 Zeichen State sprengten auf `d1`/`d3` (Kontext des Servers rund 16 000
 Token) jeden Lauf, im Vorfilter wäre das jedes Mal ein Rückfall gewesen. Messskript

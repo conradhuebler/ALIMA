@@ -1406,7 +1406,8 @@ class ToolRegistry(ToolGenerationMixin):
     # ============================================================
     # Input-source tools — generated per enabled input instance
     # ============================================================
-    def _handle_aggregate_gnd_results(self, terms, sources=None, search_type="kw", max_pages=5):
+    def _handle_aggregate_gnd_results(self, terms, sources=None, search_type="kw", max_pages=5,
+                                      max_age_hours=24):
         """Aggregate cached raw responses into a ranked pool (counter + provenance).
 
         Transform-on-read consumer of the WP2 raw cache: derives the pipeline view
@@ -1468,6 +1469,7 @@ class ToolRegistry(ToolGenerationMixin):
         out = aggregate_gnd_results(
             terms, effective, km, transform_by_source,
             params_by_source=params_by_source,
+            max_age_hours=max_age_hours,
         )
         return json.dumps(out, ensure_ascii=False, default=str)
 

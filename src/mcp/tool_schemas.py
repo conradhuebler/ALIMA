@@ -645,12 +645,13 @@ RANK_BY_RELEVANCE = ToolDefinition(
             },
             "question_variant": {
                 "type": "string",
-                "enum": ["geeignet", "behandelt", "spezifisch"],
+                "enum": ["geeignet", "behandelt", "spezifisch", "kurz", "knapp"],
                 "description": (
                     "Wording of the question put to the model: `geeignet` (default, 'suitable "
                     "index term'), `behandelt` ('explicitly discussed'), `spezifisch` "
-                    "('more than a generic broader term'). For comparing; the default is the "
-                    "one the pipeline uses."
+                    "('more than a generic broader term'), `kurz` and `knapp` (shorter wording, "
+                    "the term only in the question, fewer tokens). For comparing; the default is "
+                    "the one the pipeline uses."
                 ),
                 "default": "geeignet",
             },

@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -117,6 +118,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     src.add_argument("--pool", help="Datei im Format von aggregate_gnd_results")
     src.add_argument("--from-cache", action="store_true", help="Pool aus dem Rohantwort-Cache (mit --terms)")
     ap.add_argument("--terms", help="Suchbegriffe, durch Komma getrennt (mit --from-cache)")
+    ap.add_argument("--ignore-cache-age", action="store_true",
+                    help="mit --from-cache: auch Cache-Einträge lesen, die älter als 24 h sind")
+    ap.add_argument("--save-pool", help="den Pool als Datei speichern (für spätere --pool-Läufe, unabhängig vom Cache)")
     ap.add_argument("--text-file", required=True, help="Abstract, gegen den bewertet wird")
     ap.add_argument("--gold", required=True, help="Soll-Liste")
     ap.add_argument("--models", nargs="+", required=True,
@@ -125,6 +129,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--ks", default="40,80,150", help="Schnittgrößen, Komma getrennt")
     ap.add_argument("--out", default="eval_decision_rank", help="Ordner für die Scores")
     ap.add_argument("--reuse", action="store_true", help="Gespeicherte Scores in --out verwenden, nichts anfragen")
+    ap.add_argument("--batch-size", type=int, default=MAX_QUESTIONS, help="Fragen je Anfrage (Standard 64, die Obergrenze)")
     ap.add_argument("--parallel", type=int, default=1, help="gleichzeitige Anfragen je Lauf (Standard 1)")
     ap.add_argument("--yes", action="store_true", help="Anfragen wirklich senden")
     args = ap.parse_args(argv)
@@ -136,10 +141,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             raise SystemExit("--from-cache braucht --terms")
         reg = ToolRegistry()
         reg.register_all_tools()
-        aggregate = json.loads(reg._handle_aggregate_gnd_results([t.strip() for t in args.terms.split(",") if t.strip()]))
+        aggregate = json.loads(reg._handle_aggregate_gnd_results(
+            [t.strip() for t in args.terms.split(",") if t.strip()],
+            max_age_hours=None if args.ignore_cache_age else 24,
+        ))
     else:
         with open(args.pool, encoding="utf-8") as fh:
             aggregate = json.load(fh)
+    if args.save_pool:
+        with open(args.save_pool, "w", encoding="utf-8") as fh:
+            json.dump(aggregate, fh, ensure_ascii=False)
     candidates, skipped = pool_candidates(aggregate)
     texts = list(dict.fromkeys(c["keyword"] for c in candidates))
     groups = pool_terms(aggregate)
@@ -178,26 +189,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             provider, model = _provider(unified, spec)
             usage: Dict[str, int] = {}
+            t_start = time.perf_counter()
             scores = score_items(
                 provider_base_url(provider), model, text, texts, api_key=getattr(provider, "api_key", "") or "",
-                max_parallel=args.parallel, usage_sink=usage, **QUESTION_VARIANTS[variant],
+                max_parallel=args.parallel, usage_sink=usage, batch_size=args.batch_size, **QUESTION_VARIANTS[variant],
             )
             saved = {"model": spec, "variant": variant, "scores": scores, "input_tokens": usage.get("input_tokens", 0),
-                     "n": len(texts), "state_chars": len(text)}
+                     "n": len(texts), "state_chars": len(text), "batch_size": args.batch_size, "seconds": round(time.perf_counter() - t_start, 1)}
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(saved, fh, ensure_ascii=False)
         for balanced in (False, True):
             ev = evaluate(saved["scores"], texts, groups, found, ks, balanced)
-            rows.append((spec, variant, balanced, ev, saved.get("input_tokens", 0)))
+            rows.append((spec, variant, balanced, ev, saved.get("input_tokens", 0), saved.get("seconds")))
 
-    head = "Modell / Fragetext / balanced".ljust(54) + "".join(f"R@{k}".rjust(7) for k in ks) + "   Tokens"
+    head = "Modell / Fragetext / balanced".ljust(54) + "".join(f"R@{k}".rjust(7) for k in ks) + "   Tokens   Sek."
     print("\n" + head)
-    for spec, variant, balanced, ev, tokens in rows:
+    for spec, variant, balanced, ev, tokens, secs in rows:
         label = f"{spec} / {variant} / {'ja' if balanced else 'nein'}"
         cells = "".join(f"{ev['recall'][k]}/{ev['in_pool']}".rjust(7) for k in ks)
-        print(label.ljust(54) + cells + f"   {tokens}")
+        print(label.ljust(54) + cells + f"   {tokens}".ljust(10) + f"{secs if secs is not None else '-'}")
     print("\nRang der Soll-Einträge (global, ohne balanced):")
-    for spec, variant, balanced, ev, _ in rows:
+    for spec, variant, balanced, ev, _, _s in rows:
         if not balanced:
             ranks = ", ".join(f"{n} {r}" for n, r in sorted(ev["rank"].items(), key=lambda x: x[1]))
             print(f"  {spec} / {variant}: {ranks}")

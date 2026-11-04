@@ -141,6 +141,15 @@ class ClientTest(_ServerCase):
         self.assertIn("answers", out)
         self.assertEqual(len(_Fake.calls), 3)
 
+    def test_batch_size_sets_the_number_of_questions_per_request(self):
+        scores = score_items(self.url, "d1", "s", [f"Cadmium {i}" for i in range(20)], batch_size=8)
+        self.assertEqual(len(scores), 20)
+        self.assertEqual([c["n"] for c in _Fake.calls], [8, 8, 4])
+
+    def test_batch_size_is_capped_at_the_endpoint_limit(self):
+        score_items(self.url, "d1", "s", [f"x{i}" for i in range(70)], batch_size=1000)
+        self.assertEqual([c["n"] for c in _Fake.calls], [64, 6])
+
     def test_a_batch_that_exceeds_the_context_is_split_until_it_fits(self):
         """Der Host zählt den State je Frage; 64 Fragen mit langem State sprengten den Kontext."""
         _Fake.max_questions = 20
@@ -149,6 +158,15 @@ class ClientTest(_ServerCase):
         self.assertEqual(len(scores), 64)
         self.assertTrue(all(v > 0.5 for v in scores.values()))
         self.assertTrue(all(c["n"] <= 20 for c in _Fake.calls if c["n"] <= 20) and len(_Fake.calls) > 4)
+
+    def test_the_size_that_fits_is_remembered_for_the_following_batches(self):
+        """Nur der erste Block darf an der Kontextgrenze scheitern."""
+        _Fake.max_questions = 20
+        scores = score_items(self.url, "d1", "state", [f"Cadmium {i}" for i in range(128)])
+        self.assertEqual(len(scores), 128)
+        too_big = [c["n"] for c in _Fake.calls if c["n"] > 20]
+        self.assertEqual(too_big, [64, 32])                 # einmal 64, einmal 32, danach nie wieder
+        self.assertTrue(all(c["n"] <= 16 for c in _Fake.calls[2:]))
 
     def test_a_single_question_that_still_exceeds_the_context_is_an_error(self):
         _Fake.max_questions = 0

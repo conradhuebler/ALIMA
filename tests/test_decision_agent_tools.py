@@ -285,6 +285,7 @@ class RegistryTest(_ServerCase):
         reg, _ = self.registry(self.config())
         reg.register_all_tools()
         for variant, marker in (("behandelt", "ausdrücklich"), ("spezifisch", "Oberbegriff"),
+                                ("kurz", "geeignetes Schlagwort"), ("knapp", "Passt"),
                                 (None, "Sacherschließungs-Schlagwort")):
             _Fake.calls = []
             args = {"text": "t", "candidates": ["Cadmium"]}
@@ -293,6 +294,18 @@ class RegistryTest(_ServerCase):
             out = json.loads(reg.execute("rank_by_relevance", args))
             self.assertIn(marker, _Fake.calls[0]["instr"], variant)
             self.assertEqual(out["question_variant"], variant or "geeignet")
+
+    def test_the_short_variants_put_the_term_only_in_the_question(self):
+        """Weniger Eingabetoken je Frage: die Kriterien tragen das Schlagwort nicht mehr."""
+        from src.utils.decision_client import QUESTION_VARIANTS, relevance_questions
+
+        for name in ("kurz", "knapp"):
+            q = relevance_questions(["Cadmium"], **QUESTION_VARIANTS[name])["q0"]
+            self.assertIn("Cadmium", q["instructions"], name)
+            self.assertNotIn("Cadmium", json.dumps(q["criteria"]), name)
+        full = json.dumps(relevance_questions(["Cadmium"], **QUESTION_VARIANTS["geeignet"]))
+        short = json.dumps(relevance_questions(["Cadmium"], **QUESTION_VARIANTS["knapp"]))
+        self.assertLess(len(short), len(full) // 2)
 
     def test_an_unknown_question_variant_names_the_valid_ones(self):
         reg, _ = self.registry(self.config())
