@@ -345,3 +345,6 @@ my_backup.json
 
 # Lokale Arbeitskopien (Access-Quelldaten, Wegwerf-venv) - nie einchecken
 .scratch/
+
+# Access-Datenbanken (lokale Institutsdaten, nicht einchecken)
+*.mdb
