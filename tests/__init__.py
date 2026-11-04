@@ -42,7 +42,24 @@ def _isolate_user_rules() -> None:
     os.environ[RULES_PATH_ENV] = os.path.join(tmp_dir, "rules.yaml")
 
 
+def _force_headless() -> None:
+    """Run every Qt test on the offscreen platform, whatever the desktop says.
+
+    Tests build real widgets and several call show(). On a desktop session
+    that opens real windows on the developer's screen (parentless widgets as
+    stray top-level windows, a MainWindow, dialogs) every time the suite runs.
+    The variable is overwritten rather than defaulted: desktop sessions often
+    export QT_QPA_PLATFORM=wayland or xcb already. ALIMA_TEST_GUI=1
+    keeps the real platform for someone who wants to watch a test.
+    - Claude Generated
+    """
+    if os.environ.get("ALIMA_TEST_GUI"):
+        return
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+
 def _bootstrap() -> None:
+    _force_headless()
     _isolate_user_rules()
 
     try:
