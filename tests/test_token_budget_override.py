@@ -184,8 +184,11 @@ class TestShippedDefaults(unittest.TestCase):
             f"{len(general)} vs. {len(freiberg)} max_tokens-Angaben",
         )
 
-    def test_only_the_shelf_steps_are_extra_in_the_freiberg_workflow(self):
-        """Which steps the 105 adds is a decision, not an accident."""
+    def test_only_the_shelf_and_geo_steps_are_extra_in_the_freiberg_workflow(self):
+        """Which steps the 105 adds is a decision, not an accident.
+
+        ``geo_candidates`` (local subject database, plugin ``geo_sachdb``) joined
+        the shelf steps as a second institution-specific addition."""
         import yaml
 
         def step_ids(stem):
@@ -195,7 +198,7 @@ class TestShippedDefaults(unittest.TestCase):
 
         extra = set(step_ids("alima_v51_105")) - set(step_ids("alima_v51"))
         self.assertEqual(
-            extra, {"shelf_candidates", "shelf_select", "shelf_guard"}
+            extra, {"geo_candidates", "shelf_candidates", "shelf_select", "shelf_guard"}
         )
 
     def test_code_fallback_matches_the_workflows(self):

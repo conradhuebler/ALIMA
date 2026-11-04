@@ -10,10 +10,13 @@ description: |
 
   Steps: extraction → search → selection_chunks → selection
        → dk_collect → classification → dk_postprocess
+       → geo_candidates
        → shelf_candidates → shelf_select → shelf_guard
 
   Zusätzlich zu alima_v51: die Aufstellung im Freihandbestand (Steps 8a-8c)
-  über das Plugin `local_scheme` mit dem Vokabular `freihand_fg`.
+  über das Plugin `local_scheme` mit dem Vokabular `freihand_fg`, und
+  Step 7b `geo_candidates` (lokale Sacherschließungsdatenbank, Plugin
+  `geo_sachdb`; ohne konfiguriertes Plugin ein leerer Schritt).
 
   Run via:
     CLI:  alima workflow alima_v51_105 --input '{"abstract": "..."}'
@@ -41,8 +44,8 @@ meta_agent:
   # 12 enabled steps run one-per-cycle; with the targeted missing-concept
   # re-select (+selection_chunks/selection) and a safety buffer, 10 was too
   # tight and the loop hit max_cycles before finishing. Raised from 16 with the
-  # three Aufstellungs-Steps. - Claude Generated
-  max_cycles: 20
+  # three Aufstellungs-Steps, to 21 with geo_candidates. - Claude Generated
+  max_cycles: 21
 
   # The MetaAgent planner + reflection cores are GENERIC (ALIMA-branded) in
   # code. The DOMAIN rules (GND/DK/phase order) live HERE and are appended to
@@ -55,18 +58,19 @@ meta_agent:
       ALIMA-Verschlagwortung — Phasen-Routing:
       - Phasenkette: extraction → search → selection_chunks → selection →
         dk_collect → classification → rvk_guard → dk_postprocess →
-        shelf_candidates → shelf_select → shelf_guard.
+        geo_candidates → shelf_candidates → shelf_select → shelf_guard.
       - Noch keine Keywords extrahiert → 'extraction'.
       - Keywords vorhanden, aber keine GND-Suche gelaufen → 'search'.
       - GND-Einträge vorhanden, aber keine Auswahl → 'selection_chunks' bzw. 'selection'.
       - Auswahl vorhanden, aber keine DK → 'dk_collect' bzw. 'classification'.
       - dk_collect gelaufen UND Katalogdaten stark (>20 Notationen, >30 Titel) → 'classification'.
       - 'classification' gelaufen UND 'DK-Codes (Ist)' nicht leer → nur noch
-        Abschluss-Steps ('dk_postprocess', dann die Aufstellung:
-        'shelf_candidates' → 'shelf_select' → 'shelf_guard'), dann 'finish'.
+        Abschluss-Steps ('dk_postprocess', dann 'geo_candidates', dann die
+        Aufstellung: 'shelf_candidates' → 'shelf_select' → 'shelf_guard'),
+        dann 'finish'.
         'classification' NICHT ohne einen konkreten, benannten Mangel wiederholen.
-      - Die Aufstellungs-Steps sind Abschluss, kein Qualitätstor: sie laufen
-        einmal und werden nie wiederholt.
+      - Die Aufstellungs-Steps und 'geo_candidates' sind Abschluss, kein
+        Qualitätstor: sie laufen einmal und werden nie wiederholt.
       - Fehlende Konzepte als 'offen, noch nicht gesucht' markiert → 'search' (erneut, einmalig).
       - Fehlende Konzepte als 'alle bereits gesucht' markiert → NICHT erneut 'search',
         sondern mit 'dk_collect'/'classification' fortfahren.
@@ -87,7 +91,8 @@ meta_agent:
       ALIMA-Verschlagwortung — Phasen & Prüflogik:
       Phasen: initialisation→Keywords | search→GND | selection_chunks→gefiltert |
       selection→Ketten+final_keywords | dk_collect→DK/RVK aus Katalog |
-      classification→finale DK-Zuweisung | shelf_*→Aufstellung im Freihandbestand
+      classification→finale DK-Zuweisung | geo_candidates→lokale Sachdatenbank
+      (nur Vorschläge, KEIN Prüftor) | shelf_*→Aufstellung im Freihandbestand
       (deterministische Kandidaten + Auswahl, KEIN Prüftor).
       - Nach initialisation: Keywords sinnvoll, deutsch, zerlegt
         (z.B. 'Dampfschifffahrt | Kapitän')?
@@ -104,7 +109,11 @@ meta_agent:
       Terminierung (gegen Endlosschleifen):
       - 'classification' gelaufen, DK-Codes vorhanden, 'Hat tiefe DK-Codes'=ja →
         KEIN Rerun: action='finish' (oder 'continue', falls noch Abschluss-Steps
-        wie 'dk_postprocess' oder die Aufstellungs-Steps ausstehen).
+        wie 'dk_postprocess', 'geo_candidates' oder die Aufstellungs-Steps
+        ausstehen).
+      - Leere oder fehlende Treffer in 'geo_candidates' sind KEIN Mangel der
+        Erschließung (Plugin nicht eingerichtet oder Begriff lokal nicht
+        geführt). Niemals deswegen einen Step wiederholen.
       - Eine fehlende Freihandstelle ist KEIN Mangel der Erschließung: sie
         bedeutet, dass die Systematik für diese Notation keine Stelle führt.
         Niemals deswegen 'classification' wiederholen.
@@ -830,6 +839,43 @@ steps:
 
     outputs:
       dk_search_results_flattened: "result.results"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Step 7b: Lokale Sacherschließungsdatenbank (Plugin `geo_sachdb`)
+  #
+  # Schlägt die finalen Schlagworte und die vergebenen DK-Notationen in der
+  # lokalen Datenbank nach (aus Access überführt, scripts/access_to_sql.py).
+  # Welche Tabelle/Spalte welche Rolle hat, steht in der Plugin-Konfiguration.
+  # Ergebnis in extra.geo_sachdb: lokale Sätze je Schlagwort, lokale Einträge
+  # je vergebener Notation, Notationen aus lokalen Sätzen als `candidates`
+  # (`assigned` = schon vergeben). Schlägt vor, entscheidet nicht:
+  # ${dk_classifications} bleibt unverändert.
+  #
+  # Ohne Plugin-Instanz, abgeschaltet oder ohne Datenbank: leeres Ergebnis
+  # (`status` nennt den Grund), der Lauf geht unverändert weiter.
+  # ──────────────────────────────────────────────────────────────────
+  - id: geo_candidates
+    type: deterministic
+    function: geo_sachdb_candidates
+    description: "Lokale Sacherschließungsdatenbank: Treffer und Notationsvorschläge (entscheidet nicht)"
+    enabled: true
+    depends_on: [dk_postprocess]
+
+    inputs:
+      keywords: "${extra.final_keywords}"
+      notations: "${dk_classifications}"
+
+    outputs:
+      extra.geo_sachdb: "result"
+
+    config:
+      lookup: geo_sachdb
+      scheme: DK
+      # Nur identische Ansetzungen/Verweisungsformen (90/100); Teilwort-Treffer
+      # wären geraten.
+      min_score: 90
+      max_per_keyword: 3
+      max_keywords: 30
 
   # ──────────────────────────────────────────────────────────────────
   # Step 8: Aufstellung — Freihandsystematik der UB Freiberg
