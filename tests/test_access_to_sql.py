@@ -251,5 +251,207 @@ class Convert(unittest.TestCase):
         self.assertEqual(table["samples"][0]["ERLÄUTER"], "Testg")
 
 
+MARKERS = ("GEHEIMNOTIZ", "SWBNOTIZ", "OBERMARKE", "VERWANDTMARKE", "ALTMARKE", "BESTELLMARKE", "GEOGRMARKE")
+
+
+def build_geo_staging(path: Path) -> None:
+    """Zwischenstand wie aus ``convert``: erfundene Werte, Markierungen in
+    Spalten und Tabellen, die der Importer nicht übernehmen darf. - Claude Generated"""
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE swb (lauf_nr INTEGER, ober_begr TEXT, swb_aequiv TEXT, swb_notes TEXT, notes TEXT,
+                          dk_id REAL, dk_id1 REAL, dk_id2 REAL, dk_id3 REAL, verwandte TEXT);
+        CREATE TABLE dk (dk_id REAL, erl_uter TEXT, dk TEXT);
+        CREATE TABLE dk_bio (dk_mittler TEXT, erlaeuteru TEXT);
+        CREATE TABLE dk_berg (dk_bergbau TEXT, erlaeuteru TEXT);
+        CREATE TABLE dk_geographica (dk TEXT, erl_uter TEXT, dk_id REAL);
+        CREATE TABLE dk_alt (lauf_nr INTEGER, erlaeuter TEXT, dk_id INTEGER, dk TEXT);
+        CREATE TABLE eas (autor TEXT, titel TEXT, preis TEXT);
+        CREATE TABLE geographica (swb_aequiv TEXT, dk_id REAL);
+        CREATE TABLE alima_import_run (id INTEGER PRIMARY KEY, source_path TEXT, source_sha256 TEXT,
+                         source_size INTEGER, source_mtime TEXT, reader TEXT, reader_version TEXT,
+                         jet_version TEXT, tool_version TEXT, started_at TEXT, finished_at TEXT);
+    """)
+    conn.executemany("INSERT INTO swb VALUES (?,?,?,?,?,?,?,?,?,?)", [
+        (1, "OBERMARKE", "|s|Testgestein !111111111! !a222222222! !333333333! 12345 ‡ |s|Probegestein |s|Prüfstein",
+         "SWBNOTIZ", "GEHEIMNOTIZ", 10.0, 9999.0, 10.0, None, "|s|VERWANDTMARKE"),
+        (2, "kein", "|g|Musterland !a999999999! !444444444! |g|Beispielland", None, None, 12.0, None, None, None, None),
+        (3, None, "|p|Muster, Hans ¬von¬ {Balken ueber} 54321 ‡ |p|Muster, H.", None, None, 9999.0, None, None, None, None),
+        (4, None, "|k|Testverein\n!555555555!", None, None, 77.0, None, None, None, None),
+        (5, None, "|g|Testort / |s|Testthema !666666666! 480947", None, None, 13.0, None, None, None, None),
+        (6, None, "|b|Testamt", None, None, None, None, None, None, None),
+        (7, None, "|c|Testkongress 2000", None, None, None, None, None, None, None),
+        (8, None, "Ohne Kennzeichen", None, None, None, None, None, None, None),
+        (9, None, "|s| !!", None, None, None, None, None, None, None),
+    ])
+    conn.executemany("INSERT INTO dk VALUES (?,?,?)", [
+        (10.0, "Testgesteine", "DK 999.1 !777777777! !a777777777!"),
+        (12.0, "Musterland", "DK 999.3"),
+        (12.0, "Doppelte\nID", "DK 999.31 !888888888!"),
+        (13.0, "Testwirtschaft", "QX 100 !121212121!"),
+        (9999.0, "keine DK eingetragen", "leer"),
+        (None, None, None),
+    ])
+    conn.execute("INSERT INTO dk_bio VALUES ('999.5', 'Testbiologie')")
+    conn.execute("INSERT INTO dk_berg VALUES ('DK 999.6', 'Testbergbau')")
+    conn.execute("INSERT INTO dk_geographica VALUES ('DK 999.7', 'Testgeografie', 1.0)")
+    conn.execute("INSERT INTO dk_alt VALUES (1, 'ALTMARKE', 10, 'DK 111.1')")
+    conn.execute("INSERT INTO eas VALUES ('Autor', 'BESTELLMARKE', '9,99')")
+    conn.execute("INSERT INTO geographica VALUES ('g.GEOGRMARKE', 1.0)")
+    conn.execute("INSERT INTO alima_import_run VALUES (1,'/x/TEST-GEO.mdb','abcdef0123456789ff',1,"
+                 "'2026-01-01T00:00:00+00:00','fake','0','JET4','1','t0','t1')")
+    conn.commit()
+    conn.close()
+
+
+class GeoHeadingParsing(unittest.TestCase):
+    def setUp(self):
+        self.clean = a2s.load_geo_schema().clean_label
+
+    def test_packed_heading(self):
+        head = a2s.parse_geo_heading("|s|Testgestein !111111111! !a222222222! 12345 ‡ |s|Probegestein |s|Prüfstein",
+                                     self.clean)
+        self.assertEqual((head.kind, head.label, head.ppn), ("Sachschlagwort", "Testgestein", "111111111"))
+        self.assertEqual(head.chain, "|s|Testgestein !111111111! !a222222222! 12345")
+        self.assertEqual(head.variants, "|s|Probegestein |s|Prüfstein")
+
+    def test_variants_inside_the_head_and_chains(self):
+        head = a2s.parse_geo_heading("|g|Musterland !444444444! |g|Beispielland", self.clean)
+        self.assertEqual((head.chain, head.variants), ("|g|Musterland !444444444!", "|g|Beispielland"))
+        chain = a2s.parse_geo_heading("|g|Testort / |s|Testthema !666666666! 480947", self.clean)
+        self.assertEqual((chain.label, chain.ppn, chain.kind), ("Testort / Testthema", "666666666", "Geographikum"))
+
+    def test_year_at_end_is_not_a_local_number(self):
+        head = a2s.parse_geo_heading("|s|Testjahr 2000 ‡ |s|Anderes", self.clean)
+        self.assertEqual(head.label, "Testjahr 2000")
+        number = a2s.parse_geo_heading("|s|Testjahr 123456 ‡ |s|Anderes", self.clean)
+        self.assertEqual(number.label, "Testjahr")
+
+    def test_one_line(self):
+        self.assertEqual(a2s.one_line("Zeile 1 \r\n  Zeile 2\n"), ("Zeile 1 Zeile 2", True))
+        self.assertEqual(a2s.one_line("  ohne  "), ("ohne", False))
+        self.assertEqual(a2s.one_line(None), (None, False))
+
+
+class GeoImport(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.staging = self.dir / "zwischenstand.sqlite"
+        build_geo_staging(self.staging)
+        self.target = self.dir / "geo_v1.db"
+        self.report = a2s.import_geo(self.staging, self.target)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _rows(self, sql, *args):
+        conn = sqlite3.connect(self.target)
+        try:
+            return conn.execute(sql, args).fetchall()
+        finally:
+            conn.close()
+
+    def _heading(self, hid):
+        return self._rows("SELECT label, kind, ppn, chain, variants FROM heading WHERE id = ?", hid)[0]
+
+    def _notations_of(self, hid):
+        return self._rows("SELECT c.system, c.notation, hc.ambiguous FROM heading_classification hc "
+                          "JOIN classification c ON c.id = hc.classification_id WHERE hc.heading_id = ? "
+                          "ORDER BY hc.position, c.id", hid)
+
+    def test_target_has_the_plugin_schema_and_provenance(self):
+        schema = a2s.load_geo_schema()
+        conn = sqlite3.connect(self.target)
+        try:
+            self.assertEqual(schema.check_schema(conn), "")
+        finally:
+            conn.close()
+        meta = dict(self._rows("SELECT key, value FROM meta"))
+        self.assertEqual((meta["schema_version"], meta["source"]), ("1", "TEST-GEO.mdb"))
+        self.assertEqual(self._rows("SELECT source_path FROM alima_import_run"), [("/x/TEST-GEO.mdb",)])
+        rules = dict(self._rows("SELECT rule, count FROM alima_import_rule"))
+        self.assertEqual(rules, self.report.rules)
+
+    def test_first_ppn_only_and_kinds(self):
+        self.assertEqual(self._heading(1)[2], "111111111")
+        self.assertEqual(self._heading(2)[2], "444444444")  # !a…! ist keine PPN
+        self.assertEqual(self.report.rules["heading_further_ppn_ignored"], 1)
+        kinds = dict(self._rows("SELECT id, kind FROM heading"))
+        self.assertEqual(kinds, {1: "Sachschlagwort", 2: "Geographikum", 3: "Person", 4: "Körperschaft",
+                                 5: "Geographikum", 6: "Körperschaft", 7: "sonstiges", 8: "sonstiges"})
+        self.assertEqual(self.report.rules["heading_without_label"], 1)  # Satz 9
+        self.assertEqual(self.report.with_ppn, 4)
+
+    def test_placeholder_9999_is_hidden(self):
+        self.assertEqual(self._notations_of(3), [])
+        self.assertEqual([n[1] for n in self._notations_of(1)], ["999.1"])  # 9999 in dk_id1 fehlt
+        self.assertNotIn(("leer",), self._rows("SELECT notation FROM classification"))
+        self.assertEqual((self.report.rules["dk_ref_9999_hidden"], self.report.rules["dk_id_9999_entry"]), (2, 1))
+        self.assertEqual(self.report.rules["dk_ref_repeated"], 1)  # dk_id2 = dk_id
+
+    def test_duplicate_dk_id_is_marked_and_unresolved_counted(self):
+        self.assertEqual(self._notations_of(2), [("DK", "999.3", 1), ("DK", "999.31", 1)])
+        self.assertEqual(self.report.rules["dk_id_duplicate"], 1)
+        self.assertEqual(self._notations_of(4), [])
+        self.assertEqual(self.report.rules["dk_ref_unresolved"], 1)
+
+    def test_notation_systems_ppn_and_extra_tables(self):
+        rows = {(s, n): p for s, n, p in self._rows("SELECT system, notation, ppn FROM classification")}
+        self.assertEqual(rows[("DK", "999.1")], "777777777")
+        self.assertEqual(rows[("RVK", "QX 100")], "121212121")
+        self.assertIsNone(rows[("DK", "999.3")])
+        self.assertTrue({("DK", "999.5"), ("DK", "999.6"), ("DK", "999.7")} <= set(rows))
+        self.assertNotIn(("DK", "111.1"), rows)  # dk_alt wird ignoriert
+
+    def test_text_rules_line_breaks_non_sorting_marks_placeholders(self):
+        label, _, _, chain, variants = self._heading(3)
+        self.assertEqual(chain, "|p|Muster, Hans ¬von¬ {Balken ueber} 54321")
+        self.assertEqual(label, "Muster, Hans von {Balken ueber}")
+        self.assertEqual(variants, "|p|Muster, H.")
+        self.assertEqual(self._heading(4)[3], "|k|Testverein !555555555!")
+        self.assertEqual(self._rows("SELECT label FROM classification WHERE notation='999.31'"), [("Doppelte ID",)])
+        self.assertEqual(self.report.rules["newline_to_space"], 2)
+
+    def test_excluded_tables_and_columns_leave_no_trace(self):
+        conn = sqlite3.connect(self.target)
+        try:
+            dump = "\n".join(conn.iterdump())
+        finally:
+            conn.close()
+        for marker in MARKERS:
+            self.assertNotIn(marker, dump)
+
+    def test_plugin_reads_the_import(self):
+        from src.utils.lookups.geo_sachdb.provider import GeoSachdbLookup
+
+        lk = GeoSachdbLookup(db_path=str(self.target))
+        self.assertTrue(lk.is_available(), lk.availability()["reason"])
+        out = lk.lookup_terms(["Prüfstein", "Musterland", "Muster, Hans von {Balken ueber}", "Fehlt"])
+        self.assertEqual(out["not_found"], ["Fehlt"])
+        self.assertEqual(out["lines"], ["5550 !111111111!", "6700 !777777777!", "5550 !444444444!",
+                                        "6700 DK 999.3", "6700 !888888888!",
+                                        "5550 |p|Muster, Hans ¬von¬ {Balken ueber} 54321"])
+        self.assertEqual(lk.availability()["provenance"]["source"], "TEST-GEO.mdb")
+
+    def test_missing_tables_keep_existing_target(self):
+        before = self.target.read_bytes()
+        bad = self.dir / "leer.sqlite"
+        sqlite3.connect(bad).close()
+        with self.assertRaises(a2s.ConversionError):
+            a2s.import_geo(bad, self.target)
+        self.assertEqual(self.target.read_bytes(), before)
+
+    def test_cli_needs_no_access_reader(self):
+        def factory(path, reader):
+            raise AssertionError("import-geo darf keinen Access-Leser öffnen")
+
+        target = self.dir / "cli.db"
+        with patch("sys.stdout", new_callable=io.StringIO) as out:
+            self.assertEqual(a2s.main(["import-geo", str(self.staging), str(target)], source_factory=factory), 0)
+        self.assertIn("heading 8 (mit PPN 4)", out.getvalue())
+        self.assertEqual(a2s.main(["import-geo", str(self.staging), str(self.staging)], source_factory=factory), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

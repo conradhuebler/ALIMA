@@ -1,13 +1,13 @@
 # WP: Sacherschließungsdatenbank Geowissenschaften als ALIMA-Plugin (`geo_sachdb`)
 
 > **Stand (4.11.2026, Branch `feature/geo-sachdb-plugin`):** Vorbereitung.
-> Vorhanden: Umwandler `scripts/access_to_sql.py`, Lookup-Plugin-Gerüst
-> `src/utils/lookups/geo_sachdb/` (nicht als Built-in registriert), kleines
-> Verfügbarkeits-Gate im Werkzeuggenerator, deterministischer Schritt
-> `geo_candidates` in `alima_v51_105`. Nicht vorhanden: Registrierung als
-> Built-in, GUI-Anbindung, Übernahme ins Ergebnis (`KeywordAnalysisState`),
-> LLM-Auswahlschritt. Die Rollen-Abbildung (welche Spalte ist Schlagwort, welche
-> Notation) ist ein **Vorschlag** und vom Entwickler zu bestätigen (Abschnitt 8).
+> Vorhanden: Umwandler und Importer `scripts/access_to_sql.py` (`convert`,
+> `import-geo`), Lookup-Plugin `src/utils/lookups/geo_sachdb/` mit eigenem
+> Schema v1 (nicht als Built-in registriert), kleines Verfügbarkeits-Gate im
+> Werkzeuggenerator, deterministischer Schritt `geo_candidates` in
+> `alima_v51_105`. Nicht vorhanden: Registrierung als Built-in, GUI-Anbindung,
+> Übernahme ins Ergebnis (`KeywordAnalysisState`), LLM-Auswahlschritt. Die
+> Antworten des Entwicklers stehen in Abschnitt 8; Schema und Importer setzen sie um.
 >
 > Kennzeichnung: **[gemessen]** = mit Werkzeug an den Kopien in `.scratch/`
 > ermittelt, **[gelesen]** = aus Code/Schema, **[vermutet]** = Deutung ohne Beleg.
@@ -26,7 +26,7 @@ lokalen Bestand. Lokale Daten schlagen vor, entscheiden nie (Grundsatz wie bei
 |---|---|---|
 | Drei Kategorien `search_provider`, `input_source`, `lookup` | `src/utils/lookups/__init__.py:17-21`, `docs/wp_search_tool_plugin_potential.md` B4 | `lookup` ist die Kategorie für Autoritäts-/Nachschlagefragen |
 | Lookup-Vertrag: `id`, `label`, `config_fields`, `doc`, `mcp_tool_specs`, `__init__(**config)` | `src/utils/lookups/registry.py:48-73` | Ergebnis ist ein freies Dict; Dispatch über `LookupToolSpec.method` (`registry.py:27-45`) |
-| Konstruktion mit Instanz-Settings + Env-Overrides | `src/utils/lookups/category.py:44-54` | Rollen-Abbildung kommt als Settings in den Konstruktor |
+| Konstruktion mit Instanz-Settings + Env-Overrides | `src/utils/lookups/category.py:44-54` | `db_path` kommt als Setting in den Konstruktor |
 | Ein Konstruktionspunkt für Nicht-Agent-Aufrufer | `src/utils/lookups/resolve.py:67-87` (`build_lookup`, `None` bei abgeschalteter oder fehlender Instanz) | Workflow-Funktion nutzt ihn wie `shelf_candidates` |
 | Werkzeugerzeugung je aktivierter Instanz | `src/mcp/_tool_generation.py:156-219` | vorher ohne Verfügbarkeitsprüfung für Lookups |
 | Instanz-Seeding: jede registrierte Lookup-Art bekommt beim Laden eine **aktivierte** Instanz | `src/utils/plugin_migration.py:283-330` | Grund, das Plugin **nicht** als Built-in zu registrieren: es stünde sonst sofort in jeder Konfiguration |
@@ -156,19 +156,29 @@ g.Chile <Nord> 44247 ‡ g.Nordchile
 ```
 
 - `|s|`, `|g|`, `|p|`, `|k|`, `|f|`, `|c|`, `|t|`, `|z|` am Anfang;
-  Verteilung in `SWB` (Plugin-Zerlegung): s 10 296, g 5 867, k 131, p 108,
-  f 84, c 68, t 29, z 16, ohne Kennzeichen 62 [gemessen]. Deutung als
-  RSWK-Schlagworttypen [vermutet].
+  Verteilung in `SWB` (einfaches Kennzeichen `|x|` am Anfang): s 10 297,
+  g 5 867, k 131, p 108, f 84, c 68, t 29, z 16, x 1, ohne einfaches Kennzeichen
+  63 (darunter `|f/s|`) [gemessen]. Deutung als RSWK-Schlagworttypen [vermutet].
 - `‡` (U+2021) trennt die Ansetzung von weiteren `|x|`-Formen: in 7 344 Werten
-  [gemessen]. Deutung als Verweisungsformen [vermutet]; das Plugin behandelt sie so.
+  [gemessen]. Deutung als Verweisungsformen [vermutet]; der Importer legt sie als
+  `variants` ab.
+- Weitere `|x|`-Formen stehen auch **vor** `‡`: 3 484 Werte haben vor `‡` mehr
+  als ein Kennzeichen [gemessen]. Meist folgen sie der ersten Kennung als
+  Verweisungsformen; in 31 Werten steht die erste PPN erst hinter einem späteren
+  Kennzeichen (`|g|Ort / |s|Thema !…!`), das sind Ketten [gemessen; Deutung
+  vermutet].
 - `!…!`-Kennungen in 16 364 `SWB`-Sätzen und 7 206 `DK`-Notationen, ein Teil mit
   `a`-Präfix [gemessen]. Deutung als PPN von Normdatensätzen [vermutet; `!a…!`
   unbekannt, Frage F3].
 - Eine Zahl hinter der letzten Kennung bzw. vor `‡` in 4 488 `SWB`- und 2 277
-  `Geographica`-Sätzen [gemessen, nach der Regel des Plugins]. Bedeutung unbekannt.
+  `Geographica`-Sätzen [gemessen mit der Regel, die der Importer anwendet, vor
+  der Erweiterung um Ketten]. Bedeutung unbekannt.
 - `Geographica` nutzt die ältere Schreibweise `g.` statt `|g|` und hat keine Kennungen.
-- `OBER_BEGR` enthält in 5 837 `SWB`-Sätzen den Wert `kein`; das Plugin liest
-  ihn im Format `swb_packed` als „kein Oberbegriff" [vermutet].
+- `OBER_BEGR` enthält in 5 837 `SWB`-Sätzen den Wert `kein` [gemessen]; die
+  Spalte wird nicht übernommen (F4).
+- Die Tabelle `DK` enthält neben DK auch RVK-Notationen (`QP 925`, `QC 347` …):
+  340 Werte beginnen nicht mit `DK`, 318 davon haben die RVK-Form [gemessen].
+  Der Platzhalter `DK_ID` 9999 heißt `leer` („keine DK/Q... eingetragen“).
 - `SWB_NOTES` beginnt in 939 Sätzen mit einem Ländercode der Form `XA-…`.
 
 ### 3.6 Zeichensatz [gemessen]
@@ -203,6 +213,8 @@ g.Chile <Nord> 44247 ‡ g.Nordchile
   umgewandelten Werte müssen gleich sein, `mdb-count` ebenso (abschaltbar mit
   `--allow-count-mismatch`, dann protokolliert). Erst dann wird die Zieldatei
   atomar ersetzt; bei Abweichung bleibt sie unverändert.
+- `import-geo`: liest die Ausgabe von `convert` und schreibt das Schema des
+  Plugins (Abschnitt 5). Öffnet keinen Access-Leser.
 
 Messung an der neuen Datei [gemessen]: ohne Schalter bricht `convert` an `DK`
 ab (7365 gegen `mdb-count` 7355); mit `--allow-count-mismatch` 11 Tabellen,
@@ -211,49 +223,90 @@ ab (7365 gegen `mdb-count` 7355); mit `--allow-count-mismatch` 11 Tabellen,
 
 ## 5. Zielschema
 
-**Umgesetzt (Staging, 1:1):** eine Tabelle je Access-Tabelle plus die drei
-`alima_import_*`-Tabellen. Keine Normalisierung, damit jede Zeile auf die Quelle
-zurückführbar bleibt und ein erneuter Import ohne Abbildungslogik auskommt.
+Zwei Stufen, beide als SQLite-Datei:
 
-**Vorschlag (Phase 3, nach Klärung von F1-F4), normalisierte Schicht in derselben Datei:**
+1. **Zwischenstand (`convert`, 1:1):** eine Tabelle je Access-Tabelle plus
+   `alima_import_run`, `alima_import_table`, `alima_import_column`. Keine
+   Abbildungslogik, damit jede Zeile auf die Quelle zurückführbar bleibt.
+2. **Schema des Plugins, Version 1 (`import-geo`):** quellenunabhängig, definiert
+   in `src/utils/lookups/geo_sachdb/schema.py` (DDL, `create_schema`,
+   `check_schema`). Andere Häuser schreiben dafür eigene Importer; das
+   Eingabeformat beschreibt das Plugin-README.
 
-| Tabelle | Inhalt |
+| Tabelle | Spalten | Inhalt |
+|---|---|---|
+| `meta` | `key`, `value` | `schema_version` = `1` (Pflicht), `source`, `source_date`, `source_sha256`, `created_at`, `importer` |
+| `heading` | `id`, `label`, `kind`, `ppn`, `chain`, `variants` | `kind` ∈ Sachschlagwort, Geographikum, Person, Körperschaft, sonstiges; `ppn` = erste K10plus-PPN; `chain` = fertige lokale Zeichenkette; `variants` = Verweisungsformen als Rohtext |
+| `classification` | `id`, `system`, `notation`, `label`, `ppn` | `system` ∈ DK, RVK; Notation ohne `DK`-Präfix bzw. als `QP 925`; nicht eindeutig |
+| `heading_classification` | `heading_id`, `classification_id`, `position`, `ambiguous` | Notationen eines Schlagworts; `ambiguous = 1` bei mehrfacher `DK_ID` |
+
+Die Notationen eines Schlagworts stehen in einer eigenen Verknüpfungstabelle und
+nicht als Spalte von `heading`, weil ein Satz bis zu vier Notationen hat und eine
+Verknüpfung als mehrdeutig markiert werden muss.
+
+Der Importer schreibt zusätzlich `alima_import_run` (aus dem Zwischenstand
+kopiert) und `alima_import_rule` (Zählung je Regel). Das Plugin liest beide nicht.
+
+**Regeln von `import-geo`** (Entwicklerentscheidungen F2-F4, F8): `DK_ID` wird
+intern aufgelöst und nicht ausgegeben; der Platzhalter 9999 und Verweise darauf
+entfallen; `dk_alt` wird ignoriert; `EAS`, `SS_SG`, `NOTES`, `SWB_NOTES`,
+`OBER_BEGR` werden nicht übernommen; nur die erste `!…!`-Nummer in PPN-Form ist
+`ppn`; doppelte `DK_ID` werden markiert; Zeilenumbrüche in Texten werden
+Leerzeichen; `¬…¬` bleibt in `chain` und fällt im `label` weg; Platzhalter wie
+`{Balken ueber}` bleiben unverändert. Ohne Entscheidung und deshalb ebenfalls
+nicht übernommen: `Geographica` (F1 ungeklärt) und `VERWANDTE`. Übernommen
+werden `swb` sowie `dk`, `dk_bio`, `dk_berg`, `dk_geographica` (F2: fachliche
+Zuordnungen; nur `dk` trägt PPN und ist Ziel der `SWB.DK_ID*`-Verweise).
+
+**Lauf an der neuen Datei** (`SACH-GEO1-neu.sqlite`, Ausgabe von `convert`)
+[gemessen, ein Lauf]:
+
+| | |
 |---|---|
-| `notation(key PK, scheme, source_table, source_id, code, code_raw, caption, identifiers, digits)` | alle DK-Tabellen zusammen, `source_id` nicht eindeutig |
-| `heading(key PK, source_table, source_id, type, text, text_raw, identifiers, local_number, broader, notes, search_norm)` | `SWB` und `Geographica` |
-| `heading_variant(heading_key, type, text, search_norm)` | Verweisungsformen |
-| `heading_notation(heading_key, position, source_ref, notation_key, status)` | `status` ∈ aufgelöst / mehrdeutig / offen |
-| `heading_fts` (FTS5 über `search_norm`) | FTS5 ist in der Python-sqlite3 des Projekt-venv vorhanden (SQLite 3.53.4) [gemessen] |
+| `heading` | 16 663 von 16 664 `SWB`-Sätzen (1 ohne Ansetzung); mit PPN 16 367 (98,2 %) |
+| `kind` | Sachschlagwort 10 298, Geographikum 5 867, Körperschaft 131, Person 108, sonstiges 259 |
+| `classification` | 10 203 (DK 9 885, davon 6 867 mit PPN; RVK 318, davon 316 mit PPN) |
+| `heading_classification` | 23 796 (32 mit `ambiguous = 1`) |
+| Platzhalter 9999 | 1 Eintrag in `dk`, 1 687 Verweise ausgeblendet |
+| weitere Zählungen | 8 doppelte `DK_ID`, 54 Verweise ohne Eintrag, 19 doppelte Verweise eines Satzes, 3 Notationszeilen ohne Notation, 54 Sätze ohne Typkennzeichen, 44 Sätze mit weiteren PPN-Nummern, 82 Textfelder mit Zeilenumbruch |
 
-Ohne diese Schicht lädt das Plugin die Sätze einer Instanz einmal in den
-Speicher: `SWB` 16 662 Sätze + 7 364 Notationen in 0,84 s, Suche über 8
-Begriffe Median 57 ms, Maximum 130 ms [gemessen, ein Lauf auf diesem Rechner].
-FTS5 lohnt erst bei deutlich größeren Daten oder unscharfer Suche.
+Die Verweise gehen auf: 25 541 belegte `DK_ID*`-Felder minus 1 687 (9999), 54
+(ohne Eintrag), 19 (doppelt) und 1 (Satz ohne Ansetzung) ergibt 23 780; die 16
+Verweise auf doppelte `DK_ID` ergeben je zwei Verknüpfungen, zusammen 23 796.
 
-## 6. Plugin-Entwurf (umgesetzt, soweit nicht als Plan markiert)
+Das Plugin lädt die Zeilen einer Instanz einmal in den Speicher: 0,54 s; Suche
+über 8 Begriffe Median 45 ms, Maximum 48 ms [gemessen, ein Lauf auf diesem
+Rechner; Begriffe Granit, Lagerstätte, Sachsen, Erzgebirge, Bergbau, Mineral,
+Geologie, Freiberg]. Ein Volltextindex (FTS5, in der Python-sqlite3 des
+Projekt-venv vorhanden) lohnt erst bei deutlich größeren Daten oder unscharfer
+Suche.
+
+## 6. Plugin (umgesetzt, soweit nicht als Plan markiert)
 
 - Verzeichnis `src/utils/lookups/geo_sachdb/`: `plugin.toml`, `README.md`,
-  `provider.py` (`GeoSachdbLookup`), `store.py` (Lesen, Zerlegung, Faltung).
+  `schema.py` (Schema v1, nur Standardbibliothek; der Importer lädt die Datei per
+  Pfad), `store.py` (Lesen, Faltung, Zeilen), `provider.py` (`GeoSachdbLookup`).
 - **Nicht registriert** beim Import; Tier-2-Laden ist getestet
   (`tests/test_geo_sachdb_lookup.py::Packaging`).
-- Konfiguration = Rollen-Abbildung (Felder siehe Plugin-README). Vorschlag für
-  zwei Instanzen, **unbestätigt**:
-  - `geo_sachdb`: `term_table=swb`, `term_id_column=lauf_nr`,
-    `term_column=swb_aequiv`, `term_format=swb_packed`,
-    `broader_column=ober_begr`, `related_column=verwandte`,
-    `note_columns=swb_notes,notes`, `term_notation_columns=dk_id,dk_id1,dk_id2,dk_id3`,
-    `notation_table=dk`, `notation_id_column=dk_id`, `notation_code_column=dk`,
-    `notation_caption_column=erl_uter`.
-    Gemessen damit: 25 539 Notationsverweise, 25 487 aufgelöst, 52 offen, 16 mehrdeutig.
-  - `geo_sachdb_geogr`: `term_table=geographica`, `term_column=swb_aequiv`,
-    `term_notation_columns=dk_id`, `notation_table=dk_geographica` (Rest analog).
-    Gemessen: 2 526 Verweise, 2 091 aufgelöst, 435 offen.
-- Werkzeuge: `geo_sachdb_search`, `geo_sachdb_record`, `geo_sachdb_notation`
-  (`cacheable=False`, lokale Datei).
-- Ohne Datei/Abbildung: `is_available()` False → keine Werkzeuge; Methoden
-  antworten mit `error`.
+- Konfiguration: `db_path`, `max_results`. Andere Einstellungen einer Instanz
+  (etwa `term_table` aus einer älteren Konfiguration) werden ignoriert.
+- Werkzeuge (`cacheable=False`, lokale Datei):
+  - `geo_sachdb_search(query, kinds?)`: gerankte Schlagwörter aller Arten.
+  - `geo_sachdb_lines(terms, kinds?)`: nur gleiche Ansetzung oder
+    Verweisungsform; `found` und `not_found` getrennt, `lines` als fertige Zeilen.
+  - `geo_sachdb_notation(notation)`: Einträge zu einer DK- oder RVK-Notation, die
+    Schlagwörter dazu, übergeordnete DK-Notationen.
+- Zeilen (F3): Schlagwort `5550 !PPN!`, ohne PPN `5550 <chain>`, ohne `chain`
+  `5550 <label>`; Notation `6700 !PPN!`, ohne PPN bei DK `6700 DK <Notation>`,
+  bei RVK ohne PPN keine Zeile. Ob WinIBW den Rückfall `5550 <chain>` und
+  Platzhalter wie `{Balken ueber}` annimmt, ist **ungeprüft**.
+- Ohne Datei, mit anderem Schema (etwa dem Zwischenstand) oder anderer
+  Schemaversion: `is_available()` False → keine Werkzeuge; Methoden antworten mit
+  `error`.
+- Die Kandidaten dürfen an Cloud-Modelle gehen (F5); das Plugin schränkt das
+  nicht ein.
 - **Plan:** Aufnahme in ein Werkzeug-Preset (`src/mcp/default_presets.yaml`,
-  z. B. `lookup`) und Registrierung als Built-in, sobald F1-F5 geklärt sind.
+  z. B. `lookup`) und Registrierung als Built-in.
 
 ## 7. Anbindung an alima_v51_105
 
@@ -261,11 +314,11 @@ FTS5 lohnt erst bei deutlich größeren Daten oder unscharfer Suche.
 
 | | |
 |---|---|
-| Ort | nach `dk_postprocess`, vor `shelf_candidates` (`workflows/alima_v51_105.yaml:857`); `depends_on: [dk_postprocess]` |
-| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2031`) |
+| Ort | nach `dk_postprocess`, vor `shelf_candidates` (`workflows/alima_v51_105.yaml:858`); `depends_on: [dk_postprocess]` |
+| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2044`) |
 | Eingaben | `keywords: ${extra.final_keywords}`, `notations: ${dk_classifications}`; fehlen sie, liest die Funktion dieselben Werte aus dem Kontext |
-| Ausgabe | `extra.geo_sachdb` mit `status`, `keyword_matches` (lokale Sätze je Schlagwort), `notation_matches` (lokale Einträge je vergebener DK-Notation; RVK/DDC/BK bleiben draußen), `candidates` (Notationen aus den getroffenen lokalen Sätzen, `assigned` = schon vergeben), `prompt_text`, `source` |
-| Schalter | die Plugin-Instanz selbst: keine Instanz/abgeschaltet → `status: disabled`; ohne Datei oder Abbildung → `status: unavailable` mit Grund; beides leeres Ergebnis, der Lauf geht weiter |
+| Ausgabe | `extra.geo_sachdb` mit `status`, `keyword_matches` (lokale Sätze je Schlagwort mit Art, PPN und Zeile), `not_found` (Schlagworte ohne lokalen Satz), `notation_matches` (lokale Einträge je vergebener Notation des Systems `scheme`, Standard DK; andere Systeme bleiben draußen), `candidates` (Notationen aus den getroffenen lokalen Sätzen, `assigned` = schon vergeben, mit `line`), `lines` (5550 je getroffenem Satz, 6700 je Kandidat), `prompt_text`, `source` |
+| Schalter | die Plugin-Instanz selbst: keine Instanz/abgeschaltet → `status: disabled`; ohne Datei oder mit anderem Schema → `status: unavailable` mit Grund; beides leeres Ergebnis, der Lauf geht weiter. `config.kinds` begrenzt die Arten (leer = alle), `config.scheme` das System |
 | Schutz gegen Erfindungen | kein LLM beteiligt; nur identische Ansetzungen/Verweisungsformen (`min_score: 90`); `dk_classifications` wird nicht verändert (Test) |
 | Budget | `meta_agent.max_cycles` 20 → 21 (13 aktivierte Schritte); Planner- und Reflexionsregeln nennen den Schritt als Abschluss, kein Prüftor |
 
@@ -301,30 +354,46 @@ Schritt selbst, `max_cycles` +1, die Phasenkette und die Abschluss-Regel in
 `meta_agent.planning.rules` und `meta_agent.reflection.rules`, und
 `workflows/CLAUDE.md` (Sync-Regel). Ohne Plugin-Instanz liefe er dort leer.
 
-## 8. Offene Fragen an den Entwickler
+## 8. Fragen an den Entwickler und Antworten
 
-- **F1 Datenmodell:** Ist `SWB` die maßgebliche Schlagworttabelle, `SWB_AEQUIV`
-  die Ansetzung und sind die Formen hinter `‡` Verweisungen? Was ist
-  `Geographica` gegenüber den `|g|`-Sätzen in `SWB` (2072 Überschneidungen)?
-- **F2 Notationen:** Sind `DK_ID…DK_ID3` gleichrangig oder ist `DK_ID` die
-  Hauptnotation? Welche der DK-Tabellen (`DK`, `DK_alt`, `DK_BERG`, `DK_BIO`,
-  `DK-Geographica`) sind aktuell? Sollen die 8 doppelten `DK_ID` bereinigt werden?
-- **F3 Kennungen:** Sind die `!…!`-Werte PPN der Normdaten (SWB/K10plus)? Was
-  bedeutet `!a…!`, was die Zahl hinter der Ansetzung? Mit einer Zuordnung
-  PPN → GND-ID könnte das Plugin GND-IDs liefern.
-- **F4 Bedeutung von `EAS`, `SS_SG`, `OBER_BEGR = 'kein'`, `NOTES`/`SWB_NOTES`.**
-  Sollen `EAS`/`SS_SG` (Erwerbungsdaten mit Preisen) überhaupt umgewandelt werden?
-  `convert --exclude EAS SS_SG` lässt sie aus.
-- **F5 Rechte:** Darf die Datei in eine ALIMA-Installation, die andere nutzen
-  (Webapp), oder nur lokal? Darf ein Agent sie Cloud-Modellen zeigen?
-- **F6 Aktualisierung:** Wird weiter in Access gepflegt? Dann: wer wandelt um,
-  wie oft, wohin (Pfad für `db_path`)?
-- **F7 Zeilenzahl `DK`:** `mdb-count` 7355, gelesen 7365. Bitte eine Kopie in
-  Access „Komprimieren und Reparieren" und erneut `inspect` laufen lassen.
-- **F8 Zeichensatz:** Sollen die ausgeschriebenen Umlaute und die vermuteten
-  CP437-Fehler (`DK-Geographica`) in der Quelle korrigiert werden?
-- **F9 Umfang:** Nur Agent-Werkzeuge, oder auch die klassische Pipeline
-  (DK-Quelle, Abschnitt 2 „Suchquelle")?
+Beantwortet im Gespräch (Nov 2026). Der Entwickler arbeitet selbst nicht mit der
+Datenbank; wo er es nicht wusste, gilt der Standard und der Punkt ist als
+**ungeprüft** markiert.
+
+- **F1 Datenmodell: teilweise.** `SWB_AEQUIV` ist die einfügefertige Zeichenkette
+  (`|s|Korund !105743402! !a209572930! 74899 ‡ …`). Das Verhältnis von
+  `Geographica` zu den `|g|`-Sätzen in `SWB` ist **ungeklärt**.
+- **F2 Notationen:** `DK_ID` ist eine interne Nummer und wird nicht ausgegeben,
+  das Plugin löst sie zur Notation auf (Beispiel: `DK_ID` 16 = Dissertation =
+  DK 378.245). Die Tabellen `dk_bio`, `dk_berg`, `dk_geographica` sind
+  fachliche Zuordnungen. `dk_alt` wird ignoriert. Der Platzhalter `DK_ID` 9999
+  wird nicht angezeigt. Doppelte `DK_ID` bleiben markiert.
+- **F3 Kennungen:** `!…!` ist die K10plus-Normdaten-PPN; WinIBW wandelt Eintrag
+  zu PPN um. Nur die erste `!…!`-Nummer zählt. Ausgabe als fertige Zeilen
+  `5550 !PPN!`; für DK `6700 !PPN!`, wenn die Notation in der Tabelle `dk` steht,
+  sonst `6700 DK <Notation>` (WinIBW wandelt um). Die Datenbank deckt nur Begriffe
+  ab, die das Fach lokal braucht; fehlende Begriffe sind normal.
+- **F4 Tabellen und Notizen:** `EAS` und `SS_SG` (Erwerbungslisten mit Preisen)
+  werden nicht umgewandelt. `NOTES`, `SWB_NOTES` und `OBER_BEGR` werden nicht
+  ausgegeben.
+- **F5 Rechte:** Die Daten bleiben lokal und werden als Plugin für die eigene UB
+  eingebunden. Verarbeitung durch Cloud-Modelle ist erlaubt. **Entscheidung:**
+  ein eigenes, schmales Zielschema (Abschnitt 5 wird danach angepasst), in das
+  der Geo-Konverter als *ein* Importer umwandelt; andere Häuser füllen es mit
+  eigenen Importern. Das Plugin liefert alle Arten (`kind`), Auswahl und Filter
+  liegen beim Workflow.
+- **F6 Aktualisierung: ungeklärt.** Wie die Pflege weiterläuft, weiß der
+  Entwickler nicht. Der Importer läuft deshalb auf Abruf; das Plugin liest nur.
+- **F7 Zeilenzahl: ungeprüft.** Ob die Datei komprimiert wurde und ob gelöschte
+  Zeilen im Export stehen, ist unbekannt. Einschränkung bleibt dokumentiert.
+- **F8 Zeichensatz:** Textfelder der Tabelle `swb` sind sauber (kein
+  Mojibake). `¬…¬` sind Nichtsortierzeichen, sie bleiben in der fertigen Zeile
+  und fallen im Label für das Modell weg. Platzhalter wie `{Balken ueber}` bleiben
+  in der Zeile (WinIBW-Erwartung **ungeprüft**); 81 Felder mit Zeilenumbruch
+  werden im Importer zu Leerzeichen.
+- **F9 Umfang:** Keine Beschränkung; das Plugin liefert alle Arten, der
+  Workflow wählt aus. Die Frage Agent-Werkzeuge gegenüber klassischer Pipeline
+  bleibt für Phase 4 offen.
 
 ## 9. Phasen und Aufwand (Schätzung)
 
@@ -343,7 +412,11 @@ Alle Messungen an Kopien in `.scratch/` (nicht im Repo):
 python scripts/access_to_sql.py inspect .scratch/src_new/SACH-GEO1.mdb --json .scratch/inspect_new.json
 python scripts/access_to_sql.py convert .scratch/src_new/SACH-GEO1.mdb .scratch/geo_new.db --allow-count-mismatch
 python scripts/access_to_sql.py --reader access-parser convert .scratch/src_new/SACH-GEO1.mdb .scratch/geo_new_ap.db
+python scripts/access_to_sql.py import-geo .scratch/geo_new.db .scratch/geo_sachdb_v1.db
 ```
+
+`import-geo` gibt die Zeilenzahlen und die Zählung jeder Regel aus (auch in
+`alima_import_rule` der Zieldatei).
 
 Die Tabellen- und Spaltenvergleiche alt/neu, die Slot-Zählung und die
 Plugin-Messung liefen als Wegwerf-Skripte; ihre Ergebnisse stehen in

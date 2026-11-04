@@ -844,12 +844,13 @@ steps:
   # Step 7b: Lokale Sacherschließungsdatenbank (Plugin `geo_sachdb`)
   #
   # Schlägt die finalen Schlagworte und die vergebenen DK-Notationen in der
-  # lokalen Datenbank nach (aus Access überführt, scripts/access_to_sql.py).
-  # Welche Tabelle/Spalte welche Rolle hat, steht in der Plugin-Konfiguration.
-  # Ergebnis in extra.geo_sachdb: lokale Sätze je Schlagwort, lokale Einträge
-  # je vergebener Notation, Notationen aus lokalen Sätzen als `candidates`
-  # (`assigned` = schon vergeben). Schlägt vor, entscheidet nicht:
-  # ${dk_classifications} bleibt unverändert.
+  # lokalen Datenbank nach (Schema des Plugins, src/utils/lookups/geo_sachdb/
+  # schema.py; für Freiberg erzeugt mit scripts/access_to_sql.py import-geo).
+  # Ergebnis in extra.geo_sachdb: lokale Sätze je Schlagwort, nicht gefundene
+  # Schlagworte (`not_found`), lokale Einträge je vergebener Notation,
+  # Notationen aus lokalen Sätzen als `candidates` (`assigned` = schon
+  # vergeben) und die fertigen WinIBW-Zeilen (`lines`: 5550/6700). Schlägt vor,
+  # entscheidet nicht: ${dk_classifications} bleibt unverändert.
   #
   # Ohne Plugin-Instanz, abgeschaltet oder ohne Datenbank: leeres Ergebnis
   # (`status` nennt den Grund), der Lauf geht unverändert weiter.
@@ -876,6 +877,9 @@ steps:
       min_score: 90
       max_per_keyword: 3
       max_keywords: 30
+      # Arten der lokalen Sätze (Sachschlagwort, Geographikum, Person,
+      # Körperschaft, sonstiges); leer = alle.
+      kinds: []
 
   # ──────────────────────────────────────────────────────────────────
   # Step 8: Aufstellung — Freihandsystematik der UB Freiberg

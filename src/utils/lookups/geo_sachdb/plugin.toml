@@ -15,6 +15,6 @@ module = "provider.py"
 class = "GeoSachdbLookup"
 
 [doc]
-description = "Lokale Sacherschließungsdatenbank (aus Access nach SQLite überführt): Schlagwortsätze zu einem Begriff, ein Satz vollständig, Abgleich einer Notation mit den lokalen Notationssätzen. Die Rollen der Tabellen und Spalten stehen in der Plugin-Konfiguration."
-input = "Suchbegriff, Satz-ID oder Notation."
-output = "Lokale Sätze mit Ansetzung, Typ, Kennungen, Verweisungen, Oberbegriff, verknüpften Notationen und Herkunft der Datenbank."
+description = "Lokale Sacherschließungsdatenbank im eigenen SQLite-Schema des Plugins (schema.py, v1; jedes Haus füllt es mit einem eigenen Importer): lokale Schlagwörter aller Arten zu Begriffen, fertige WinIBW-Zeilen (5550 für Schlagwörter, 6700 für Notationen), Abgleich einer Notation mit den lokalen Einträgen."
+input = "Suchbegriff, Liste von Begriffen oder Notation."
+output = "Lokale Schlagwörter mit Art, PPN, fertiger Zeile und verknüpften Notationen; gefundene und nicht gefundene Begriffe getrennt; Herkunft der Datenbank."

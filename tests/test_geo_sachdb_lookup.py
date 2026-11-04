@@ -1,9 +1,12 @@
-"""Lookup-Plugin geo_sachdb gegen eine kleine synthetische SQLite-Datenbank - Claude Generated.
+"""Lookup-Plugin geo_sachdb gegen eine kleine synthetische Datenbank im Schema v1 - Claude Generated.
 
-Alle Daten sind erfunden. Geprüft werden: Verfügbarkeit (fehlende Datei, fehlende
-Abbildung, fehlende Spalte), Suche mit Faltung (ä/ae), Verweisungsformen,
-Notationsauflösung (offen, mehrdeutig), Satzabruf, Notationsabgleich, das
-Verfügbarkeits-Gate der Werkzeugerzeugung und das Laden als Tier-2-Plugin.
+Alle Daten sind erfunden. Geprüft werden: die Schema-Helfer, Verfügbarkeit
+(fehlende Datei, fremdes Schema, falsche Version, leere Tabellen), Suche mit
+Faltung (ä/ae), Verweisungsformen und Filter nach Art, die fertigen WinIBW-Zeilen
+(5550 mit PPN, Rückfall auf chain/label, 6700 mit PPN, ``6700 DK``, keine Zeile
+für andere Systeme ohne PPN), gefundene und nicht gefundene Begriffe getrennt,
+Notationsabgleich, das Verfügbarkeits-Gate der Werkzeugerzeugung und das Laden
+als Tier-2-Plugin.
 """
 
 from __future__ import annotations
@@ -22,8 +25,9 @@ from pathlib import Path
 from src.utils.lookups.registry import LOOKUP_REGISTRY, LookupToolSpec
 import src.utils.lookups  # noqa: F401 — registers the category + built-ins
 from src.utils.lookups.geo_sachdb import provider as provider_mod
+from src.utils.lookups.geo_sachdb import schema as schema_mod
 from src.utils.lookups.geo_sachdb.provider import GeoSachdbLookup
-from src.utils.lookups.geo_sachdb.store import fold, normalize_code, parse_heading
+from src.utils.lookups.geo_sachdb.store import fold
 from src.core.plugins.schema import PluginDoc
 from src.utils.config_models import AlimaConfig, PluginInstanceConfig
 
@@ -45,51 +49,46 @@ def tearDownModule():
     shutil.rmtree(_HOME["tmp"], ignore_errors=True)
 
 
+HEADINGS = [
+    (1, "Testgestein", "Sachschlagwort", "111111111", "|s|Testgestein !111111111! !a222222222! 12345",
+     "|s|Probegestein |s|Prüfstein"),
+    (2, "Lagerstätte", "Sachschlagwort", "333333333", "|s|Lagerstätte !333333333!", None),
+    (3, "Musterland", "Geographikum", "444444444", "|g|Musterland !444444444!", "|g|Beispielland"),
+    (4, "Gestein", "Sachschlagwort", None, "|s|Gestein", None),
+    (5, "Muster, Hans von {Balken ueber}", "Person", None, "|p|Muster, Hans ¬von¬ {Balken ueber}", None),
+    (6, "Reinlabel", "sonstiges", None, None, None),
+    (7, "Musterkongress", "sonstiges", "777777777", "|c|Musterkongress !777777777!", None),
+]
+CLASSIFICATIONS = [
+    (1, "DK", "999.1", "Testgesteine", "555555555"),
+    (2, "DK", "999.21", "Lagerstaetten (Test)", None),
+    (3, "DK", "999.3", "Musterland", "666666666"),
+    (4, "DK", "999.31", "Doppelte ID", None),
+    (5, "DK", "999", "Testklasse", None),
+    (6, "RVK", "QX 100", "Testwirtschaft", None),
+    (7, "RVK", "QX 200", "Andere Wirtschaft", "888888888"),
+    (8, "DK", "999.1", "Testgesteine (zweiter Eintrag)", "999999999"),
+]
+LINKS = [(1, 1, 0, 0), (2, 2, 0, 0), (2, 6, 1, 0), (3, 3, 0, 1), (3, 4, 0, 1), (7, 7, 0, 0)]
+
+
 def build_synthetic_db(path: Path) -> None:
-    """Zwei Rollen-Tabellen + Herkunft, erfundene Werte."""
+    """Schema v1 mit erfundenen Werten."""
     conn = sqlite3.connect(path)
-    conn.executescript("""
-        CREATE TABLE sw (lauf_nr INTEGER, ansetzung TEXT, ober TEXT, verw TEXT, hinweis TEXT,
-                         ref1 REAL, ref2 REAL);
-        CREATE TABLE nt (nid REAL, code TEXT, erl TEXT);
-        CREATE TABLE alima_import_run (id INTEGER PRIMARY KEY, source_path TEXT, source_sha256 TEXT,
-                         source_size INTEGER, source_mtime TEXT, reader TEXT, reader_version TEXT,
-                         jet_version TEXT, tool_version TEXT, started_at TEXT, finished_at TEXT);
-        CREATE TABLE alima_import_table (source_table TEXT, target_table TEXT, rows_source INTEGER,
-                         rows_written INTEGER, rows_counted INTEGER, checksum_source TEXT,
-                         checksum_written TEXT, coercion_warnings INTEGER, index_notes TEXT);
-    """)
-    conn.executemany("INSERT INTO sw VALUES (?,?,?,?,?,?,?)", [
-        (1, "|s|Testgestein !111111111! !a222222222! 12345 ‡ |s|Probegestein |s|Prüfstein",
-         "s.Gestein", "|s|Mustererz", "Hinweis A", 10.0, None),
-        (2, "|s|Lagerstätte !333333333!", "kein", None, None, 11.0, 99.0),
-        (3, "|g|Musterland !444444444! ‡ |g|Beispielland", "kein", None, "XA-ZZ", 12.0, None),
-        (4, "|s|Gestein", None, None, None, None, None),
-        (5, None, None, None, None, None, None),
+    schema_mod.create_schema(conn)
+    conn.executemany("INSERT INTO meta VALUES (?, ?)", [
+        ("source", "TEST.mdb"), ("source_date", "2026-01-01T00:00:00+00:00"),
+        ("source_sha256", "abcdef0123456789ff"), ("importer", "test"),
     ])
-    conn.executemany("INSERT INTO nt VALUES (?,?,?)", [
-        (10.0, "DK 999.1 !555555555!", "Testgesteine"),
-        (11.0, "DK 999.21", "Lagerstaetten (Test)"),
-        (12.0, "DK 999.3", "Musterland"),
-        (12.0, "DK 999.31", "Doppelte ID"),
-        (13.0, "DK 999", "Testklasse"),
-    ])
-    conn.execute("INSERT INTO alima_import_run VALUES (1,'/x/TEST.mdb','abcdef0123456789ff',1,"
-                 "'2026-01-01T00:00:00+00:00','fake','0','JET4','1','t0','t1')")
-    conn.executemany("INSERT INTO alima_import_table VALUES (?,?,?,?,?,?,?,?,?)", [
-        ("SW", "sw", 5, 5, 5, "a", "a", 0, ""), ("NT", "nt", 5, 5, 5, "b", "b", 0, ""),
-    ])
+    conn.executemany("INSERT INTO heading VALUES (?,?,?,?,?,?)", HEADINGS)
+    conn.executemany("INSERT INTO classification VALUES (?,?,?,?,?)", CLASSIFICATIONS)
+    conn.executemany("INSERT INTO heading_classification VALUES (?,?,?,?)", LINKS)
     conn.commit()
     conn.close()
 
 
-def mapping(db_path) -> dict:
-    return dict(
-        db_path=str(db_path), term_table="sw", term_id_column="lauf_nr", term_column="ansetzung",
-        term_format="swb_packed", broader_column="ober", related_column="verw", note_columns="hinweis",
-        term_notation_columns="ref1,ref2", notation_table="nt", notation_id_column="nid",
-        notation_code_column="code", notation_caption_column="erl", max_results=10,
-    )
+def settings(db_path) -> dict:
+    return {"db_path": str(db_path), "max_results": 10}
 
 
 class _DbCase(unittest.TestCase):
@@ -102,88 +101,106 @@ class _DbCase(unittest.TestCase):
         self.tmp.cleanup()
 
 
-class ParsingHelpers(unittest.TestCase):
-    def test_packed_heading(self):
-        head = parse_heading("|s|Testgestein !111111111! !a222222222! 12345 ‡ |s|Probegestein |s|Prüfstein",
-                             "swb_packed")
-        self.assertEqual((head.type, head.text), ("s", "Testgestein"))
-        self.assertEqual(head.identifiers, ["111111111", "a222222222"])
-        self.assertEqual(head.local_number, "12345")
-        self.assertEqual([v for _, v in head.variants], ["Probegestein", "Prüfstein"])
+class SchemaHelpers(unittest.TestCase):
+    def test_normalize_notation(self):
+        norm = schema_mod.normalize_notation
+        self.assertEqual(norm("DK 553.62"), ("DK", "553.62"))
+        self.assertEqual(norm("UDK  553.62 "), ("DK", "553.62"))
+        self.assertEqual(norm("553.62"), ("DK", "553.62"))
+        self.assertEqual(norm("RVK QP 925"), ("RVK", "QP 925"))
+        self.assertEqual(norm("QP925"), ("RVK", "QP 925"))
+        self.assertEqual(norm(""), ("", ""))
 
-    def test_old_style_and_non_sorting_marks(self):
-        head = parse_heading("g.Musterland <Nord> 54321 ‡ g.Nordmusterland", "swb_packed")
-        self.assertEqual((head.type, head.text, head.local_number), ("g", "Musterland <Nord>", "54321"))
-        self.assertEqual(head.variants, [("g", "Nordmusterland")])
-        person = parse_heading("|p|Muster, Hans ¬von¬ !123456789!4321 ‡ |p|Muster, H. ¬von¬", "swb_packed")
-        self.assertEqual((person.text, person.local_number), ("Muster, Hans von", "4321"))
+    def test_split_variants_and_clean_label(self):
+        self.assertEqual(schema_mod.split_variants("|s|Probegestein |s|Prüfstein"), ["Probegestein", "Prüfstein"])
+        self.assertEqual(schema_mod.split_variants("Form A; Form B\nForm C ‡ Form A"), ["Form A", "Form B", "Form C"])
+        self.assertEqual(schema_mod.split_variants(None), [])
+        self.assertEqual(schema_mod.clean_label("|p|Muster, Hans ¬von¬ !123456789!"), "Muster, Hans von")
+        self.assertEqual(schema_mod.clean_label("Strich {Balken ueber}"), "Strich {Balken ueber}")
 
-    def test_year_at_end_is_not_a_local_number(self):
-        head = parse_heading("|s|Testjahr 2000 ‡ |s|Anderes", "swb_packed")
-        self.assertEqual((head.text, head.local_number), ("Testjahr 2000", ""))
-
-    def test_plain_format_keeps_text(self):
-        self.assertEqual(parse_heading("  |s|Roh  ", "plain").text, "|s|Roh")
-
-    def test_fold_and_normalize_code(self):
+    def test_fold(self):
         self.assertEqual(fold("Lagerstätte"), fold("Lagerstaette"))
         self.assertEqual(fold("Bénédict ¬de¬"), "benedict de")
-        self.assertEqual(normalize_code("DK 999.1 !555555555! !a666666666!"), ("999.1", ["555555555", "a666666666"]))
-        self.assertEqual(normalize_code("999.1"), ("999.1", []))
+
+    def test_check_schema(self):
+        conn = sqlite3.connect(":memory:")
+        self.assertIn("fehlen", schema_mod.check_schema(conn))
+        schema_mod.create_schema(conn)
+        self.assertEqual(schema_mod.check_schema(conn), "")
+        conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+        self.assertIn("Schemaversion", schema_mod.check_schema(conn))
+        self.assertTrue(schema_mod.is_ppn("21000729X"))
+        self.assertFalse(schema_mod.is_ppn("a123456789"))
 
 
 class Availability(_DbCase):
-    def test_missing_path_file_mapping_column(self):
+    def test_missing_path_and_file(self):
         self.assertFalse(GeoSachdbLookup().is_available())
         self.assertIn("db_path", GeoSachdbLookup().availability()["reason"])
-        gone = GeoSachdbLookup(**{**mapping(self.db), "db_path": str(self.db) + ".fehlt"})
+        gone = GeoSachdbLookup(db_path=str(self.db) + ".fehlt")
         self.assertIn("nicht gefunden", gone.availability()["reason"])
-        bare = GeoSachdbLookup(db_path=str(self.db))
-        self.assertIn("Rollen-Abbildung", bare.availability()["reason"])
-        wrong = GeoSachdbLookup(**{**mapping(self.db), "term_column": "gibtsnicht"})
-        self.assertIn("gibtsnicht", wrong.availability()["reason"])
-        out = wrong.search_terms("Testgestein")
+        out = gone.search_terms("Testgestein")
         self.assertFalse(out["available"])
         self.assertIn("error", out)
 
+    def test_foreign_schema_wrong_version_and_empty_file(self):
+        staging = Path(self.tmp.name) / "staging.db"
+        conn = sqlite3.connect(staging)
+        conn.execute("CREATE TABLE swb (lauf_nr INTEGER, swb_aequiv TEXT)")
+        conn.execute("INSERT INTO swb VALUES (1, '|s|Testgestein')")
+        conn.commit()
+        conn.close()
+        self.assertIn("Schema", GeoSachdbLookup(db_path=str(staging)).availability()["reason"])
+
+        conn = sqlite3.connect(self.db)
+        conn.execute("UPDATE meta SET value='2' WHERE key='schema_version'")
+        conn.commit()
+        conn.close()
+        self.assertIn("Schemaversion", GeoSachdbLookup(**settings(self.db)).availability()["reason"])
+
+        empty = Path(self.tmp.name) / "empty.db"
+        conn = sqlite3.connect(empty)
+        schema_mod.create_schema(conn)
+        conn.commit()
+        conn.close()
+        self.assertIn("leer", GeoSachdbLookup(db_path=str(empty)).availability()["reason"])
+
     def test_available_with_provenance(self):
-        lk = GeoSachdbLookup(**mapping(self.db))
+        lk = GeoSachdbLookup(**settings(self.db))
         self.assertTrue(lk.is_available())
         prov = lk.availability()["provenance"]
-        self.assertEqual(prov["source_file"], "TEST.mdb")
-        self.assertEqual(prov["rows"], {"sw": 5, "nt": 5})
+        self.assertEqual(prov["source"], "TEST.mdb")
+        self.assertEqual(prov["source_sha256"], "abcdef0123456789")
+        self.assertEqual(prov["rows"], {"heading": 7, "classification": 8, "heading_classification": 6})
 
     def test_database_is_opened_read_only(self):
-        lk = GeoSachdbLookup(**mapping(self.db))
+        lk = GeoSachdbLookup(**settings(self.db))
         conn = lk.store._connect()
         try:
             with self.assertRaises(sqlite3.OperationalError):
-                conn.execute("INSERT INTO nt VALUES (1, 'x', 'y')")
+                conn.execute("INSERT INTO meta VALUES ('x', 'y')")
         finally:
             conn.close()
 
     def test_plugin_contract(self):
-        keys = [f.key for f in GeoSachdbLookup.config_fields()]
-        self.assertIn("db_path", keys)
-        self.assertIn("term_notation_columns", keys)
+        self.assertEqual([f.key for f in GeoSachdbLookup.config_fields()], ["db_path", "max_results"])
         self.assertTrue(GeoSachdbLookup.doc().is_complete())
         self.assertEqual([s.name for s in GeoSachdbLookup.mcp_tool_specs()],
-                         ["geo_sachdb_search", "geo_sachdb_record", "geo_sachdb_notation"])
+                         ["geo_sachdb_search", "geo_sachdb_lines", "geo_sachdb_notation"])
 
 
 class Search(_DbCase):
     def setUp(self):
         super().setUp()
-        self.lk = GeoSachdbLookup(**mapping(self.db))
+        self.lk = GeoSachdbLookup(**settings(self.db))
 
-    def test_exact_heading_with_parsed_fields_and_notations(self):
+    def test_exact_heading_with_kind_ppn_and_lines(self):
         hit = self.lk.search_terms("Testgestein")["results"][0]
         self.assertEqual((hit["id"], hit["matched"], hit["score"]), (1, "ansetzung_exakt", 100.0))
-        self.assertEqual(hit["type_label"], "Sachschlagwort")
-        self.assertEqual(hit["broader"], "Gestein")
-        self.assertEqual(hit["related"], ["Mustererz"])
-        self.assertEqual(hit["notations"][0]["code"], "999.1")
-        self.assertEqual(hit["notations"][0]["caption"], "Testgesteine")
+        self.assertEqual((hit["kind"], hit["ppn"]), ("Sachschlagwort", "111111111"))
+        self.assertEqual((hit["line"], hit["line_form"]), ("5550 !111111111!", "ppn"))
+        self.assertEqual(hit["classifications"], [{"system": "DK", "notation": "999.1", "label": "Testgesteine",
+                                                   "ppn": "555555555", "line": "6700 !555555555!"}])
 
     def test_variant_and_umlaut_folding(self):
         self.assertEqual(self.lk.search_terms("Probegestein")["results"][0]["matched"], "verweisung_exakt")
@@ -191,35 +208,74 @@ class Search(_DbCase):
         for query in ("Lagerstätte", "Lagerstaette"):
             self.assertEqual(self.lk.search_terms(query)["results"][0]["id"], 2)
 
-    def test_open_and_ambiguous_references_are_reported(self):
-        two = self.lk.search_terms("Lagerstätte")["results"][0]["notations"]
-        self.assertEqual([n["resolved"] for n in two], [True, False])
-        three = self.lk.search_terms("Musterland")["results"][0]["notations"]
-        self.assertEqual(len(three), 2)
-        self.assertTrue(all(n["ambiguous"] for n in three))
+    def test_kind_filter(self):
+        self.assertEqual(self.lk.search_terms("Musterland", kinds=["Sachschlagwort"])["total"], 0)
+        self.assertEqual([r["id"] for r in self.lk.search_terms("Musterland", kinds="Geographikum")["results"]], [3])
+        self.assertIn("error", self.lk.search_terms("Musterland", kinds=["Ort"]))
 
     def test_min_score_keeps_only_identical_matches(self):
-        loose = self.lk.search_terms("Gestein")
-        self.assertGreater(loose["total"], 1)  # "Testgestein" als Teilwort
+        self.assertGreater(self.lk.search_terms("Gestein")["total"], 1)  # "Testgestein" als Teilwort
         strict = self.lk.search_terms("Gestein", min_score=90)
         self.assertEqual([r["id"] for r in strict["results"]], [4])
 
-    def test_get_record_and_match_notation(self):
-        rec = self.lk.get_record("1")
-        self.assertEqual(rec["record"]["term"], "Testgestein")
-        self.assertTrue(rec["stored"]["ansetzung"].startswith("|s|Testgestein"))
-        self.assertIn("error", self.lk.get_record("777"))
+
+class Lines(_DbCase):
+    def setUp(self):
+        super().setUp()
+        self.lk = GeoSachdbLookup(**settings(self.db))
+
+    def test_found_and_not_found_are_reported_apart(self):
+        out = self.lk.lookup_terms(["Testgestein", "Lagerstätte", "Unbekanntwort", "Lagerstaette", "Musterland"])
+        self.assertEqual([f["term"] for f in out["found"]], ["Testgestein", "Lagerstätte", "Musterland"])
+        self.assertEqual(out["not_found"], ["Unbekanntwort"])
+        self.assertEqual(out["lines"], [
+            "5550 !111111111!", "6700 !555555555!",
+            "5550 !333333333!", "6700 DK 999.21",
+            "5550 !444444444!", "6700 !666666666!", "6700 DK 999.31",
+        ])
+
+    def test_rvk_without_ppn_has_no_line(self):
+        cls = self.lk.lookup_terms(["Lagerstätte"])["found"][0]["headings"][0]["classifications"]
+        rvk = [c for c in cls if c["system"] == "RVK"]
+        self.assertEqual((rvk[0]["notation"], rvk[0]["line"]), ("QX 100", None))
+        self.assertEqual(self.lk.lookup_terms(["Musterkongress"])["lines"], ["5550 !777777777!", "6700 !888888888!"])
+
+    def test_without_ppn_the_line_falls_back_to_chain_then_label(self):
+        out = self.lk.lookup_terms(["Gestein", "Muster, Hans von {Balken ueber}", "Reinlabel"])
+        forms = [(h["line"], h["line_form"]) for f in out["found"] for h in f["headings"]]
+        self.assertEqual(forms, [
+            ("5550 |s|Gestein", "chain"),
+            ("5550 |p|Muster, Hans ¬von¬ {Balken ueber}", "chain"),
+            ("5550 Reinlabel", "label"),
+        ])
+
+    def test_ambiguous_links_are_marked_and_kinds_filter(self):
+        head = self.lk.lookup_terms(["Musterland"])["found"][0]["headings"][0]
+        self.assertEqual([c.get("ambiguous") for c in head["classifications"]], [True, True])
+        filtered = self.lk.lookup_terms(["Musterland", "Testgestein"], kinds=["Geographikum"])
+        self.assertEqual(([f["term"] for f in filtered["found"]], filtered["not_found"]),
+                         (["Musterland"], ["Testgestein"]))
+
+
+class Notation(_DbCase):
+    def setUp(self):
+        super().setUp()
+        self.lk = GeoSachdbLookup(**settings(self.db))
+
+    def test_exact_entries_line_and_linked_headings(self):
         exact = self.lk.match_notation("DK 999.1")
-        self.assertEqual([n["code"] for n in exact["exact"]], ["999.1"])
+        self.assertEqual([n["label"] for n in exact["exact"]], ["Testgesteine", "Testgesteine (zweiter Eintrag)"])
+        self.assertEqual((exact["line"], exact["ambiguous"]), ("6700 !555555555!", True))
         self.assertEqual(exact["linked_terms_total"], 1)
+        plain = self.lk.match_notation("999.21")
+        self.assertEqual((plain["line"], plain["ambiguous"]), ("6700 DK 999.21", False))
+
+    def test_broader_and_rvk(self):
         near = self.lk.match_notation("DK 999.15")
         self.assertEqual(near["exact"], [])
-        self.assertEqual([n["code"] for n in near["broader"]], ["999.1", "999"])
-
-    def test_plain_format_with_separate_variant_column(self):
-        lk = GeoSachdbLookup(db_path=str(self.db), term_table="nt", term_column="erl", variant_column="code")
-        self.assertEqual(lk.search_terms("Testgesteine")["results"][0]["term"], "Testgesteine")
-        self.assertEqual(lk.search_terms("dk 999 21")["results"][0]["matched"], "verweisung_exakt")
+        self.assertEqual([n["notation"] for n in near["broader"]], ["999.1", "999.1", "999"])
+        rvk = self.lk.match_notation("QX 100")
+        self.assertEqual((rvk["system"], rvk["line"], rvk["linked_terms"][0]["id"]), ("RVK", None, 2))
 
 
 class _PlainLookup:
@@ -260,12 +316,12 @@ class ToolGenerationGate(_DbCase):
         LOOKUP_REGISTRY.pop("geo_plain_lk", None)
         super().tearDown()
 
-    def _registry(self, settings):
+    def _registry(self, instance_settings):
         from src.mcp.tool_registry import ToolRegistry
 
         cfg = AlimaConfig()
         cfg.plugins = [
-            PluginInstanceConfig("geo_sachdb", "lookup", "geo_sachdb", enabled=True, settings=settings),
+            PluginInstanceConfig("geo_sachdb", "lookup", "geo_sachdb", enabled=True, settings=instance_settings),
             PluginInstanceConfig("geo_plain_lk", "lookup", "geo_plain_lk", enabled=True),
         ]
         reg = ToolRegistry.__new__(ToolRegistry)
@@ -279,10 +335,10 @@ class ToolGenerationGate(_DbCase):
         self.assertIn("geo_plain_tool", names)
 
     def test_available_instance_gets_tools_and_handler_answers(self):
-        tools = {td.name: h for td, h in self._registry(mapping(self.db))._generated_lookup_tools()}
-        self.assertTrue({"geo_sachdb_search", "geo_sachdb_record", "geo_sachdb_notation"} <= set(tools))
-        out = json.loads(tools["geo_sachdb_search"](query="Testgestein"))
-        self.assertEqual(out["results"][0]["id"], 1)
+        tools = {td.name: h for td, h in self._registry(settings(self.db))._generated_lookup_tools()}
+        self.assertTrue({"geo_sachdb_search", "geo_sachdb_lines", "geo_sachdb_notation"} <= set(tools))
+        out = json.loads(tools["geo_sachdb_lines"](terms=["Testgestein", "Unbekanntwort"]))
+        self.assertEqual((out["lines"][0], out["not_found"]), ("5550 !111111111!", ["Unbekanntwort"]))
 
 
 class Packaging(unittest.TestCase):

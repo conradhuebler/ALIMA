@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Access-Datenbank (.mdb/.accdb) nach SQLite: Bestandsaufnahme und 1:1-Umwandlung.
+"""Access-Datenbank (.mdb/.accdb) nach SQLite: Bestandsaufnahme, 1:1-Umwandlung, Import.
 
-Zwei Modi:
+Drei Modi:
 
 ``inspect <quelle.mdb> [--json BERICHT.json] [--samples N]``
     Gibt Tabellen, Spalten (Access-Typ, Länge, SQLite-Zieltyp), Schlüssel und
@@ -17,6 +17,14 @@ Zwei Modi:
     ``mdb-count``, geht auch diese Zahl in den Vergleich ein. Die Zieldatei
     wird erst dann (atomar) ersetzt, wenn alle Tabellen übereinstimmen; ein
     zweiter Lauf mit derselben Quelle erzeugt denselben Inhalt.
+
+``import-geo <zwischenstand.sqlite> <ziel.db>``
+    Importer für die Freiberger Sacherschließungsdatenbank Geowissenschaften:
+    liest die Tabellen ``swb``, ``dk``, ``dk_bio``, ``dk_berg`` und
+    ``dk_geographica`` aus der Ausgabe von ``convert`` und schreibt das Schema
+    des Lookup-Plugins ``geo_sachdb`` (``src/utils/lookups/geo_sachdb/schema.py``).
+    Die Regeln stehen bei :func:`import_geo`; jede wird gezählt und in
+    ``alima_import_rule`` abgelegt.
 
 Leser:
 
@@ -780,6 +788,320 @@ def convert(source: AccessSource, source_path: Path, target: Path, *,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# import-geo: Zwischenstand aus ``convert`` → Plugin-Schema geo_sachdb v1
+# ─────────────────────────────────────────────────────────────────────────────
+
+GEO_IMPORTER = "scripts/access_to_sql.py import-geo"
+GEO_IMPORT_VERSION = "1"
+GEO_SCHEMA_FILE = Path(__file__).resolve().parent.parent / "src" / "utils" / "lookups" / "geo_sachdb" / "schema.py"
+
+#: Platzhalter in ``DK.DK_ID`` ("keine DK eingetragen"); Verweise darauf entfallen.
+GEO_PLACEHOLDER_DK_ID = 9999
+
+#: Typkennzeichen am Anfang von ``SWB_AEQUIV`` → ``heading.kind``; alles andere
+#: (``|c|``, ``|f|``, ``|t|``, ``|z|``, kein Kennzeichen …) wird ``sonstiges``.
+GEO_KIND_BY_INDICATOR = {
+    "s": "Sachschlagwort",
+    "g": "Geographikum",
+    "p": "Person",
+    "k": "Körperschaft",
+    "b": "Körperschaft",
+}
+
+#: Notationstabellen des Zwischenstands: (Tabelle, Notation, Erläuterung, DK_ID-Spalte).
+#: Nur ``dk`` ist Ziel der ``SWB.DK_ID*``-Verweise. ``dk_alt`` wird nicht gelesen
+#: (Entwicklerentscheidung F2), ebenso ``Geographica``, ``EAS``, ``SS_SG`` und die
+#: Spalten ``NOTES``, ``SWB_NOTES``, ``OBER_BEGR``, ``VERWANDTE``.
+GEO_CLASSIFICATION_TABLES: Tuple[Tuple[str, str, str, Optional[str]], ...] = (
+    ("dk", "dk", "erl_uter", "dk_id"),
+    ("dk_bio", "dk_mittler", "erlaeuteru", None),
+    ("dk_berg", "dk_bergbau", "erlaeuteru", None),
+    ("dk_geographica", "dk", "erl_uter", None),
+)
+GEO_HEADING_REFS = ("dk_id", "dk_id1", "dk_id2", "dk_id3")
+
+_GEO_INDICATOR = re.compile(r"\|([a-z])(?:/[a-z])*\|")
+_GEO_TOKEN = re.compile(r"!([^!\s]*)!")
+_GEO_PPN = re.compile(r"[0-9]+[0-9X]")
+_LINEBREAK = re.compile(r"[ \t]*(?:\r\n|\r|\n)[ \t]*")
+
+
+def load_geo_schema():
+    """Das Schema-Modul des Plugins per Dateipfad laden (ohne ALIMA-Import). - Claude Generated"""
+    import importlib.util
+
+    if not GEO_SCHEMA_FILE.is_file():
+        raise ConversionError(f"Schema-Datei des Plugins nicht gefunden: {GEO_SCHEMA_FILE}")
+    spec = importlib.util.spec_from_file_location("geo_sachdb_schema", GEO_SCHEMA_FILE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def one_line(value: Any) -> Tuple[Optional[str], bool]:
+    """Zeilenumbrüche (mit umgebenden Leerzeichen) zu einem Leerzeichen.
+
+    Liefert ``(text, geändert)``; ``None`` und reine Leerzeichen werden ``None``.
+    Sonst bleibt der Text unverändert (``¬``, ``{…}``-Platzhalter). - Claude Generated
+    """
+    if value is None:
+        return None, False
+    raw = str(value)
+    text = _LINEBREAK.sub(" ", raw).strip()
+    return (text or None), text != raw.strip()
+
+
+def geo_ppn(text: str) -> Tuple[Optional[str], int]:
+    """Erste ``!…!``-Nummer in Form einer PPN und Zahl weiterer PPN-Nummern.
+
+    ``!a…!``-Kennungen, leere ``!!`` und andere Inhalte sind keine PPN. - Claude Generated
+    """
+    ppns = [t for t in _GEO_TOKEN.findall(text or "") if _GEO_PPN.fullmatch(t)]
+    return (ppns[0] if ppns else None), max(0, len(ppns) - 1)
+
+
+@dataclass
+class GeoHeading:
+    label: str
+    kind: str
+    ppn: Optional[str]
+    chain: Optional[str]
+    variants: Optional[str]
+    indicator: str = ""
+    further_ppns: int = 0
+
+
+def parse_geo_heading(raw: Any, clean_label: Callable[[str], str]) -> GeoHeading:
+    """``SWB_AEQUIV`` zerlegen. - Claude Generated
+
+    ``|s|Testgestein !111111111! !a222222222! 12345 |s|Verweisung ‡ |s|Verweisung``:
+    die bevorzugte Form reicht bis zum nächsten Typkennzeichen hinter der ersten
+    PPN (``!…!`` mit Ziffern) oder, ohne PPN, bis zum zweiten Typkennzeichen;
+    höchstens bis ``‡``. So bleibt eine Kette wie ``|g|Ort / |s|Thema !PPN!`` eine
+    Form. Sie ist ``chain`` (unverändert bis auf Zeilenumbrüche); der Rest ab dort
+    ist ``variants`` (Rohform, ein führendes ``‡`` entfällt). ``label`` ist
+    ``chain`` ohne Kennzeichen, ``!…!``-Kennungen, ``¬`` und ohne die Zahl am Ende:
+    direkt hinter der letzten Kennung 3-7 Ziffern; ohne Kennungen 5-7 Ziffern und
+    nur, wenn der Wert ein ``‡`` enthält (eine Jahreszahl am Ende bleibt so
+    stehen). Was die Zahl bedeutet, ist nicht geklärt.
+    """
+    text, _ = one_line(raw)
+    text = text or ""
+    head, has_sep, _tail = text.partition("‡")
+    marks = list(_GEO_INDICATOR.finditer(head))
+    indicator = ""
+    if marks and not head[: marks[0].start()].strip():
+        indicator = marks[0].group(1)
+    first_ppn = next((m for m in _GEO_TOKEN.finditer(head) if _GEO_PPN.fullmatch(m.group(1))), None)
+    after = first_ppn.end() if first_ppn else (marks[0].end() if indicator else 0)
+    end = next((m.start() for m in marks if m.start() >= after), len(head))
+    chain = head[:end].strip()
+    variants = text[end:].strip()
+    if variants.startswith("‡"):
+        variants = variants[1:].strip()
+    ppn, further = geo_ppn(chain)
+    body = _GEO_TOKEN.sub(" ", _GEO_INDICATOR.sub(" ", chain, count=1) if indicator else chain).rstrip()
+    stripped = chain.rstrip()
+    if _GEO_TOKEN.search(chain):
+        number = re.fullmatch(r"\s*(\d{3,7})", stripped[stripped.rfind("!") + 1:])
+    elif has_sep:
+        number = re.search(r"\s(\d{5,7})$", stripped)
+    else:
+        number = None
+    if number:
+        body = body[: len(body) - len(number.group(1))]
+    return GeoHeading(
+        label=clean_label(body), kind=GEO_KIND_BY_INDICATOR.get(indicator, "sonstiges"), ppn=ppn,
+        chain=chain or None, variants=variants or None, indicator=indicator, further_ppns=further,
+    )
+
+
+def _ref_id(value: Any) -> Optional[int]:
+    """DK_ID-Werte (Double in Access) als ganze Zahl; anderes → None."""
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number.is_integer() else None
+
+
+@dataclass
+class GeoImportReport:
+    rows: Dict[str, int]
+    rules: Dict[str, int]
+    with_ppn: int
+    kinds: Dict[str, int]
+
+
+#: Regeln, deren Zählung in ``alima_import_rule`` steht (Reihenfolge = Ausgabe).
+GEO_RULES = {
+    "dk_id_9999_entry": "Platzhalter-Eintrag DK_ID 9999 in dk nicht übernommen",
+    "dk_ref_9999_hidden": "Verweise SWB.DK_ID* auf den Platzhalter 9999 ausgeblendet",
+    "dk_id_duplicate": "DK_ID mit mehr als einem Eintrag in dk (Verknüpfung ambiguous=1)",
+    "link_ambiguous": "Verknüpfungen mit ambiguous=1",
+    "dk_ref_unresolved": "Verweise SWB.DK_ID* ohne Eintrag in dk (entfallen)",
+    "dk_ref_repeated": "Verweis eines Satzes doppelt auf denselben Eintrag (einmal übernommen)",
+    "classification_empty": "Notationszeilen ohne Notation (nicht übernommen)",
+    "heading_without_label": "SWB-Sätze ohne Ansetzung (nicht übernommen)",
+    "heading_without_indicator": "SWB-Sätze ohne Typkennzeichen am Anfang (kind = sonstiges)",
+    "heading_further_ppn_ignored": "SWB-Sätze mit weiteren PPN-Nummern nach der ersten (ignoriert)",
+    "newline_to_space": "Textfelder mit Zeilenumbruch, zu Leerzeichen gemacht",
+}
+
+
+def import_geo(staging: Path, target: Path, *,
+               progress: Callable[[str], None] = lambda msg: None) -> GeoImportReport:
+    """Zwischenstand (Ausgabe von ``convert``) ins Plugin-Schema v1 schreiben. - Claude Generated
+
+    Liest ``swb`` und die Notationstabellen aus :data:`GEO_CLASSIFICATION_TABLES`
+    (nur lesend), schreibt ``heading``, ``classification``,
+    ``heading_classification``, ``meta`` sowie die Herkunft (``alima_import_run``
+    aus dem Zwischenstand kopiert, ``alima_import_rule`` mit den Zählungen dieses
+    Laufs). Die Zieldatei wird erst ersetzt, wenn sie die Schemaprüfung des
+    Plugins besteht und die Zeilenzahlen stimmen.
+    """
+    schema = load_geo_schema()
+    staging = Path(staging)
+    target = Path(target)
+    src = sqlite3.connect(Path(staging).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        existing = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        needed = ["swb", "dk"]
+        missing = [t for t in needed if t not in existing]
+        if missing:
+            raise ConversionError(f"Tabellen {missing} fehlen im Zwischenstand {staging.name} "
+                                  "(erzeugt mit: access_to_sql.py convert)")
+        rules = {name: 0 for name in GEO_RULES}
+
+        def text_of(value: Any) -> Optional[str]:
+            text, changed = one_line(value)
+            rules["newline_to_space"] += int(changed)
+            return text
+
+        classifications: List[Tuple[int, str, str, Optional[str], Optional[str]]] = []
+        by_dk_id: Dict[int, List[int]] = {}
+        for table, code_col, label_col, id_col in GEO_CLASSIFICATION_TABLES:
+            if table not in existing:
+                progress(f"  {table}: nicht im Zwischenstand, übersprungen")
+                continue
+            id_sql = _q(id_col) if id_col else "NULL"
+            for dk_id, code_raw, label_raw in src.execute(
+                f"SELECT {id_sql}, {_q(code_col)}, {_q(label_col)} FROM {_q(table)} ORDER BY rowid"
+            ):
+                ref = _ref_id(dk_id)
+                if id_col and ref == GEO_PLACEHOLDER_DK_ID:
+                    rules["dk_id_9999_entry"] += 1
+                    continue
+                code = text_of(code_raw) or ""
+                label = text_of(label_raw)
+                ppn, _ = geo_ppn(code)
+                bare = re.sub(r"\s+", " ", _GEO_TOKEN.sub(" ", code)).strip().strip('"').strip()
+                system, notation = schema.normalize_notation(bare, "DK")
+                if not notation:
+                    rules["classification_empty"] += 1
+                    continue
+                cid = len(classifications) + 1
+                classifications.append((cid, system, notation, schema.clean_label(label) or None, ppn))
+                if id_col and ref is not None:
+                    by_dk_id.setdefault(ref, []).append(cid)
+        rules["dk_id_duplicate"] = sum(1 for ids in by_dk_id.values() if len(ids) > 1)
+
+        headings: List[Tuple[int, str, str, Optional[str], Optional[str], Optional[str]]] = []
+        links: List[Tuple[int, int, int, int]] = []
+        seen_ids: set = set()
+        ref_cols = ", ".join(_q(c) for c in GEO_HEADING_REFS)
+        for row in src.execute(f"SELECT lauf_nr, swb_aequiv, {ref_cols} FROM swb ORDER BY rowid"):
+            hid = _ref_id(row[0])
+            if hid is None or hid in seen_ids:
+                raise ConversionError(f"swb.lauf_nr {row[0]!r} ist keine eindeutige ganze Zahl")
+            seen_ids.add(hid)
+            rules["newline_to_space"] += int(one_line(row[1])[1])
+            parsed = parse_geo_heading(row[1], schema.clean_label)
+            if not parsed.label:
+                rules["heading_without_label"] += 1
+                continue
+            rules["heading_without_indicator"] += int(not parsed.indicator)
+            rules["heading_further_ppn_ignored"] += int(parsed.further_ppns > 0)
+            headings.append((hid, parsed.label, parsed.kind, parsed.ppn, parsed.chain, parsed.variants))
+            linked: set = set()
+            for position, value in enumerate(row[2:]):
+                ref = _ref_id(value)
+                if ref is None:
+                    continue
+                if ref == GEO_PLACEHOLDER_DK_ID:
+                    rules["dk_ref_9999_hidden"] += 1
+                    continue
+                targets = by_dk_id.get(ref)
+                if not targets:
+                    rules["dk_ref_unresolved"] += 1
+                    continue
+                for cid in targets:
+                    if cid in linked:
+                        rules["dk_ref_repeated"] += 1
+                        continue
+                    linked.add(cid)
+                    links.append((hid, cid, position, int(len(targets) > 1)))
+        rules["link_ambiguous"] = sum(1 for link in links if link[3])
+
+        run_rows: List[Tuple[Any, ...]] = []
+        run_cols: List[str] = []
+        if META_RUN in existing:
+            cur = src.execute(f"SELECT * FROM {META_RUN} ORDER BY id")
+            run_cols = [d[0] for d in cur.description]
+            run_rows = cur.fetchall()
+    finally:
+        src.close()
+
+    last_run = dict(zip(run_cols, run_rows[-1])) if run_rows else {}
+    meta = {
+        "source": Path(str(last_run.get("source_path") or staging)).name,
+        "source_sha256": str(last_run.get("source_sha256") or sha256_file(staging)),
+        "source_date": str(last_run.get("source_mtime") or ""),
+        "created_at": _now(),
+        "importer": f"{GEO_IMPORTER} {GEO_IMPORT_VERSION}",
+    }
+
+    tmp = target.with_name(target.name + ".tmp")
+    if tmp.exists():
+        tmp.unlink()
+    conn = sqlite3.connect(str(tmp))
+    try:
+        schema.create_schema(conn)
+        conn.executemany("INSERT INTO meta (key, value) VALUES (?, ?)", [(k, v) for k, v in meta.items() if v])
+        conn.executemany("INSERT INTO classification (id, system, notation, label, ppn) VALUES (?,?,?,?,?)",
+                         classifications)
+        conn.executemany("INSERT INTO heading (id, label, kind, ppn, chain, variants) VALUES (?,?,?,?,?,?)",
+                         headings)
+        conn.executemany("INSERT INTO heading_classification (heading_id, classification_id, position, ambiguous) "
+                         "VALUES (?,?,?,?)", links)
+        if run_cols:
+            cols = ", ".join(_q(c) for c in run_cols)
+            conn.execute(f"CREATE TABLE {META_RUN} ({cols})")
+            conn.executemany(f"INSERT INTO {META_RUN} VALUES ({', '.join('?' for _ in run_cols)})", run_rows)
+        conn.execute("CREATE TABLE alima_import_rule (rule TEXT PRIMARY KEY, count INTEGER NOT NULL, note TEXT)")
+        conn.executemany("INSERT INTO alima_import_rule VALUES (?,?,?)",
+                         [(name, rules[name], note) for name, note in GEO_RULES.items()])
+        conn.commit()
+        reason = schema.check_schema(conn)
+        written = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                   for t in ("heading", "classification", "heading_classification")}
+        kinds = dict(conn.execute("SELECT kind, COUNT(*) FROM heading GROUP BY kind ORDER BY kind").fetchall())
+        with_ppn = conn.execute("SELECT COUNT(*) FROM heading WHERE ppn IS NOT NULL").fetchone()[0]
+    finally:
+        conn.close()
+    expected = {"heading": len(headings), "classification": len(classifications),
+                "heading_classification": len(links)}
+    if reason or written != expected:
+        raise ConversionError(f"Prüfung fehlgeschlagen ({reason or written}); Zwischendatei bleibt liegen: {tmp}")
+    os.replace(tmp, target)
+    progress(f"  heading {written['heading']}, classification {written['classification']}, "
+             f"heading_classification {written['heading_classification']}")
+    return GeoImportReport(rows=written, rules=rules, with_ppn=with_ppn, kinds=kinds)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # inspect
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -825,9 +1147,28 @@ def _print_inspect(report: Dict[str, Any]) -> None:
             print(f"  · {sample}")
 
 
+def _main_import_geo(args: argparse.Namespace) -> int:
+    """CLI-Teil von ``import-geo``: Zahlen ausgeben, keine Datensätze. - Claude Generated"""
+    if args.target.resolve() == args.source.resolve():
+        print("Ziel und Quelle sind dieselbe Datei", file=sys.stderr)
+        return 1
+    try:
+        report = import_geo(args.source, args.target, progress=lambda msg: print(msg, file=sys.stderr))
+    except (ConversionError, sqlite3.Error) as exc:
+        print(f"Fehler: {exc}", file=sys.stderr)
+        return 2
+    rows = report.rows
+    print(f"{args.target}: heading {rows['heading']} (mit PPN {report.with_ppn}), "
+          f"classification {rows['classification']}, heading_classification {rows['heading_classification']}")
+    print("kind: " + ", ".join(f"{k} {n}" for k, n in report.kinds.items()))
+    for name, count in report.rules.items():
+        print(f"  {name}: {count}")
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None,
          source_factory: Callable[[Path, str], AccessSource] = open_source) -> int:
-    parser = argparse.ArgumentParser(description="Access-Datenbank nach SQLite (inspect/convert).")
+    parser = argparse.ArgumentParser(description="Access-Datenbank nach SQLite (inspect/convert/import-geo).")
     parser.add_argument("--reader", choices=["mdbtools", "access-parser"], default="mdbtools")
     sub = parser.add_subparsers(dest="mode", required=True)
     p_inspect = sub.add_parser("inspect", help="Schema und Zeilenzahlen ausgeben, nichts schreiben")
@@ -842,11 +1183,17 @@ def main(argv: Optional[Sequence[str]] = None,
     p_convert.add_argument("--allow-count-mismatch", action="store_true",
                            help="abweichendes mdb-count hinnehmen (wird protokolliert); "
                                 "Prüfsumme und zurückgelesene Zeilen müssen weiter stimmen")
+    p_geo = sub.add_parser("import-geo", help="Zwischenstand aus convert (SQLite) ins Schema des "
+                                              "Plugins geo_sachdb (v1) schreiben")
+    p_geo.add_argument("source", type=Path, help="SQLite-Datei, die convert geschrieben hat")
+    p_geo.add_argument("target", type=Path)
     args = parser.parse_args(argv)
 
     if not args.source.is_file():
         print(f"Quelle nicht gefunden: {args.source}", file=sys.stderr)
         return 1
+    if args.mode == "import-geo":
+        return _main_import_geo(args)
     try:
         source = source_factory(args.source, args.reader)
     except ReaderUnavailable as exc:

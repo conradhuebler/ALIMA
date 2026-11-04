@@ -1,24 +1,16 @@
-"""Read-only access to a converted local subject-indexing database - Claude Generated.
+"""Read-only access to a ``geo_sachdb`` database (schema v1) - Claude Generated.
 
-The database is a SQLite file written by ``scripts/access_to_sql.py`` (one table
-per Access table plus the ``alima_import_*`` provenance tables). This module never
-writes to it: every query opens the file with ``mode=ro``.
+The file holds the tables defined in ``schema.py``; an importer writes it, this
+module only reads it (every connection opens the file with ``mode=ro``). The
+store loads all headings and notation entries of one instance once and searches
+in memory; there is no full-text index.
 
-What a table or column *means* is not decided here. The plugin instance carries a
-role mapping (which table holds the subject records, which column the heading,
-which columns refer to notation records, …); the store only reads what the mapping
-names, after checking that those tables and columns exist.
+It also builds the finished WinIBW lines (UB Freiberg practice, WP decision F3):
 
-Two heading formats are understood:
-
-* ``plain``: the column holds the heading text, nothing else;
-* ``swb_packed``: the packed form found in the Geo database's ``SWB`` and
-  ``Geographica`` tables: ``|s|Heading !123456789! 74899 ‡ |s|Variant |s|Variant``.
-  ``|x|`` (or the older ``x.``) is the heading-type indicator, ``!…!`` tokens are
-  record identifiers, ``‡`` separates the preferred form from its variants. The
-  reading of the indicators follows the RSWK heading types; what the ``!a…!``
-  tokens and the trailing number stand for is not established, so both are kept
-  verbatim (``identifiers``, ``local_number``) and never interpreted.
+* heading: ``5550 !PPN!``; without PPN the heading's ``chain`` (``5550 <chain>``),
+  without chain its ``label`` (``5550 <label>``). ``line_form`` says which one.
+* notation: ``6700 !PPN!`` when the entry has a PPN, otherwise for DK
+  ``6700 DK <notation>``. Other systems without PPN get no line (no rule).
 """
 
 from __future__ import annotations
@@ -31,28 +23,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .schema import KINDS, check_schema, clean_label, compact, split_variants
+
 logger = logging.getLogger(__name__)
 
-TERM_FORMATS = ("plain", "swb_packed")
-
-#: RSWK heading-type indicators as used in the packed field.
-TYPE_LABELS = {
-    "s": "Sachschlagwort",
-    "g": "Geografikum",
-    "p": "Person",
-    "k": "Körperschaft",
-    "c": "Kongress",
-    "t": "Werktitel",
-    "f": "Formschlagwort",
-    "z": "Zeitschlagwort",
-}
+HEADING_TAG = "5550"
+CLASSIFICATION_TAG = "6700"
 
 _TRANSLIT = {"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"}
-_SEGMENT = re.compile(r"\|([a-z])\|")
-_OLD_TYPE = re.compile(r"^\s*([sgpkctfz])\.(?=\S)")
-_OLD_SPLIT = re.compile(r"(?:^|\s)([sgpkctfz])\.(?=\S)")
-_ID_TOKEN = re.compile(r"!(a?[0-9X]+)!")
-
 
 
 def fold(text: Any) -> str:
@@ -70,208 +48,82 @@ def fold(text: Any) -> str:
     return raw.strip()
 
 
-def _clean(text: str) -> str:
-    text = text.replace("¬", "")
-    return re.sub(r"\s+", " ", text).strip(" ,;")
+def normalize_kinds(kinds: Any) -> Optional[set]:
+    """``None``/empty → no filter; a string or list of kind names → the set.
+
+    Unknown names raise ``ValueError`` so a misspelt filter does not silently
+    return nothing.
+    """
+    if kinds is None or kinds == "" or kinds == []:
+        return None
+    items = [kinds] if isinstance(kinds, str) else list(kinds)
+    by_fold = {fold(k): k for k in KINDS}
+    out = set()
+    for item in items:
+        for part in str(item).split(","):
+            if not part.strip():
+                continue
+            name = by_fold.get(fold(part))
+            if name is None:
+                raise ValueError(f"Unbekannte Art '{part.strip()}' (erlaubt: {', '.join(KINDS)})")
+            out.add(name)
+    return out or None
 
 
 @dataclass
-class ParsedHeading:
-    """A heading field taken apart. ``raw`` is always kept."""
-
-    raw: str
-    text: str = ""
-    type: str = ""
-    identifiers: List[str] = field(default_factory=list)
-    local_number: str = ""
-    variants: List[Tuple[str, str]] = field(default_factory=list)
-
-
-def _old_style_segments(text: str) -> List[Tuple[str, str]]:
-    """``g.Nordchile g.Chile-Nord`` → ``[("g", "Nordchile"), ("g", "Chile-Nord")]``."""
-    marks = list(_OLD_SPLIT.finditer(text))
-    if not marks:
-        return [("", text)] if text.strip() else []
-    out = []
-    if text[: marks[0].start()].strip():
-        out.append(("", text[: marks[0].start()]))
-    for i, mark in enumerate(marks):
-        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
-        out.append((mark.group(1), text[mark.end(): end]))
-    return out
-
-
-def _segments(text: str) -> List[Tuple[str, str]]:
-    parts = _SEGMENT.split(text or "")
-    if len(parts) == 1:
-        return _old_style_segments(parts[0])
-    out: List[Tuple[str, str]] = []
-    if parts[0].strip():
-        out.extend(_old_style_segments(parts[0]))
-    for i in range(1, len(parts), 2):
-        out.append((parts[i], parts[i + 1]))
-    return out
-
-
-def parse_heading(raw: Any, term_format: str = "plain") -> ParsedHeading:
-    """Split a heading field per ``term_format``. - Claude Generated"""
-    text = "" if raw is None else str(raw)
-    if term_format != "swb_packed":
-        return ParsedHeading(raw=text, text=_clean(text))
-    head, has_sep, tail = text.partition("‡")
-    segments = _segments(head)
-    parsed = ParsedHeading(raw=text)
-    if not segments:
-        return parsed
-    first_type, first_text = segments[0]
-    parsed.type = first_type
-    parsed.identifiers = _ID_TOKEN.findall(first_text)
-    body = _ID_TOKEN.sub(" ", first_text).rstrip()
-    # A trailing number is split off only where the measured pattern has it:
-    # right after the last ``!…!`` token (3-7 digits), or, without tokens, before
-    # ``‡`` with 5-7 digits (a 4-digit year at the end of a heading stays).
-    stripped = first_text.rstrip()
-    if parsed.identifiers:
-        after_last_id = stripped[stripped.rfind("!") + 1:]
-        number = re.fullmatch(r"\s*(\d{3,7})", after_last_id)
-    elif has_sep:
-        number = re.search(r"\s(\d{5,7})$", stripped)
-    else:
-        number = None
-    if number:
-        parsed.local_number = number.group(1)
-        body = body[: len(body) - len(number.group(1))]
-    parsed.text = _clean(body)
-    for vtype, vtext in segments[1:] + _segments(tail):
-        cleaned = _clean(_ID_TOKEN.sub(" ", vtext))
-        if cleaned:
-            parsed.variants.append((vtype, cleaned))
-    return parsed
-
-
-def normalize_code(raw: Any, scheme: str = "") -> Tuple[str, List[str]]:
-    """``"DK 624.137.2 !1293463876!"`` → ``("624.137.2", ["1293463876"])``."""
-    text = str(raw or "")
-    ids = _ID_TOKEN.findall(text)
-    text = _ID_TOKEN.sub(" ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    for prefix in {scheme.strip(), "DK", "UDK", "UDC"} - {""}:
-        if text.upper().startswith(prefix.upper() + " "):
-            text = text[len(prefix) + 1:].strip()
-            break
-    return text, ids
-
-
-def _norm_id(value: Any) -> Any:
-    """Join keys stored as Double (``2198.0``) with Integer references."""
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, str):
-        stripped = value.strip()
-        if re.fullmatch(r"-?\d+(\.0+)?", stripped):
-            return int(float(stripped))
-        return stripped or None
-    return value
-
-
-def _split_list(value: Any) -> List[str]:
-    return [p.strip() for p in str(value or "").split(",") if p.strip()]
-
-
-@dataclass
-class RoleMapping:
-    """Which table/column plays which role. Read from the plugin settings."""
-
-    term_table: str = ""
-    term_id_column: str = ""
-    term_column: str = ""
-    term_format: str = "plain"
-    variant_column: str = ""
-    broader_column: str = ""
-    related_column: str = ""
-    note_columns: List[str] = field(default_factory=list)
-    term_notation_columns: List[str] = field(default_factory=list)
-    notation_table: str = ""
-    notation_id_column: str = ""
-    notation_code_column: str = ""
-    notation_caption_column: str = ""
-    notation_scheme: str = "DK"
-
-    @classmethod
-    def from_settings(cls, settings: Dict[str, Any]) -> "RoleMapping":
-        s = settings or {}
-        fmt = str(s.get("term_format") or "plain").strip()
-        return cls(
-            term_table=str(s.get("term_table") or "").strip(),
-            term_id_column=str(s.get("term_id_column") or "").strip(),
-            term_column=str(s.get("term_column") or "").strip(),
-            term_format=fmt if fmt in TERM_FORMATS else "plain",
-            variant_column=str(s.get("variant_column") or "").strip(),
-            broader_column=str(s.get("broader_column") or "").strip(),
-            related_column=str(s.get("related_column") or "").strip(),
-            note_columns=_split_list(s.get("note_columns")),
-            term_notation_columns=_split_list(s.get("term_notation_columns")),
-            notation_table=str(s.get("notation_table") or "").strip(),
-            notation_id_column=str(s.get("notation_id_column") or "").strip(),
-            notation_code_column=str(s.get("notation_code_column") or "").strip(),
-            notation_caption_column=str(s.get("notation_caption_column") or "").strip(),
-            notation_scheme=str(s.get("notation_scheme") or "DK").strip(),
-        )
+class ClassificationRecord:
+    id: int
+    system: str
+    notation: str
+    label: str
+    ppn: str
+    digits: str = ""
 
     @property
-    def has_terms(self) -> bool:
-        return bool(self.term_table and self.term_column)
-
-    @property
-    def has_notations(self) -> bool:
-        return bool(self.notation_table and self.notation_code_column)
-
-    def required_columns(self) -> Dict[str, List[str]]:
-        need: Dict[str, List[str]] = {}
-        if self.has_terms:
-            cols = [self.term_column, self.term_id_column, self.variant_column, self.broader_column,
-                    self.related_column, *self.note_columns, *self.term_notation_columns]
-            need[self.term_table] = [c for c in cols if c]
-        if self.has_notations:
-            cols = [self.notation_code_column, self.notation_id_column, self.notation_caption_column]
-            need.setdefault(self.notation_table, []).extend(c for c in cols if c)
-        return need
+    def line(self) -> Optional[str]:
+        if self.ppn:
+            return f"{CLASSIFICATION_TAG} !{self.ppn}!"
+        if self.system == "DK":
+            return f"{CLASSIFICATION_TAG} DK {self.notation}"
+        return None
 
 
 @dataclass
-class TermRecord:
-    id: Any
-    heading: ParsedHeading
-    broader: str = ""
-    related: List[str] = field(default_factory=list)
-    notes: List[str] = field(default_factory=list)
-    notation_refs: List[Any] = field(default_factory=list)
+class HeadingRecord:
+    id: int
+    label: str
+    kind: str
+    ppn: str
+    chain: str
+    variants: List[str]
+    links: List[Tuple[int, bool]] = field(default_factory=list)  # (classification_id, ambiguous)
     folded: str = ""
     folded_variants: List[str] = field(default_factory=list)
 
+    @property
+    def line(self) -> str:
+        return f"{HEADING_TAG} {self.line_value}"
 
-@dataclass
-class NotationRecord:
-    id: Any
-    code_raw: str
-    code: str
-    caption: str
-    identifiers: List[str]
-    digits: str
+    @property
+    def line_form(self) -> str:
+        if self.ppn:
+            return "ppn"
+        return "chain" if self.chain else "label"
 
-
-def _q(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
+    @property
+    def line_value(self) -> str:
+        if self.ppn:
+            return f"!{self.ppn}!"
+        return self.chain or self.label
 
 
 class GeoSachdbStore:
-    """Mapping-driven, read-only view on the converted database. - Claude Generated"""
+    """Read-only view on one schema-v1 database. - Claude Generated"""
 
-    def __init__(self, db_path: str, mapping: RoleMapping):
+    def __init__(self, db_path: str):
         self.db_path = str(db_path or "").strip()
-        self.mapping = mapping
-        self._terms: Optional[List[TermRecord]] = None
-        self._notations: Optional[List[NotationRecord]] = None
+        self._headings: Optional[List[HeadingRecord]] = None
+        self._classifications: Optional[Dict[int, ClassificationRecord]] = None
         self._status: Optional[Dict[str, Any]] = None
 
     # ── connection + status ───────────────────────────────────────────────
@@ -302,49 +154,33 @@ class GeoSachdbStore:
         path = Path(self.db_path).expanduser()
         if not path.is_file():
             return no(f"Datenbankdatei nicht gefunden: {path}")
-        if not (self.mapping.has_terms or self.mapping.has_notations):
-            return no("Keine Rollen-Abbildung konfiguriert (term_table/term_column oder "
-                      "notation_table/notation_code_column).")
         try:
             conn = self._connect()
         except sqlite3.Error as exc:
             return no(f"Datenbank nicht lesbar: {exc}")
         try:
-            existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for table, columns in self.mapping.required_columns().items():
-                if table not in existing:
-                    return no(f"Tabelle '{table}' fehlt in {path.name}")
-                have = {r[1] for r in conn.execute(f"PRAGMA table_info({_q(table)})")}
-                missing = [c for c in columns if c not in have]
-                if missing:
-                    return no(f"Spalte(n) {missing} fehlen in Tabelle '{table}'")
-                if conn.execute(f"SELECT 1 FROM {_q(table)} LIMIT 1").fetchone() is None:
-                    return no(f"Tabelle '{table}' ist leer")
-            return {"available": True, "reason": "", "provenance": self._provenance(conn, existing)}
+            reason = check_schema(conn)
+            if reason:
+                return no(f"{path.name}: {reason}")
+            if conn.execute("SELECT 1 FROM heading LIMIT 1").fetchone() is None and \
+                    conn.execute("SELECT 1 FROM classification LIMIT 1").fetchone() is None:
+                return no(f"{path.name}: Tabellen heading und classification sind leer")
+            return {"available": True, "reason": "", "provenance": self._provenance(conn)}
         except sqlite3.Error as exc:
             return no(f"Datenbank nicht lesbar: {exc}")
         finally:
             conn.close()
 
-    def _provenance(self, conn: sqlite3.Connection, existing: set) -> Dict[str, Any]:
+    def _provenance(self, conn: sqlite3.Connection) -> Dict[str, Any]:
         out: Dict[str, Any] = {"db_path": str(Path(self.db_path).expanduser())}
-        if "alima_import_run" in existing:
-            row = conn.execute(
-                "SELECT source_path, source_sha256, source_mtime, reader, finished_at "
-                "FROM alima_import_run ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if row:
-                out.update({
-                    "source_file": Path(str(row[0])).name,
-                    "source_sha256": str(row[1])[:16],
-                    "source_mtime": row[2],
-                    "reader": row[3],
-                    "imported_at": row[4],
-                })
-        if "alima_import_table" in existing:
-            wanted = {self.mapping.term_table, self.mapping.notation_table} - {""}
-            rows = conn.execute("SELECT target_table, rows_written FROM alima_import_table").fetchall()
-            out["rows"] = {t: n for t, n in rows if t in wanted}
+        meta = dict(conn.execute("SELECT key, value FROM meta").fetchall())
+        for key in ("schema_version", "source", "source_date", "source_sha256", "created_at", "importer"):
+            if meta.get(key):
+                out[key] = meta[key] if key != "source_sha256" else str(meta[key])[:16]
+        out["rows"] = {
+            t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            for t in ("heading", "classification", "heading_classification")
+        }
         return out
 
     def provenance(self) -> Dict[str, Any]:
@@ -352,97 +188,59 @@ class GeoSachdbStore:
 
     # ── loading (once per instance) ───────────────────────────────────────
 
-    def notations(self) -> List[NotationRecord]:
-        if self._notations is not None:
-            return self._notations
-        self._notations = []
-        m = self.mapping
-        if not m.has_notations:
-            return self._notations
+    def classifications(self) -> Dict[int, ClassificationRecord]:
+        if self._classifications is not None:
+            return self._classifications
         from src.utils.lookups.local_scheme import digits_of
 
-        id_col = _q(m.notation_id_column) if m.notation_id_column else "rowid"
-        cap_col = _q(m.notation_caption_column) if m.notation_caption_column else "NULL"
+        out: Dict[int, ClassificationRecord] = {}
         conn = self._connect()
         try:
-            for nid, code_raw, caption in conn.execute(
-                f"SELECT {id_col}, {_q(m.notation_code_column)}, {cap_col} FROM {_q(m.notation_table)}"
+            for cid, system, notation, label, ppn in conn.execute(
+                "SELECT id, system, notation, label, ppn FROM classification ORDER BY id"
             ):
-                if code_raw is None or not str(code_raw).strip():
+                if not str(notation or "").strip():
                     continue
-                code, ids = normalize_code(code_raw, m.notation_scheme)
-                self._notations.append(NotationRecord(
-                    id=_norm_id(nid), code_raw=str(code_raw), code=code,
-                    caption=_clean(str(caption or "")), identifiers=ids, digits=digits_of(code),
-                ))
+                out[int(cid)] = ClassificationRecord(
+                    id=int(cid), system=str(system or "").strip().upper(), notation=str(notation).strip(),
+                    label=clean_label(label), ppn=str(ppn or "").strip(),
+                    digits=digits_of(notation) if str(system).upper() == "DK" else "",
+                )
         finally:
             conn.close()
-        return self._notations
-
-    def notations_by_id(self) -> Dict[Any, List[NotationRecord]]:
-        out: Dict[Any, List[NotationRecord]] = {}
-        for rec in self.notations():
-            if rec.id is not None:
-                out.setdefault(rec.id, []).append(rec)
+        self._classifications = out
         return out
 
-    def terms(self) -> List[TermRecord]:
-        if self._terms is not None:
-            return self._terms
-        self._terms = []
-        m = self.mapping
-        if not m.has_terms:
-            return self._terms
-        extra = [c for c in (m.variant_column, m.broader_column, m.related_column) if c]
-        cols = [m.term_id_column or "rowid", m.term_column, *extra, *m.note_columns, *m.term_notation_columns]
-        select = ", ".join(c if c == "rowid" else _q(c) for c in cols)
+    def headings(self) -> List[HeadingRecord]:
+        if self._headings is not None:
+            return self._headings
+        links: Dict[int, List[Tuple[int, bool]]] = {}
+        out: List[HeadingRecord] = []
         conn = self._connect()
         try:
-            for row in conn.execute(f"SELECT {select} FROM {_q(m.term_table)}"):
-                values = dict(zip(cols, row))
-                heading = parse_heading(values.get(m.term_column), m.term_format)
-                if not heading.text:
+            for hid, cid, ambiguous in conn.execute(
+                "SELECT heading_id, classification_id, ambiguous FROM heading_classification "
+                "ORDER BY heading_id, position, classification_id"
+            ):
+                links.setdefault(int(hid), []).append((int(cid), bool(ambiguous)))
+            for hid, label, kind, ppn, chain, variants in conn.execute(
+                "SELECT id, label, kind, ppn, chain, variants FROM heading ORDER BY id"
+            ):
+                text = clean_label(label)
+                if not text:
                     continue
-                if m.variant_column and values.get(m.variant_column):
-                    for part in re.split(r"[‡;\n]", str(values[m.variant_column])):
-                        if _clean(part):
-                            heading.variants.append(("", _clean(part)))
-                broader = ""
-                if m.broader_column and values.get(m.broader_column):
-                    parsed = parse_heading(values[m.broader_column], m.term_format)
-                    broader = parsed.text
-                    if m.term_format == "swb_packed" and broader.lower() == "kein":
-                        broader = ""
-                related: List[str] = []
-                if m.related_column and values.get(m.related_column):
-                    rel = parse_heading(values[m.related_column], m.term_format)
-                    related = [t for t in [rel.text, *(v for _, v in rel.variants)] if t]
-                notes = [_clean(str(values[c])) for c in m.note_columns if values.get(c) not in (None, "")]
-                refs = [_norm_id(values[c]) for c in m.term_notation_columns if values.get(c) is not None]
-                self._terms.append(TermRecord(
-                    id=_norm_id(values[cols[0]]), heading=heading, broader=broader, related=related,
-                    notes=[n for n in notes if n], notation_refs=refs, folded=fold(heading.text),
-                    folded_variants=[fold(v) for _, v in heading.variants],
+                forms = split_variants(variants)
+                out.append(HeadingRecord(
+                    id=int(hid), label=text, kind=str(kind or "sonstiges"), ppn=str(ppn or "").strip(),
+                    chain=str(chain or "").strip(), variants=forms, links=links.get(int(hid), []),
+                    folded=fold(text), folded_variants=[fold(v) for v in forms],
                 ))
         finally:
             conn.close()
-        return self._terms
+        self._headings = out
+        return out
 
-    def raw_term_row(self, record_id: Any) -> Optional[Dict[str, Any]]:
-        """All columns of one subject record, as stored."""
-        m = self.mapping
-        key = m.term_id_column or "rowid"
-        key_sql = "rowid" if key == "rowid" else _q(key)
-        conn = self._connect()
-        try:
-            cur = conn.execute(f"SELECT * FROM {_q(m.term_table)} WHERE {key_sql} = ?", (record_id,))
-            row = cur.fetchone()
-            if row is None and isinstance(record_id, int):
-                cur = conn.execute(f"SELECT * FROM {_q(m.term_table)} WHERE {key_sql} = ?", (float(record_id),))
-                row = cur.fetchone()
-            if row is None:
-                return None
-            names = [d[0] for d in cur.description]
-            return {n: (v.hex() if isinstance(v, bytes) else v) for n, v in zip(names, row)}
-        finally:
-            conn.close()
+    def by_notation(self, system: str, notation: str) -> List[ClassificationRecord]:
+        key = compact(notation)
+        return [c for c in self.classifications().values()
+                if c.system == system and compact(c.notation) == key]

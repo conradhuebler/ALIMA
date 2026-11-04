@@ -1977,9 +1977,12 @@ _OTHER_SYSTEMS = ("RVK", "DDC", "BK")
 def _geo_codes(entries: Optional[List[Any]], scheme: str) -> List[str]:
     """Assigned notations of ``scheme`` (default DK), de-duplicated in order.
 
-    Entries of another system (``system: RVK`` or an ``RVK …`` prefix) are left
-    out: the local database holds notations of one scheme. - Claude Generated
+    The system comes from the entry (``system: RVK``) or, without one, from the
+    notation itself (``RVK …`` prefix, RVK shape ``QP 925``); entries of another
+    system are left out. - Claude Generated
     """
+    from src.utils.lookups.geo_sachdb.schema import normalize_notation
+
     wanted = scheme.strip().upper()
     out: List[str] = []
     for entry in list(entries or []):
@@ -1988,10 +1991,12 @@ def _geo_codes(entries: Optional[List[Any]], scheme: str) -> List[str]:
             code = str(entry.get("code") or entry.get("notation") or "").strip()
         else:
             system, code = "", str(entry or "").strip()
-        if not code or (system and system != wanted):
+        if not code:
             continue
         head = code.split(" ", 1)[0].upper()
         if head in _OTHER_SYSTEMS and head != wanted:
+            continue
+        if (system or normalize_notation(code, wanted)[0]) != wanted:
             continue
         if code not in out:
             out.append(code)
@@ -1999,31 +2004,40 @@ def _geo_codes(entries: Optional[List[Any]], scheme: str) -> List[str]:
 
 
 def _format_geo_candidates(payload: Dict[str, Any]) -> str:
-    """Render the proposals as a block a later LLM step or a report can read."""
+    """Render the proposals as a block a later LLM step or a report can read.
+
+    Carries the finished WinIBW lines (5550 per local heading, 6700 per local
+    notation), so a reader can take them over unchanged. - Claude Generated
+    """
     if not (payload.get("keyword_matches") or payload.get("notation_matches")):
         return ""
     src = payload.get("source") or {}
     lines = [
         "Lokale Sacherschließungsdatenbank"
-        f" ({src.get('source_file') or 'lokal'}, Stand {src.get('source_mtime') or 'unbekannt'}):"
+        f" ({src.get('source') or 'lokal'}, Stand {src.get('source_date') or 'unbekannt'}):"
     ]
     for match in payload.get("keyword_matches") or []:
         for rec in match.get("records") or []:
-            codes = ", ".join(n["code"] for n in rec.get("notations") or [] if n.get("code")) or "keine"
-            lines.append(f"- Schlagwort '{match['keyword']}' → lokaler Satz '{rec['term']}' "
-                         f"({rec.get('matched')}); Notationen: {codes}")
+            cls = "; ".join(f"{n['system']} {n['notation']} → {n['line']}"
+                            for n in rec.get("classifications") or [] if n.get("line")) or "keine"
+            lines.append(f"- Schlagwort '{match['keyword']}' → lokal '{rec['label']}' ({rec['kind']}): "
+                         f"{rec['line']}; Notationen: {cls}")
+    if payload.get("not_found"):
+        lines.append("Lokal nicht vorhanden (normal, die Datenbank deckt nur den lokalen Bedarf): "
+                     + ", ".join(payload["not_found"]))
     for match in payload.get("notation_matches") or []:
         if match.get("local"):
-            captions = "; ".join(f"{n['code']} {n.get('caption') or ''}".strip() for n in match["local"])
-            lines.append(f"- Vergebene Notation {match['code']}: lokal vorhanden ({captions})")
+            labels = "; ".join(f"{n['notation']} {n.get('label') or ''}".strip() for n in match["local"])
+            lines.append(f"- Vergebene Notation {match['code']}: lokal vorhanden ({labels}) → "
+                         f"{match.get('line') or 'keine Zeile'}")
         else:
             lines.append(f"- Vergebene Notation {match['code']}: lokal nicht vorhanden")
     open_ = [c for c in payload.get("candidates") or [] if not c.get("assigned")]
     if open_:
         lines.append("Notationen aus lokalen Sätzen, noch nicht vergeben (nur Vorschläge):")
         for cand in open_:
-            lines.append(f"- {cand['notation']} | {cand.get('caption') or ''} | über "
-                         + ", ".join(cand.get("via_keywords") or []))
+            lines.append(f"- {cand['notation']} | {cand.get('label') or ''} | {cand.get('line') or 'keine Zeile'}"
+                         " | über " + ", ".join(cand.get("via_keywords") or []))
     return "\n".join(lines)
 
 
@@ -2040,22 +2054,26 @@ def geo_sachdb_candidates(
 
     Deterministic and decision-free, like ``shelf_candidates``: it looks up the
     final keywords (only identical heading/variant matches by default,
-    ``min_score: 90``) and the assigned notations, and lists the notations of the
-    matched local records as ``candidates`` with ``assigned`` marking those
-    already given. ``dk_classifications`` is never changed. The candidate list
-    uses ``notation`` keys so ``filter_unauthorized_shelf`` can hold a later
-    selection step to it.
+    ``min_score: 90``; ``kinds`` restricts the heading kinds, empty = all) and
+    the assigned notations of ``scheme``, and lists the notations of the matched
+    local headings as ``candidates`` with ``assigned`` marking those already
+    given. Keywords without a local heading are listed in ``not_found``.
+    ``lines`` holds the finished WinIBW lines (5550 per matched heading, 6700
+    per candidate of ``scheme``). ``dk_classifications`` is never changed. The
+    candidate list uses ``notation`` keys so ``filter_unauthorized_shelf`` can
+    hold a later selection step to it.
 
-    No plugin instance, a disabled one, or one without database/mapping → an
+    No plugin instance, a disabled one, or one without a usable database → an
     empty result with ``status`` naming the reason; never an error.
     - Claude Generated
     """
     cfg = config or {}
     lookup_id = str(cfg.get("lookup") or "geo_sachdb")
-    scheme = str(cfg.get("scheme") or "DK")
+    scheme = str(cfg.get("scheme") or "DK").strip().upper()
     per_keyword = int(cfg.get("max_per_keyword") or 3)
     max_keywords = int(cfg.get("max_keywords") or 30)
     min_score = float(cfg.get("min_score") if cfg.get("min_score") is not None else 90)
+    kinds = cfg.get("kinds") or None
 
     raw_keywords = keywords
     if not raw_keywords and context is not None:
@@ -2065,8 +2083,9 @@ def geo_sachdb_candidates(
     codes = _geo_codes(raw_notations, scheme)
 
     def empty(status: str, reason: str = "") -> Dict[str, Any]:
-        return {"status": status, "reason": reason, "keyword_matches": [], "notation_matches": [],
-                "candidates": [], "prompt_text": "", "count": 0, "source": {}}
+        return {"status": status, "reason": reason, "keyword_matches": [], "not_found": [],
+                "notation_matches": [], "candidates": [], "lines": [], "prompt_text": "", "count": 0,
+                "source": {}}
 
     if not (terms or codes):
         return empty("no_input", "keine Schlagworte und keine Notationen")
@@ -2084,38 +2103,45 @@ def geo_sachdb_candidates(
         reason = (lookup.availability() or {}).get("reason", "") if hasattr(lookup, "availability") else ""
         return empty("unavailable", reason)
 
-    from src.utils.lookups.geo_sachdb.store import normalize_code
+    from src.utils.lookups.geo_sachdb.schema import compact, normalize_notation
 
-    assigned = {normalize_code(c, scheme)[0].replace(" ", "") for c in codes}
+    assigned = {compact(normalize_notation(c, scheme)[1]) for c in codes}
     payload = empty("ok")
     by_code: Dict[str, Dict[str, Any]] = {}
+    heading_lines: List[str] = []
     try:
-        for term in terms:
-            res = lookup.search_terms(term, max_results=per_keyword, min_score=min_score)
-            hits = res.get("results") or []
-            payload["source"] = res.get("source") or payload["source"]
-            if not hits:
-                continue
+        res: Dict[str, Any] = {"found": [], "not_found": []}
+        if terms:
+            res = lookup.lookup_terms(terms, kinds=kinds, min_score=min_score, max_per_term=per_keyword)
+        if res.get("error"):
+            return empty("error", str(res["error"]))
+        payload["source"] = res.get("source") or payload["source"]
+        payload["not_found"] = list(res.get("not_found") or [])
+        for match in res.get("found") or []:
+            term = match.get("term")
             records = []
-            for hit in hits:
+            for head in match.get("headings") or []:
                 records.append({
-                    "id": hit.get("id"), "term": hit.get("term"), "type": hit.get("type"),
-                    "matched": hit.get("matched"), "identifiers": hit.get("identifiers") or [],
-                    "notations": [n for n in hit.get("notations") or [] if n.get("code")],
+                    "id": head.get("id"), "label": head.get("label"), "kind": head.get("kind"),
+                    "ppn": head.get("ppn"), "line": head.get("line"), "line_form": head.get("line_form"),
+                    "matched": head.get("matched"), "classifications": head.get("classifications") or [],
                 })
-                for note in hit.get("notations") or []:
-                    code = note.get("code")
-                    if not code:
+                if head.get("line") and head["line"] not in heading_lines:
+                    heading_lines.append(head["line"])
+                for note in head.get("classifications") or []:
+                    if note.get("system") != scheme:
                         continue
-                    cand = by_code.setdefault(code, {
-                        "notation": f"{scheme} {code}", "code": code, "caption": note.get("caption") or "",
-                        "via_keywords": [], "via_records": [],
-                        "assigned": code.replace(" ", "") in assigned,
+                    key = compact(note["notation"])
+                    cand = by_code.setdefault(key, {
+                        "notation": f"{scheme} {note['notation']}", "code": note["notation"],
+                        "system": scheme, "label": note.get("label") or "", "ppn": note.get("ppn"),
+                        "line": note.get("line"), "via_keywords": [], "via_records": [],
+                        "assigned": key in assigned,
                     })
                     if term not in cand["via_keywords"]:
                         cand["via_keywords"].append(term)
-                    if hit.get("id") not in cand["via_records"]:
-                        cand["via_records"].append(hit.get("id"))
+                    if head.get("id") not in cand["via_records"]:
+                        cand["via_records"].append(head.get("id"))
             payload["keyword_matches"].append({"keyword": term, "records": records})
         for code in codes:
             res = lookup.match_notation(code, max_results=per_keyword)
@@ -2125,8 +2151,11 @@ def geo_sachdb_candidates(
             payload["notation_matches"].append({
                 "code": code,
                 "normalized": res.get("normalized"),
-                "local": [{"code": n["code"], "caption": n.get("caption") or ""} for n in res.get("exact") or []],
-                "broader": [{"code": n["code"], "caption": n.get("caption") or ""} for n in res.get("broader") or []],
+                "line": res.get("line"),
+                "local": [{"notation": n["notation"], "label": n.get("label") or "", "ppn": n.get("ppn"),
+                           "line": n.get("line")} for n in res.get("exact") or []],
+                "broader": [{"notation": n["notation"], "label": n.get("label") or ""}
+                            for n in res.get("broader") or []],
                 "linked_terms_total": res.get("linked_terms_total", 0),
             })
     except Exception as exc:  # noqa: BLE001
@@ -2137,6 +2166,7 @@ def geo_sachdb_candidates(
         by_code.values(), key=lambda c: (c["assigned"], -len(c["via_keywords"]), c["code"])
     )
     payload["count"] = len(payload["candidates"])
+    payload["lines"] = heading_lines + [c["line"] for c in payload["candidates"] if c.get("line")]
     payload["prompt_text"] = _format_geo_candidates(payload)
     logger.info(
         f"geo_sachdb_candidates: {len(payload['keyword_matches'])}/{len(terms)} keywords matched, "
