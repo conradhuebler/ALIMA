@@ -14,6 +14,7 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField
 
+from src.core.search.cache_only import CACHE_MISS_MESSAGE, cache_only_field
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from src.core.search.provider_base import SuggesterBackedProvider
 from src.core.search.registry import register_provider
@@ -69,6 +70,7 @@ class FincProvider(SuggesterBackedProvider):
                 key="harvest_enabled", label="finc-Subject-Harvest", kind=BOOL, default=False,
                 help="Im Keyword-Schritt finc-Titel ernten und gegen den GND-Cache abgleichen.",
             ),
+            cache_only_field(),
         ]
 
     @classmethod
@@ -227,6 +229,7 @@ class FincProvider(SuggesterBackedProvider):
             timeout=int(self._config.get("timeout", 30) or 30),
             institution_filter=self._config.get("institution_filter", "") or "",
             debug=self._config.get("debug", False),
+            cache_only=self.cache_only,
         )
 
     def catalog_web_record_base(self) -> str:
@@ -266,6 +269,13 @@ class FincProvider(SuggesterBackedProvider):
             facet_val = self._AVAIL_TO_FACET.get((availability or "").lower())
             if facet_val:
                 effective_filters.setdefault("facet_avail", facet_val)
+        if self.cache_only:
+            raw, errors = self._search_cache_only(
+                list(query), search_type, effective_facets, limit
+            )
+            if capability is SearchCapability.TITLE_RECORDS:
+                return ProviderResult.from_finc_records(raw, errors=errors)
+            return _facets_from_finc_dict(raw, errors=errors)
         if progress is not None:
             try:
                 self.suggester.currentTerm.connect(progress)
@@ -288,6 +298,40 @@ class FincProvider(SuggesterBackedProvider):
         if capability is SearchCapability.TITLE_RECORDS:
             return ProviderResult.from_finc_records(raw, errors=errors)
         return _facets_from_finc_dict(raw, errors=errors)
+
+    def _search_cache_only(
+        self,
+        query: List[str],
+        search_type: str,
+        facets: Optional[List[str]],
+        limit: Optional[int],
+    ):
+        """Per-term finc entries from the raw cache alone (cache-only mode).
+
+        Same key as the live write (search type + facet set), any age. Filters,
+        availability and limit are not part of that key: the stored entry for the
+        search type and facet set comes back whatever they are, its records cut
+        to ``limit``. A stored entry that recorded a failure (errors, no records)
+        counts as a miss. No HTTP request, no write-back. Returns ``(raw, errors)``
+        in the shape of ``FincSuggester.search`` / ``last_errors``. - Claude Generated
+        """
+        from src.core.search.provider import raw_cache_params_for
+
+        params = raw_cache_params_for("finc", search_type=search_type, facets=facets)
+        raw: dict = {}
+        errors: dict = {}
+        for term in query:
+            entry = self._cached_raw("finc", term, params)
+            if not isinstance(entry, dict) or (entry.get("errors") and not entry.get("records")):
+                raw[term] = {"records": [], "result_count": 0, "facets": {},
+                             "errors": [CACHE_MISS_MESSAGE]}
+                errors[term] = CACHE_MISS_MESSAGE
+                continue
+            entry = dict(entry)
+            if limit is not None:
+                entry["records"] = list(entry.get("records") or [])[: max(0, int(limit))]
+            raw[term] = entry
+        return raw, errors
 
     def dk_extractor(
         self,
@@ -315,6 +359,7 @@ class FincProvider(SuggesterBackedProvider):
             logger_=logger_,
             stream_callback=stream_callback,
             knowledge_manager=knowledge_manager,
+            cache_only=self.cache_only,
         )
 
     def _classification_search(

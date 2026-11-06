@@ -17,6 +17,7 @@ from typing import List, Dict, Any
 
 from src.core.data_models import KeywordAnalysisState
 from src.utils.pipeline_utils import PipelineJsonManager
+from src.utils.pipeline_formatters import geo_sachdb_entry_text, geo_sachdb_exhausted
 
 
 # K10+/WinIBW export format tags
@@ -304,6 +305,8 @@ def format_step_dk_classification(state: KeywordAnalysisState):
 
     if not state.dk_classifications:
         print("  (No DK classifications assigned)")
+        # The subject-heading lines of the local database need no notation.
+        _print_geo_sachdb(state)
         return
 
     print(f"DK Classifications ({len(state.dk_classifications)} assigned):")
@@ -317,6 +320,45 @@ def format_step_dk_classification(state: KeywordAnalysisState):
             print(f"  * {code}" + (f" - {label}" if label else ""))
 
     _print_shelf(state)
+    _print_geo_sachdb(state)
+
+
+def _print_geo_sachdb(state: KeywordAnalysisState):
+    """Print the lines of the local subject database, if the workflow produced any.
+
+    The lines are printed without indentation, one per line, so they can be
+    copied into WinIBW as they stand; what each line stands for and the notes
+    follow indented. A result saved before ``entries`` existed has no such
+    list; its notations the run did not give are named in one line instead.
+    - Claude Generated
+    """
+    geo = getattr(state, "geo_sachdb", None) or {}
+    lines = [str(line) for line in (geo.get("lines") or []) if line]
+    missing = [str(term) for term in (geo.get("not_found") or []) if term]
+    entries = [e for e in (geo.get("entries") or []) if isinstance(e, dict) and e.get("line")]
+    exhausted_label, exhausted_text = geo_sachdb_exhausted(geo)
+    if not (lines or missing or exhausted_text):
+        return
+    print("\nLokale Sacherschließung (geo_sachdb):")
+    for line in lines:
+        print(line)
+    if not lines:
+        print("  (keine Zeilen)")
+    for entry in entries:
+        print("  " + geo_sachdb_entry_text(entry))
+    if not entries:
+        proposed = [
+            str(cand.get("notation") or cand.get("code") or "")
+            for cand in (geo.get("candidates") or [])
+            if isinstance(cand, dict) and cand.get("line") and not cand.get("assigned")
+        ]
+        proposed = [p for p in proposed if p]
+        if proposed:
+            print("  6700, im Lauf nicht vergeben: " + ", ".join(proposed))
+    if exhausted_text:
+        print(f"  {exhausted_label.lower()}: {exhausted_text}")
+    if missing:
+        print("  ohne lokales Schlagwort: " + ", ".join(missing))
 
 
 def _print_shelf(state: KeywordAnalysisState):

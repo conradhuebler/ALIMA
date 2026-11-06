@@ -206,6 +206,10 @@ class _CategoryPanel(QWidget):
         while self.form_layout.rowCount():
             self.form_layout.removeRow(0)
         self._field_widgets = {}
+        # Die Widgets sind mit dem Formular gelöscht; ohne das Entfernen schreibt
+        # _flush_form in tote Qt-Objekte. - Claude Generated
+        for name in ("_enabled_cb", "_label_edit", "_hint_edit"):
+            self.__dict__.pop(name, None)
 
     def _build_form(self, inst: Optional[PluginInstanceConfig]) -> None:
         self._clear_form()
@@ -213,7 +217,22 @@ class _CategoryPanel(QWidget):
             self.form_layout.addRow(QLabel("Keine Instanz ausgewählt."))
             return
 
-        meta = self._adapter.type_meta(inst.provider_id)
+        # Eine gespeicherte Instanz kann zu einem Typ gehören, der nicht geladen
+        # ist (Code-Plugin gesperrt, nicht freigegeben oder entfernt). Die
+        # Exception in diesem Slot beendete sonst das ganze Programm (PyQt
+        # bricht bei unbehandelten Fehlern in Slots ab). - Claude Generated
+        try:
+            meta = self._adapter.type_meta(inst.provider_id)
+        except KeyError:
+            note = QLabel(
+                f"Das Plugin '{inst.provider_id}' ist nicht geladen. Code-Plugins "
+                "müssen erlaubt und das Plugin freigegeben sein (Plugin-Verzeichnis "
+                "neu einlesen). Die Einstellungen der Instanz bleiben unverändert "
+                "gespeichert."
+            )
+            note.setWordWrap(True)
+            self.form_layout.addRow(note)
+            return
 
         # Natural-language self-description (what it does + input/output).
         doc = getattr(meta, "doc", None)
@@ -668,6 +687,17 @@ class PluginSettingsTab(QWidget):
                 f"Kein Plugin-Verzeichnis gefunden:\n{cm.plugins_dir}",
             )
             return
+        # Der Scan arbeitet auf einer frisch gelesenen Konfiguration. load() mit
+        # ihr hätte den Haken "Code-Plugins erlauben" auf den gespeicherten Wert
+        # (aus) zurückgesetzt und ungespeicherte Instanzänderungen verworfen; mit
+        # OK wäre dann "aus" gespeichert worden. Darum: Dialogzustand behalten,
+        # nur neu gefundene Instanzen ergänzen. - Claude Generated
+        dialog_state = [i for panel in self._panels.values() for i in panel.collect()]
+        have = {(i.category, i.instance_id) for i in dialog_state}
+        found = [i for i in result.instances if (i.category, i.instance_id) not in have]
+        other = [p for p in config.plugins if p.category not in self._panels]
+        config.plugins = dialog_state + found + other
+        config.system_config.enable_code_plugins = enable_code
         self.load(config)  # reflect freshly merged instances/types
         lines = []
         for p in result.plugins:

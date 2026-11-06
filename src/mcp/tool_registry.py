@@ -1318,6 +1318,7 @@ class ToolRegistry(ToolGenerationMixin):
         appended to the tool description so an agent can steer between siblings.
         Disabled instances/types are skipped (config-driven selectability). - Claude Generated"""
         from src.core.search import provider_tool_specs
+        from src.core.search.cache_only import TOOL_DESCRIPTION_NOTE, is_cache_only
 
         specs_by_provider = {}
         for spec in provider_tool_specs():
@@ -1361,11 +1362,15 @@ class ToolRegistry(ToolGenerationMixin):
                             )
                             continue
                     used_names.add(name)
+                    description = self._describe_with_hint(spec.description, inst)
+                    if is_cache_only(getattr(inst, "settings", None)):
+                        # The agent must not expect network errors. - Claude Generated
+                        description += TOOL_DESCRIPTION_NOTE
                     tools.append(
                         (
                             ToolDefinition(
                                 name=name,
-                                description=self._describe_with_hint(spec.description, inst),
+                                description=description,
                                 parameters=spec.parameters,
                             ),
                             handler,
@@ -1431,6 +1436,7 @@ class ToolRegistry(ToolGenerationMixin):
 
         transform_by_source = {}
         params_by_source = {}
+        age_by_source = {}  # cache-only sources read raw at any age - Claude Generated
         for src in sources:
             transform = self._source_transform(src)
             if transform is None:
@@ -1439,6 +1445,8 @@ class ToolRegistry(ToolGenerationMixin):
             params_by_source[src] = raw_cache_params_for(
                 src, search_type=search_type, max_pages=max_pages
             )
+            if self._source_cache_only(src):
+                age_by_source[src] = None
 
         effective = list(transform_by_source.keys())
         if derived_default and effective != ["lobid", "swb", "catalog"]:
@@ -1470,8 +1478,20 @@ class ToolRegistry(ToolGenerationMixin):
             terms, effective, km, transform_by_source,
             params_by_source=params_by_source,
             max_age_hours=max_age_hours,
+            max_age_by_source=age_by_source,
         )
         return json.dumps(out, ensure_ascii=False, default=str)
+
+    def _source_cache_only(self, source) -> bool:
+        """Whether the instance behind a source id is in cache-only mode - Claude Generated"""
+        try:
+            inst = self._instance_for(source)
+            return inst is not None and (
+                getattr(self._provider_for(inst, cache=False), "cache_only", False) is True
+            )
+        except Exception as e:
+            log_caught(logger, e, "aggregate_gnd_results: cache-only check", detail=source)
+            return False
 
     def refresh(self):
         """Rebuild all tools from the *current* config (runtime plugin toggle).

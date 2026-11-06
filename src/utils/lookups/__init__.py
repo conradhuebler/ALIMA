@@ -19,6 +19,7 @@ from . import k10plus  # noqa: F401 — registers the k10plus lookup
 from . import dnb  # noqa: F401 — registers the dnb lookup
 from . import webindex  # noqa: F401 — registers the webindex lookup (website RAG)
 from . import local_scheme  # noqa: F401 — registers the local_scheme lookup (Aufstellungssystematik)
+from . import geo_sachdb  # noqa: F401 — registers the geo_sachdb lookup (local subject database)
 from .resolve import build_lookup, resolve_lookup_instance  # noqa: F401
 
 __all__ = [

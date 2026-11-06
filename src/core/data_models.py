@@ -166,6 +166,24 @@ class KeywordAnalysisState:
     # among them (see classification_systems on local systematics).
     # - Claude Generated
     shelf: Dict[str, Any] = field(default_factory=dict)
+    # What the local subject database (lookup plugin ``geo_sachdb``, workflow
+    # step ``geo_candidates``) says about this work: ``{lines, entries,
+    # exhausted, numbering, not_found, candidates, source}``. ``lines`` are the
+    # finished WinIBW lines as a plain copy block (one 555x line per matched
+    # local heading, numbered on after the result's keyword chains, see
+    # ``shared_context._geo_first_heading_tag``; one 6700 line per notation of
+    # a matched heading, given in this run or not); ``entries`` the same lines
+    # with what each stands for (heading: ``label``, ``kind``; notation:
+    # ``system``, ``notation``, ``label``, ``assigned``); ``exhausted`` the
+    # headings left without a line because the numbers reached 5599;
+    # ``not_found`` the final keywords without a local heading; ``candidates``
+    # those notations with ``assigned`` marking the ones the run gave;
+    # ``source`` the database version. Results saved before ``entries``
+    # existed carry only ``lines`` (all 5550), ``not_found``, ``candidates``,
+    # ``source``. Proposals only, nothing here enters ``dk_classifications``.
+    # Empty for every run without the step, without a usable plugin, or without
+    # any lookup result. - Claude Generated
+    geo_sachdb: Dict[str, Any] = field(default_factory=dict)
 
     # Iterative refinement support - Claude Generated
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata

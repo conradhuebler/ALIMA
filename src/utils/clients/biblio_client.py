@@ -90,7 +90,8 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                  enable_web_fallback: bool = True, timeout: int = 10,
                  rate_limit_delay_ms: int = 1000, use_json_cache: bool = True,
                  soap_search_url: str = "", soap_details_url: str = "",
-                 web_search_url: str = "", web_record_url: str = ""):
+                 web_search_url: str = "", web_record_url: str = "",
+                 cache_only: bool = False):
         """
         Initialize the extractor with the given token.
 
@@ -106,6 +107,9 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
             soap_details_url: SOAP details endpoint URL; falls back to class default if empty - Claude Generated
             web_search_url: Web frontend search URL for fallback scraping; disables web fallback if empty - Claude Generated
             web_record_url: Web frontend record base URL for fallback scraping - Claude Generated
+            cache_only: no network request at all (SOAP and web fallback are
+                blocked); DK extraction reads ``catalog_dk_cache`` at any age and
+                reports keywords without an entry in ``last_cache_misses`` - Claude Generated
 
         Note:
             - use_json_cache: Controls RSN detail lookups (step 2 of DK search)
@@ -125,6 +129,10 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         self.disable_sql_cache = False  # Claude Generated - SQL DB cache toggle (default: use cache)
         self._using_web_mode = False  # Claude Generated - Track if we switched to web pipeline
         self.timeout = timeout  # Claude Generated - Configurable timeout
+        # Cache-only mode (src/core/search/cache_only.py) - Claude Generated
+        self.cache_only = bool(cache_only)
+        self.last_cache_misses: List[str] = []
+        self._cache_only_block_logged = False
 
         # Statistics tracking - Claude Generated
         self._json_cache_hits = 0
@@ -501,6 +509,9 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
         Returns title-based structures (not classification-based)
         """
+        if self.cache_only:
+            return self._extract_dk_cache_only(keywords)
+
         from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
         # Import ClassificationLookupService for file-based optimization
         from ...utils.classification_lookup_service import get_classification_lookup_service
@@ -736,6 +747,53 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         # Log performance statistics - Claude Generated
         self.log_performance_stats()
 
+        return keyword_results
+
+    def _extract_dk_cache_only(self, keywords: List[str]) -> List[Dict[str, Any]]:
+        """Cache-only DK/RVK extraction: ``catalog_dk_cache`` alone, at any age.
+
+        No SOAP, no web fallback, no rate-limit sleep, nothing written to the DK
+        cache. A ``success`` row is a hit; a ``no_results`` row is a known empty
+        answer; a missing row or a cached failure (``error``/``timeout``) is a
+        miss and is listed in ``last_cache_misses`` (reset per call). Same
+        keyword-centric return shape as the live path, ``source`` = ``cache``.
+        ``force_update`` has no meaning here (refreshing needs the network).
+        - Claude Generated
+        """
+        from ...core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+        dk_cache = UnifiedKnowledgeManager()
+        self.last_cache_misses = []
+        normalized_keywords: Dict[str, str] = {}
+        for kw in keywords:
+            clean = kw.split('(')[0].strip()
+            if clean not in normalized_keywords:
+                normalized_keywords[clean] = kw
+
+        keyword_results = []
+        for clean_kw, original_kw in normalized_keywords.items():
+            cache_result = dk_cache.get_catalog_dk_cache(clean_kw, ignore_ttl=True)
+            status = cache_result[1] if cache_result else None
+            if status not in ("success", "no_results"):
+                self.last_cache_misses.append(original_kw)
+                continue
+            kw_titles = cache_result[0] or []
+            if not kw_titles:
+                continue
+            kw_classifications = dk_cache.extract_classifications_from_titles(
+                kw_titles, matched_keywords=[clean_kw]
+            )
+            if kw_classifications:
+                keyword_results.append({
+                    "keyword": original_kw,
+                    "source": "cache",
+                    "search_time_ms": 0.0,
+                    "classifications": kw_classifications,
+                })
+        logger.debug(
+            f"cache_only DK: {len(keyword_results)} results, "
+            f"{len(self.last_cache_misses)}/{len(normalized_keywords)} not in cache"
+        )
         return keyword_results
 
     def _flatten_to_dk_centric(

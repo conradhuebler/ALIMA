@@ -16,6 +16,50 @@ from .pipeline_text_utils import repair_display_text, flatten_keyword_centric_re
 
 logger = logging.getLogger(__name__)
 
+#: Note on a 6700 line of the local subject database whose notation the run
+#: did not give. - Claude Generated
+GEO_NOT_ASSIGNED = "im Lauf nicht vergeben"
+
+
+def geo_sachdb_entry_parts(entry: Any) -> Tuple[str, str, str]:
+    """``(line, description, note)`` of one ``geo_sachdb`` entry. - Claude Generated
+
+    Heading: description = local label, note = its kind. Notation:
+    description = system, notation and label, note = ``GEO_NOT_ASSIGNED`` when
+    the run did not give it. The result card and the CLI protocol both describe
+    a line through this, so they say the same.
+    """
+    if not isinstance(entry, dict):
+        return str(entry or ""), "", ""
+    line = str(entry.get("line") or entry.get("value") or "")
+    label = str(entry.get("label") or "").strip()
+    if entry.get("type") == "notation":
+        notation = str(entry.get("notation") or "").strip()
+        description = " ".join(part for part in (notation, label) if part)
+        return line, description, "" if entry.get("assigned") else GEO_NOT_ASSIGNED
+    return line, label, str(entry.get("kind") or "").strip()
+
+
+def geo_sachdb_entry_text(entry: Any) -> str:
+    """One entry as plain text: ``<line> = <description> · <note>``. - Claude Generated"""
+    line, description, note = geo_sachdb_entry_parts(entry)
+    text = f"{line} = {description}" if description else line
+    return f"{text} · {note}" if note else text
+
+
+def geo_sachdb_exhausted(geo: Dict[str, Any]) -> Tuple[str, str]:
+    """``(label, text)`` naming the headings left without a field number, or ``("", "")``.
+
+    - Claude Generated
+    """
+    items = [item for item in (geo.get("exhausted") or []) if isinstance(item, dict)]
+    if not items:
+        return "", ""
+    last = (geo.get("numbering") or {}).get("last_tag")
+    label = f"Ohne Feldnummer ({last} erreicht)" if last else "Ohne Feldnummer"
+    return label, "; ".join(geo_sachdb_entry_text(item) for item in items)
+
+
 class PipelineResultFormatter:
     """Format pipeline results for display - Claude Generated"""
 
@@ -882,6 +926,11 @@ class PipelineResultFormatter:
         if not chains and final_llm is not None:
             chains = list(getattr(final_llm, "keyword_chains", []) or [])
         shelf = dict(_get("shelf", {}) or {})
+        geo = dict(_get("geo_sachdb", {}) or {})
+        geo_lines = [str(line) for line in (geo.get("lines") or []) if line]
+        geo_missing = [str(term) for term in (geo.get("not_found") or []) if term]
+        geo_entries = [e for e in (geo.get("entries") or []) if isinstance(e, dict) and e.get("line")]
+        geo_exhausted_label, geo_exhausted_text = geo_sachdb_exhausted(geo)
         rule_output = str(_get("rule_output", "") or "").strip()
         entries = list(_get("classification_entries", []) or [])
         codes = list(_get("dk_classifications", []) or [])
@@ -901,7 +950,8 @@ class PipelineResultFormatter:
                     if "→" in line or "->" in line
                 ][:10]
 
-        if not any((core, form, chains, shelf, rule_output, entries, codes, keywords)):
+        if not any((core, form, chains, shelf, geo_lines, geo_missing, geo_exhausted_text,
+                    rule_output, entries, codes, keywords)):
             return "", ""
 
         rows: List[str] = []
@@ -1042,6 +1092,69 @@ class PipelineResultFormatter:
             )
 
         body = "".join(rows)
+        if geo_lines or geo_missing or geo_exhausted_text:
+            # Local subject database: the finished WinIBW lines as one <pre>,
+            # one line each, with a copy button of its own. The <pre> carries
+            # its own class, not ``alima-result__pre``: the rule snippet's
+            # button selects the first ``.alima-result__pre`` in the card and
+            # would otherwise copy these lines. What each line stands for
+            # follows in a list of its own, outside the <pre>, so the button
+            # still copies the bare lines. - Claude Generated
+            geo_title = "Lokale Sacherschließung (geo_sachdb)"
+            button = (
+                '<button type="button" class="alima-copy" '
+                'data-alima-copy=".alima-result__geo-lines">Kopieren</button>'
+                if geo_lines else ""
+            )
+            geo_html = (
+                '<div class="alima-result__snippet">'
+                '<div class="alima-result__snippet-head">'
+                f"<span>{esc(geo_title)}</span>{button}</div>"
+            )
+            text.append("")
+            text.append(f"{geo_title}:")
+            if geo_lines:
+                joined_lines = "\n".join(geo_lines)
+                geo_html += f'<pre class="alima-result__geo-lines">{esc(joined_lines)}</pre>'
+                text.extend(geo_lines)
+            if geo_entries:
+                items = []
+                for entry in geo_entries:
+                    line, description, note = geo_sachdb_entry_parts(entry)
+                    item = f"<code>{esc(line)}</code>"
+                    if description:
+                        item += f" <span>{esc(description)}</span>"
+                    if note:
+                        item += f' <span class="alima-result__muted">{esc(note)}</span>'
+                    items.append(f"<li>{item}</li>")
+                    text.append("  " + geo_sachdb_entry_text(entry))
+                geo_html += f'<ul class="alima-result__geo-entries">{"".join(items)}</ul>'
+            # A 6700 line also stands for a notation the run did not give. The
+            # list above marks those per line; a result saved before the list
+            # existed has no entries, so they are named in one row instead.
+            proposed = []
+            if not geo_entries:
+                proposed = [
+                    str(cand.get("notation") or cand.get("code") or "")
+                    for cand in (geo.get("candidates") or [])
+                    if isinstance(cand, dict) and cand.get("line") and not cand.get("assigned")
+                ]
+                proposed = [p for p in proposed if p]
+            for label, values in (
+                ("6700, im Lauf nicht vergeben", proposed),
+                (geo_exhausted_label, [geo_exhausted_text] if geo_exhausted_text else []),
+                ("Ohne lokales Schlagwort", geo_missing),
+            ):
+                if not values:
+                    continue
+                plain = ", ".join(values)
+                geo_html += (
+                    f'<div class="alima-result__row">'
+                    f'<span class="alima-result__label">{esc(label)}</span>'
+                    f'<span class="alima-result__value alima-result__muted">{esc(plain)}</span></div>'
+                )
+                text.append(f"{label}: {plain}")
+            body += geo_html + "</div>"
         if rule_output:
             body += (
                 '<div class="alima-result__snippet">'

@@ -343,5 +343,8 @@ my_backup.json
 .claude/settings.local.json
 .claude/plans/
 
+# Lokale Arbeitskopien (Access-Quelldaten, Wegwerf-venv) - nie einchecken
+.scratch/
+
 # Access-Datenbanken (lokale Institutsdaten, nicht einchecken)
 *.mdb

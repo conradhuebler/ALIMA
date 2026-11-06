@@ -120,6 +120,7 @@ def aggregate_gnd_results(
     *,
     params_by_source: Optional[Dict[str, Dict[str, Any]]] = None,
     max_age_hours: Optional[int] = 24,
+    max_age_by_source: Optional[Dict[str, Optional[int]]] = None,
 ) -> Dict[str, Any]:
     """Build the ranked GND pool (counter + provenance) from the raw cache.
 
@@ -127,20 +128,25 @@ def aggregate_gnd_results(
     {source: [terms with no cached raw]}, "terms_map": {title: [terms]}}``.
     Sources with no injected transform are skipped. Never raises on a single bad
     blob (it is skipped). Raw is the single source of truth. - Claude Generated
+
+    ``max_age_by_source`` overrides ``max_age_hours`` per source; ``None`` as a
+    value disables the age gate for that source (cache-only mode).
     """
     pool: Dict[str, Dict[str, Any]] = {}
     src_index: Dict[str, set] = {}
     terms_map: Dict[str, set] = {}
     missing: Dict[str, List[str]] = {}
     params_by_source = params_by_source or {}
+    max_age_by_source = max_age_by_source or {}
 
     for source in sources:
         transform = transform_by_source.get(source)
         if transform is None:
             continue
         params = params_by_source.get(source, {})
+        age = max_age_by_source.get(source, max_age_hours)
         for term in terms:
-            cached = ukm.get_raw_response(source, term, params, max_age_hours=max_age_hours)
+            cached = ukm.get_raw_response(source, term, params, max_age_hours=age)
             reduced: Optional[Dict[str, Dict[str, Any]]] = None
             if cached:
                 try:
@@ -151,7 +157,7 @@ def aggregate_gnd_results(
             if reduced is None:
                 # Raw absent/stale/unparsable → fall back to the mapping index so
                 # size-capped / pruned / pre-WP2 terms are not silently dropped.
-                reduced = _reduced_from_mapping(ukm, source, term, max_age_hours)
+                reduced = _reduced_from_mapping(ukm, source, term, age)
             if reduced is None:
                 missing.setdefault(source, []).append(term)
                 continue

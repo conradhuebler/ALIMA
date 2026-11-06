@@ -51,7 +51,11 @@ class LookupProvider(Protocol):
     capability enum (lookups dispatch on :attr:`LookupToolSpec.method` — the spec
     list *is* the capability declaration) and **no** typed result (the returns are
     JSON-serialised straight to the agent; a typed union would be a tax with one
-    member per plugin). - Claude Generated
+    member per plugin).
+
+    Optional: an instance method ``is_available() -> bool``. When a class declares
+    it, the tool generator offers that instance's tools only while it returns
+    True (``ToolGenerationMixin._lookup_instance_available``). - Claude Generated
     """
 
     id: str

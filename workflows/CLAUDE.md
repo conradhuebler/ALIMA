@@ -22,9 +22,10 @@ means adding `status: "research"`.
 
 ## Institution-Specific Variants
 
-- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Two differences, both deliberate:
+- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Three differences, all deliberate:
   - **Classification prompt** restricts RVK to economics/business (WiWi); non-WiWi subjects use DK only. DDC is not used in Freiberg.
   - **Aufstellung** (`shelf_candidates` → `shelf_select` → `shelf_guard`): the Freihandsystematik via the `local_scheme` plugin. `shelf_select` is the LLM pick; `enabled: false` leaves it at the deterministic candidate list.
+  - **`geo_candidates`** (after `dk_postprocess`, before `shelf_*`): local subject database via lookup `geo_sachdb`; deterministic proposals in `extra.geo_sachdb`, never changes `dk_classifications`, empty without a configured plugin instance. Lines and misses reach `KeywordAnalysisState.geo_sachdb` (result card, `show-protocol`, export). Spec: [`docs/wp_geo_sachdb_plugin.md`](../docs/wp_geo_sachdb_plugin.md).
 
 ## RVK via `rvk_lookup` tool (both v51 + v51_105)
 
@@ -39,8 +40,8 @@ means adding `status: "research"`.
 - **Sync rule:** the non-prompt wiring (`rvk_inline`, `tools`,
   `max_iterations`, `final_keywords` input) is identical in both files; only
   the RVK prompt block differs (general vs. WiWi-only). The three
-  `shelf_*` steps exist **only** in the 105 — a house shelf system is not
-  general-purpose. Everything else stays in step.
+  `shelf_*` steps and `geo_candidates` exist **only** in the 105 — house data
+  is not general-purpose. Everything else stays in step.
 
 ## Erschließungsregeln (both v51 + v51_105)
 
