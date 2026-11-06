@@ -354,6 +354,10 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
         # the classifications, never among them. Empty {} for workflows without
         # the shelf steps. - Claude Generated
         "shelf": ensure_json_serializable(getattr(analysis_state, "shelf", {}) or {}),
+        # Lines, what each line stands for (``entries``) and misses of the local
+        # subject database (geo_sachdb), also beside the classifications. Empty
+        # {} without the step or without a lookup result. - Claude Generated
+        "geo_sachdb": ensure_json_serializable(getattr(analysis_state, "geo_sachdb", {}) or {}),
         "initial_llm_call_details": ensure_json_serializable(initial_llm_details),
         "final_llm_call_details": ensure_json_serializable(final_llm_details),
         "dk_llm_analysis_details": ensure_json_serializable(dk_llm_details),

@@ -3,10 +3,11 @@
 > **Stand (4.11.2026, Branch `feature/geo-sachdb-plugin`):** Vorbereitung.
 > Vorhanden: Umwandler und Importer `scripts/access_to_sql.py` (`convert`,
 > `import-geo`), Lookup-Plugin `src/utils/lookups/geo_sachdb/` mit eigenem
-> Schema v1 (nicht als Built-in registriert), kleines Verfügbarkeits-Gate im
+> Schema v1 (als Built-in registriert), kleines Verfügbarkeits-Gate im
 > Werkzeuggenerator, deterministischer Schritt `geo_candidates` in
-> `alima_v51_105`. Nicht vorhanden: Registrierung als Built-in, GUI-Anbindung,
-> Übernahme ins Ergebnis (`KeywordAnalysisState`), LLM-Auswahlschritt. Die
+> `alima_v51_105`, Übernahme ins Ergebnis (`KeywordAnalysisState.geo_sachdb`,
+> §7.1). Nicht vorhanden: GUI-Anbindung außer dem Plugin-Tab,
+> LLM-Auswahlschritt. Die
 > Antworten des Entwicklers stehen in Abschnitt 8; Schema und Importer setzen sie um.
 >
 > Kennzeichnung: **[gemessen]** = mit Werkzeug an den Kopien in `.scratch/`
@@ -36,7 +37,7 @@ lokalen Bestand. Lokale Daten schlagen vor, entscheiden nie (Grundsatz wie bei
 | Vorbild eigene SQLite: `webindex` | `src/utils/lookups/webindex/store.py` (eigene DB über `DatabaseManager`) | hier statt QtSql das Standardmodul `sqlite3` mit `mode=ro`, weil nur gelesen wird |
 | Tier-2-Laden registriert die Klasse selbst | `src/core/plugins/loader.py:281` (`register_code_type`) | Plugin braucht keinen Import-Seiteneffekt |
 | Lokale Daten im Workflow: `shelf_candidates` → `shelf_select` → `shelf_guard` | `src/core/agents/deterministic_functions.py:1843-1909`, `:1912`; `workflows/alima_v51_105.yaml:897-` | `build_lookup` → `None` ergibt leeres Ergebnis (`deterministic_functions.py:1890-1892`) |
-| Aufstellung gelangt ins Ergebnis über `extra.shelf_final` | `src/core/agents/shared_context.py:511-516` | für `geo_sachdb` gibt es (noch) keine solche Übernahme |
+| Aufstellung gelangt ins Ergebnis über `extra.shelf_final` | `src/core/agents/shared_context.py:630-638` | `geo_sachdb` auf demselben Weg über `extra.geo_sachdb` (`:642`, §7.1) |
 
 ### Entscheidung: Kategorie `lookup`
 
@@ -286,8 +287,10 @@ Suche.
 - Verzeichnis `src/utils/lookups/geo_sachdb/`: `plugin.toml`, `README.md`,
   `schema.py` (Schema v1, nur Standardbibliothek; der Importer lädt die Datei per
   Pfad), `store.py` (Lesen, Faltung, Zeilen), `provider.py` (`GeoSachdbLookup`).
-- **Nicht registriert** beim Import; Tier-2-Laden ist getestet
-  (`tests/test_geo_sachdb_lookup.py::Packaging`).
+- **Built-in** (`src/utils/lookups/__init__.py` importiert das Paket). Jede
+  Installation erhält deshalb die Instanz `geo_sachdb` in der Lookup-Liste
+  (`plugin_migration.ensure_lookup_instances`); ohne `db_path` ist sie nicht
+  verfügbar und erzeugt keine Werkzeuge.
 - Konfiguration: `db_path`, `max_results`. Andere Einstellungen einer Instanz
   (etwa `term_table` aus einer älteren Konfiguration) werden ignoriert.
 - Werkzeuge (`cacheable=False`, lokale Datei):
@@ -306,7 +309,7 @@ Suche.
 - Die Kandidaten dürfen an Cloud-Modelle gehen (F5); das Plugin schränkt das
   nicht ein.
 - **Plan:** Aufnahme in ein Werkzeug-Preset (`src/mcp/default_presets.yaml`,
-  z. B. `lookup`) und Registrierung als Built-in.
+  z. B. `lookup`).
 
 ## 7. Anbindung an alima_v51_105
 
@@ -322,9 +325,69 @@ Suche.
 | Schutz gegen Erfindungen | kein LLM beteiligt; nur identische Ansetzungen/Verweisungsformen (`min_score: 90`); `dk_classifications` wird nicht verändert (Test) |
 | Budget | `meta_agent.max_cycles` 20 → 21 (13 aktivierte Schritte); Planner- und Reflexionsregeln nennen den Schritt als Abschluss, kein Prüftor |
 
-Was der Schritt **nicht** tut: Er geht nicht ins gespeicherte Ergebnis
-(`KeywordAnalysisState`), nicht in die GUI-Anzeige und nicht in einen Prompt.
-`extra.geo_sachdb` lebt im Workflow-Kontext des Laufs.
+Was der Schritt **nicht** tut: Er geht in keinen Prompt und ändert keine
+Klassifikation.
+
+**Ergebnisübernahme (umgesetzt, Muster `shelf`):**
+`SharedContext.to_keyword_analysis_state` legt in
+`KeywordAnalysisState.geo_sachdb` ab (`_geo_sachdb_for_state` in
+`src/core/agents/shared_context.py`):
+
+- `lines`: die Zeilen als reiner Kopierblock. Die Schlagwortzeilen kommen vom
+  Plugin alle als `5550 …` (die Funktion kennt die Ketten nicht und bleibt
+  deterministisch) und werden hier fortlaufend nummeriert: jedes lokale
+  Schlagwort ist ein Einzelschlagwort ohne `$ADE-105` mit eigener Feldnummer,
+  beginnend nach den Schlagwortketten des Ergebnisses. Startnummer = 5550 +
+  Anzahl der Ketten (ohne Ketten 5550, 5551, …; bei vier Ketten 5554, 5555, …).
+  Gezählt werden die Ketten, die die Abschlusskarte zeigt (mindestens ein nicht
+  leeres Glied). 6700-Zeilen bleiben `6700`.
+- `entries`: dieselben Zeilen mit ihrer Bedeutung; Schlagwort
+  `{type: heading, line, label, kind}`, Notation
+  `{type: notation, line, system, notation, label, assigned}`.
+- `exhausted`: Schlagwörter, für die bis 5599 keine Nummer mehr frei war. Sie
+  erhalten keine Zeile.
+- `numbering` (`chains`, `first_tag`, `last_tag`), `not_found`, `candidates`
+  und von `source` nur `source`, `source_date`, `source_sha256`,
+  `schema_version`.
+
+**Annahme, ungeprüft:** Eine Schlagwortkette des Ergebnisses belegt genau eine
+Feldnummer, die erste Kette 5550. Ob das der WinIBW-Praxis entspricht, ist
+nicht geprüft. Die Annahme steht nur in `_geo_first_heading_tag`
+(`shared_context.py:40`), die Obergrenze in `_GEO_HEADING_LAST_TAG` (5599).
+Der K10+-Export `generate_k10plus_lines` (`src/utils/exporters.py:137`)
+nummeriert Ketten nach einer eigenen Regel (eine Nummer je Kette, ab der
+zehnten Kette alle unter 5559, laut Docstring „K10+ defines 5550-5559“) und
+gibt keine geo_sachdb-Zeilen aus. Welche Obergrenze stimmt, ist offen.
+
+Ohne Schritt oder ohne Zeilen und ohne `not_found` (kein Plugin, keine Datei,
+keine Eingabe) bleibt das Feld `{}` und nichts wird angezeigt. Anzeige:
+
+- Abschlusskarte (`format_final_result_card_html`, also GUI-Log und Webapp-Log
+  am Ende eines Laufs): Block „Lokale Sacherschließung (geo_sachdb)“, die Zeilen
+  als reiner Text in einem eigenen `<pre>` mit Kopierknopf (kopiert nur diese
+  Zeilen). Darunter eine Liste mit einem Eintrag je Zeile: Zeile, Bezeichnung
+  und Art, bei Notationen System, Notation und Bezeichnung, bei einer im Lauf
+  nicht vergebenen Notation der Vermerk „im Lauf nicht vergeben“. Danach
+  „Ohne Feldnummer (5599 erreicht)“ und die Begriffe ohne lokales Schlagwort.
+- CLI `show-protocol <datei>` (Format `detailed`, Schritt `dk_classification`,
+  auch ohne DK): die Zeilen ohne Einrückung, darunter eingerückt dieselbe Liste
+  (`<Zeile> = <Bezeichnung> · <Art>`) und die Hinweise.
+
+Beide Ansichten beschreiben eine Zeile über dieselbe Funktion
+(`geo_sachdb_entry_parts` in `src/utils/pipeline_formatters.py`).
+Ergebnisse aus dem Stand vor `entries` (alle Schlagwortzeilen `5550`) laden und
+erscheinen so, wie sie gespeichert sind: ohne Liste, die im Lauf nicht
+vergebenen Notationen in einer eigenen Zeile „6700, im Lauf nicht vergeben“.
+Neu nummeriert werden sie nicht.
+
+Gespeichert wird das Feld in beiden JSON-Formaten (`save_analysis_state`,
+Webapp-Export `results.geo_sachdb`); Dateien ohne das Feld laden mit `{}`.
+Tests: `tests/test_geo_sachdb_result.py`.
+
+Grenzen: nicht in `show-protocol --format k10plus` und `compact`, nicht in den
+GUI-Reitern, nicht in der Ergebnisübersicht der Webapp (`app.js`), nicht in der
+Konsolenausgabe nach einem Lauf; geladene Dateien zeigen keine Abschlusskarte.
+`from_keyword_analysis_state` bringt das Feld nicht nach `extra` zurück.
 
 ### 7.2 Vorschlag: Vorwissen vor `classification` (Plan, Phase 3)
 
@@ -401,7 +464,7 @@ Datenbank; wo er es nicht wusste, gilt der Standard und der Punkt ist als
 |---|---|---|
 | 1 ✅ | Analyse, Umwandler, Plugin-Gerüst, Gate, `geo_candidates` (dieser Branch) | erledigt |
 | 2 | F1-F7 klären; Abbildung bestätigen; `convert` der aktuellen Datei; Plugin registrieren (Built-in oder Tier-2), Preset `lookup` | 0,5-1 Tag |
-| 3 | Ergebnisübernahme (`KeywordAnalysisState`-Feld + Formatter wie `shelf`), optional `geo_prior`/`geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
+| 3 | Ergebnisübernahme ✅ (`KeywordAnalysisState.geo_sachdb`, Abschlusskarte, CLI `show-protocol`, Export; Grenzen §7.1); offen: optional `geo_prior`/`geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
 | 4 | optional normalisierte Schicht + FTS5, `CLASSIFICATION`-Suchquelle für die klassische Pipeline, PPN → GND-ID | 2-4 Tage |
 
 ## 10. Reproduktion

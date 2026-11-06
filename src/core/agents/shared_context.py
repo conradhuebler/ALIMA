@@ -21,6 +21,121 @@ logger = logging.getLogger(__name__)
 #: hint, not the full set (which lives in per-subject classifications).
 _INITIAL_GND_CLASSES_LIMIT = 30
 
+#: Provenance keys of the geo_sachdb payload that go into a saved result. The
+#: local file path and the row counts stay out: they describe the operator's
+#: machine, not the data version.
+_GEO_SOURCE_KEYS = ("source", "source_date", "source_sha256", "schema_version")
+
+#: Tag of the heading lines as the plugin emits them. ``geo_sachdb_candidates``
+#: does not know the result's chains, so every heading line arrives as 5550.
+_GEO_PLUGIN_HEADING_TAG = "5550"
+#: Field numbers of the local headings in WinIBW (operator decision, Nov 6
+#: 2026): each local heading is a single subject heading of its own, without
+#: ``$ADE-105``, numbered on from the result's keyword chains.
+_GEO_HEADING_FIRST_TAG = 5550
+#: Last number of the 555x subject fields; a heading beyond it gets no line.
+_GEO_HEADING_LAST_TAG = 5599
+
+
+def _geo_first_heading_tag(chain_count: int) -> int:
+    """Field number of the first local heading after ``chain_count`` chains.
+
+    ASSUMPTION, NOT VERIFIED IN WINIBW: each keyword chain of the result takes
+    exactly one field number, the first chain 5550. With four chains the local
+    headings therefore start at 5554. This function is the only place that
+    encodes it; change it here if a chain turns out to take more numbers.
+    - Claude Generated
+    """
+    return _GEO_HEADING_FIRST_TAG + max(0, int(chain_count or 0))
+
+
+def _count_keyword_chains(chains: Any) -> int:
+    """Chains of the result the result card shows: a chain dict with at least
+    one non-empty term, or a chain given as plain text. - Claude Generated
+    """
+    count = 0
+    for chain in list(chains or []):
+        if isinstance(chain, dict):
+            if any(term for term in (chain.get("chain") or [])):
+                count += 1
+        elif chain:
+            count += 1
+    return count
+
+
+def _geo_sachdb_for_state(payload: Any, chain_count: int = 0) -> Dict[str, Any]:
+    """The part of ``extra.geo_sachdb`` a saved result keeps, or ``{}``.
+
+    Only a step that looked something up yields a field: lines for matched
+    local headings and/or keywords without one. The empty payloads of a run
+    without plugin (``disabled``/``unavailable``/``no_input``/``error``) give
+    ``{}``, so such a result looks exactly like one without the step.
+
+    The plugin's ``5550`` heading lines are numbered here, in the plugin's
+    order, from ``_geo_first_heading_tag(chain_count)`` up to
+    ``_GEO_HEADING_LAST_TAG``; a heading beyond that gets no line and is listed
+    in ``exhausted``. 6700 lines stay as they are. ``entries`` pairs every line
+    with what it stands for (heading: label and kind; notation: system,
+    notation, label, ``assigned``), ``lines`` is the same lines as a plain
+    copy block.
+    - Claude Generated
+    """
+    if not isinstance(payload, dict):
+        return {}
+    plugin_lines = [str(line) for line in (payload.get("lines") or []) if line]
+    not_found = [str(term) for term in (payload.get("not_found") or []) if term]
+    if not (plugin_lines or not_found):
+        return {}
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    candidates = [dict(cand) for cand in (payload.get("candidates") or []) if isinstance(cand, dict)]
+
+    # What each plugin line stands for. A heading line occurs once in the
+    # plugin's ``lines`` even when several keywords matched it; a 6700 line can
+    # repeat (two notations with the same PPN), so those are consumed in order.
+    headings: Dict[str, Dict[str, Any]] = {}
+    for match in payload.get("keyword_matches") or []:
+        for rec in (match.get("records") or []) if isinstance(match, dict) else []:
+            if isinstance(rec, dict) and rec.get("line"):
+                headings.setdefault(str(rec["line"]), rec)
+    notations: Dict[str, List[Dict[str, Any]]] = {}
+    for cand in candidates:
+        if cand.get("line"):
+            notations.setdefault(str(cand["line"]), []).append(cand)
+
+    first_tag = _geo_first_heading_tag(chain_count)
+    tag = first_tag
+    entries: List[Dict[str, Any]] = []
+    exhausted: List[Dict[str, Any]] = []
+    for line in plugin_lines:
+        head, _, value = line.partition(" ")
+        if head == _GEO_PLUGIN_HEADING_TAG:
+            rec = headings.get(line) or {}
+            info = {"type": "heading", "label": str(rec.get("label") or ""),
+                    "kind": str(rec.get("kind") or "")}
+            if tag > _GEO_HEADING_LAST_TAG:
+                exhausted.append({**info, "value": value})
+                continue
+            entries.append({**info, "line": f"{tag} {value}"})
+            tag += 1
+            continue
+        queue = notations.get(line) or []
+        cand = queue.pop(0) if queue else {}
+        entries.append({
+            "type": "notation", "line": line, "system": str(cand.get("system") or ""),
+            "notation": str(cand.get("notation") or ""), "label": str(cand.get("label") or ""),
+            "assigned": bool(cand.get("assigned")),
+        })
+    return {
+        "lines": [entry["line"] for entry in entries],
+        "entries": entries,
+        "exhausted": exhausted,
+        "numbering": {"chains": max(0, int(chain_count or 0)), "first_tag": first_tag,
+                      "last_tag": _GEO_HEADING_LAST_TAG},
+        "not_found": not_found,
+        "candidates": candidates,
+        "source": {key: source[key] for key in _GEO_SOURCE_KEYS if source.get(key)},
+    }
+
 
 @dataclass
 class ToolResultCache:
@@ -522,6 +637,12 @@ class SharedContext(BaseSharedContext):
                 "scheme": dict(shelf_payload.get("scheme") or {}),
             }
         state.keyword_chains = list(self.keyword_chains or [])
+        # The local headings are numbered on from the result's chains, so the
+        # chains have to be known here. - Claude Generated
+        state.geo_sachdb = _geo_sachdb_for_state(
+            (self.extra or {}).get("geo_sachdb"),
+            chain_count=_count_keyword_chains(state.keyword_chains),
+        )
         state.core_keywords = _as_titles("core_keywords")
         state.form_keywords = _as_titles("form_keywords")
 

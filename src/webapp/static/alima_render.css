@@ -432,10 +432,20 @@
   padding: 6px 10px; background: var(--alima-surface-deep);
   font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--alima-accent);
 }
-#log .alima-result__pre {
+#log .alima-result__pre,
+#log .alima-result__geo-lines {
   margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 9pt; color: var(--alima-body); background: var(--alima-surface);
+}
+/* What each geo_sachdb line stands for, below the copy block. - Claude Generated */
+#log .alima-result__geo-entries {
+  margin: 0; padding: 4px 10px 6px 28px; color: var(--alima-body); font-size: 9pt;
+  border-bottom: 1px dashed var(--alima-border-soft);
+}
+#log .alima-result__geo-entries li { margin-bottom: 2px; word-break: break-word; }
+#log .alima-result__geo-entries code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9pt;
 }
 #log .alima-copy {
   border: 1px solid var(--alima-border); border-radius: 6px; cursor: pointer;

@@ -25,7 +25,7 @@ means adding `status: "research"`.
 - **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Three differences, all deliberate:
   - **Classification prompt** restricts RVK to economics/business (WiWi); non-WiWi subjects use DK only. DDC is not used in Freiberg.
   - **Aufstellung** (`shelf_candidates` → `shelf_select` → `shelf_guard`): the Freihandsystematik via the `local_scheme` plugin. `shelf_select` is the LLM pick; `enabled: false` leaves it at the deterministic candidate list.
-  - **`geo_candidates`** (after `dk_postprocess`, before `shelf_*`): local subject database via lookup `geo_sachdb`; deterministic proposals in `extra.geo_sachdb`, never changes `dk_classifications`, empty without a configured plugin instance. Not persisted into the result yet. Spec: [`docs/wp_geo_sachdb_plugin.md`](../docs/wp_geo_sachdb_plugin.md).
+  - **`geo_candidates`** (after `dk_postprocess`, before `shelf_*`): local subject database via lookup `geo_sachdb`; deterministic proposals in `extra.geo_sachdb`, never changes `dk_classifications`, empty without a configured plugin instance. Lines and misses reach `KeywordAnalysisState.geo_sachdb` (result card, `show-protocol`, export). Spec: [`docs/wp_geo_sachdb_plugin.md`](../docs/wp_geo_sachdb_plugin.md).
 
 ## RVK via `rvk_lookup` tool (both v51 + v51_105)
 
