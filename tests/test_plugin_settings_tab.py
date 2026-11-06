@@ -81,3 +81,113 @@ class CapabilityLabelsCoverTheEnumTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstanceOfAnUnloadedTypeDoesNotCrashTheFormTest(unittest.TestCase):
+    """Eine gespeicherte Instanz eines nicht geladenen Plugin-Typs (Code-Plugin
+    gesperrt oder nicht freigegeben) ließ ``_build_form`` mit ``KeyError``
+    scheitern; als Slot-Exception beendete das das Programm. - Claude Generated"""
+
+    _kept: list = []
+
+    def _panel(self):
+        from src.utils.config_models import PluginInstanceConfig
+        from src.ui.plugin_settings_tab import _CategoryPanel, _ensure_categories
+
+        _qapp(self._kept)
+        _ensure_categories()
+        panel = _CategoryPanel("lookup")
+        ghost = PluginInstanceConfig(
+            instance_id="ghost", category="lookup", provider_id="not_loaded_plugin",
+            label="Nicht geladen", enabled=True, settings={"db_path": "/x"},
+        )
+        panel.load([ghost])
+        return panel, ghost
+
+    def test_selecting_the_instance_does_not_raise(self):
+        panel, _ = self._panel()
+        panel.list.setCurrentRow(0)  # löst _on_row_changed aus
+
+    def test_the_settings_survive_selecting_and_collecting(self):
+        panel, _ = self._panel()
+        panel.list.setCurrentRow(0)
+        out = panel.collect()
+        self.assertEqual(out[0].settings, {"db_path": "/x"})
+        self.assertTrue(out[0].enabled)
+
+    def test_switching_back_to_a_loaded_instance_works_after_the_ghost(self):
+        from src.utils.config_models import PluginInstanceConfig
+
+        panel, ghost = self._panel()
+        real = PluginInstanceConfig(
+            instance_id="k10plus", category="lookup", provider_id="k10plus",
+            label="k10plus", enabled=True, settings={},
+        )
+        panel.load([ghost, real])
+        panel.list.setCurrentRow(0)
+        panel.list.setCurrentRow(1)
+        panel.list.setCurrentRow(0)
+        panel.collect()
+
+
+class RescanKeepsTheDialogStateTest(unittest.TestCase):
+    """Der Scan lädt eine frische Konfiguration. Ihr gespeicherter Stand (Code-
+    Plugins aus) setzte den Haken zurück, mit OK wurde "aus" gespeichert.
+    - Claude Generated"""
+
+    _kept: list = []
+
+    def _run_scan(self, *, checked, edit_label=None):
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from src.ui.plugin_settings_tab import PluginSettingsTab
+        from src.utils.config_models import PluginInstanceConfig
+
+        _qapp(self._kept)
+        k10 = PluginInstanceConfig(instance_id="k10plus", category="lookup",
+                                   provider_id="k10plus", label="k10plus",
+                                   enabled=True, settings={})
+        found = PluginInstanceConfig(instance_id="neu", category="lookup",
+                                     provider_id="k10plus", label="neu",
+                                     enabled=True, settings={})
+
+        def fresh_config():
+            return SimpleNamespace(
+                plugins=[PluginInstanceConfig(**vars(k10))],
+                system_config=SimpleNamespace(enable_code_plugins=False),
+                approved_plugins={},
+            )
+
+        class FakeManager:
+            plugins_dir = "/nonexistent"
+            def load_config(self): return fresh_config()
+            def save_config(self, config): pass
+
+        def fake_discover(config, **kw):
+            return SimpleNamespace(plugins=[], instances=[found])
+
+        tab = PluginSettingsTab()
+        tab.load(fresh_config())
+        tab._code_plugins_cb.setChecked(checked)
+        if edit_label is not None:
+            panel = tab._panels["lookup"]
+            panel.list.setCurrentRow(0)
+            panel._label_edit.setText(edit_label)   # wie eine Eingabe im Formular
+        with mock.patch("src.utils.config_manager.ConfigManager", FakeManager), \
+             mock.patch("src.utils.plugin_discovery.discover_plugins", fake_discover), \
+             mock.patch("src.ui.plugin_settings_tab.QMessageBox.information"):
+            tab._rescan_plugins()
+        return tab
+
+    def test_the_checkbox_survives_the_scan(self):
+        self.assertTrue(self._run_scan(checked=True)._code_plugins_cb.isChecked())
+
+    def test_an_unchecked_box_stays_unchecked(self):
+        self.assertFalse(self._run_scan(checked=False)._code_plugins_cb.isChecked())
+
+    def test_unsaved_instance_edits_survive_and_new_instances_are_added(self):
+        tab = self._run_scan(checked=True, edit_label="geändert")
+        labels = {i.instance_id: i.label for i in tab._panels["lookup"].collect()}
+        self.assertEqual(labels.get("k10plus"), "geändert")
+        self.assertIn("neu", labels)
