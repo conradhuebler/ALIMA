@@ -801,9 +801,22 @@ class NotationStepsMixin:
                 stream_callback=(lambda m: stream_callback(m, "dk_search")) if stream_callback else None,
                 debug=(self.logger.level <= 10) if self.logger else False,
             )
+            # Cache-only mode travels with the instance settings into the
+            # extractor (src/core/search/cache_only.py). - Claude Generated
+            _cache_only = getattr(extractor, "cache_only", False) is True
+            _dk_src_id = {
+                "FincCatalogClient": "finc", "BiblioClient": "catalog",
+            }.get(type(extractor).__name__, type(extractor).__name__)
+            if _cache_only:
+                if self.logger:
+                    self.logger.info(f"DK search: {_dk_src_id} in cache-only mode (no network)")
+                if stream_callback:
+                    stream_callback(
+                        f"ℹ️ {_dk_src_id}: Modus „nur Cache“, keine Netzabfragen\n", "dk_search"
+                    )
             # Operator hint: the Libero backend with no token falls back to web
             # scraping (finc/SRU backends need no token). - Claude Generated
-            if type(extractor).__name__ == "BiblioClient":
+            if type(extractor).__name__ == "BiblioClient" and not _cache_only:
                 _cat_token = ""
                 try:
                     for _i in (_full_config.enabled_instances_for("search_provider") if _full_config else []):
@@ -1060,6 +1073,7 @@ class NotationStepsMixin:
             dk_search_results = []
             success_count = 0
             failed_keywords = []
+            cache_misses = []  # cache-only: keywords without a DK-cache entry - Claude Generated
 
             # Process EACH keyword individually for detailed feedback
             for idx, keyword in enumerate(final_search_keywords, 1):
@@ -1091,6 +1105,12 @@ class NotationStepsMixin:
                     if _dk_accepts_force:
                         _dk_kwargs["force_update"] = force_update
                     kw_results = extractor.extract_dk_classifications_for_keywords(**_dk_kwargs)
+
+                    # Cache-only miss: behaves like "no hits" and is reported once
+                    # after the loop, not as a per-keyword failure. - Claude Generated
+                    if _cache_only and getattr(extractor, "last_cache_misses", None):
+                        cache_misses.append(keyword)
+                        continue
 
                     # Analyze result for THIS keyword
                     if kw_results and len(kw_results) > 0:
@@ -1152,6 +1172,17 @@ class NotationStepsMixin:
                         "dk_search"
                     )
 
+            if cache_misses:
+                from src.core.search.cache_only import summary as _cache_only_summary
+
+                _miss_line = _cache_only_summary(
+                    _dk_src_id, len(cache_misses), len(final_search_keywords)
+                )
+                if self.logger:
+                    self.logger.info(f"DK search: {_miss_line}")
+                if stream_callback:
+                    stream_callback(f"ℹ️ {_miss_line}\n", "dk_search")
+
             if rvk_enabled:
                 dk_search_results = self._validate_catalog_rvk_candidates(
                     dk_search_results,
@@ -1179,6 +1210,9 @@ class NotationStepsMixin:
 
             # Calculate comprehensive statistics - Claude Generated Step 3
             dk_statistics = self._calculate_notation_statistics(dk_search_results_flattened, dk_search_results)
+            if cache_misses:
+                # Reason for the empty keywords, kept with the result. - Claude Generated
+                dk_statistics["cache_only_misses"] = list(cache_misses)
 
             # Return results in new format with statistics and transparency
             return {

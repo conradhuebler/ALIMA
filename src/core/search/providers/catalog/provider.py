@@ -11,6 +11,7 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, URL, SECRET, ConfigField
 
+from src.core.search.cache_only import CACHE_MISS_MESSAGE, cache_only_field
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
 from src.core.search.provider_base import SuggesterBackedProvider
@@ -56,6 +57,7 @@ class CatalogProvider(SuggesterBackedProvider):
                 kind=BOOL, default=True,
                 help="Nur GND-validierte Keywords in die DK-Suche geben (Qualitätskontrolle).",
             ),
+            cache_only_field(),
         ]
 
     @classmethod
@@ -150,6 +152,7 @@ class CatalogProvider(SuggesterBackedProvider):
             web_search_url=self._config.get("catalog_web_search_url", "") or "",
             web_record_url=self._config.get("catalog_web_record_url", "") or "",
             debug=self._config.get("debug", False),
+            cache_only=self.cache_only,
         )
 
     def dk_extractor(self, **_ignore: Any):
@@ -172,6 +175,8 @@ class CatalogProvider(SuggesterBackedProvider):
         if capability is SearchCapability.GND_KEYWORDS:
             return self._gnd_search(query, progress, search_type=search_type)
         if capability is SearchCapability.TITLE_RECORDS:
+            if self.cache_only:
+                return self._title_records_cache_only(list(query), search_type, max_results)
             self._wire_progress(progress)
             raw = self.suggester.search_titles(
                 list(query), search_type=search_type, max_results=max_results
@@ -185,6 +190,34 @@ class CatalogProvider(SuggesterBackedProvider):
         # CLASSIFICATION
         results = self.suggester.extract_dk_classifications(list(query))
         return _classification_from_dk_list(results)
+
+    def _title_records_cache_only(
+        self, query: List[str], search_type: str, max_results: int
+    ) -> ProviderResult:
+        """``TITLE_RECORDS`` from the raw cache alone (cache-only mode).
+
+        Reads what the live path stored under the ``catalog_titles`` label (same
+        key), any age, records cut to ``max_results``. No SOAP, no web fallback,
+        no write-back; a term without an entry carries the cache-only marker in
+        ``errors``. - Claude Generated
+        """
+        from src.core.search.provider import raw_cache_params_for
+
+        params = raw_cache_params_for("catalog_titles", search_type=search_type)
+        raw: dict = {}
+        errors: dict = {}
+        for term in query:
+            cached = self._cached_raw("catalog_titles", term, params)
+            records = cached.get("records") if isinstance(cached, dict) else None
+            if not isinstance(records, list):
+                errors[term] = CACHE_MISS_MESSAGE
+                records = []
+            if max_results and int(max_results) > 0:
+                records = records[: int(max_results)]
+            raw[term] = records
+        result = _title_records_from_term_lists(raw)
+        result.errors = errors
+        return result
 
 
 def _title_records_from_term_lists(raw: dict) -> ProviderResult:

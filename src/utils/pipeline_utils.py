@@ -579,6 +579,9 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
         # Execute search per keyword for live progress updates - Claude Generated
         search_results = {}
         source_failures: Dict[str, str] = {}  # "<suggester>:<term>" → message - Claude Generated
+        # Cache-only misses per source, reported once after the loop. - Claude Generated
+        from src.core.search.cache_only import split_cache_misses, summary as cache_only_summary
+        cache_misses: Dict[str, List[str]] = {}
         with SearchCLI(
             self.cache_manager,
             catalog_token=catalog_token or "",
@@ -604,10 +607,13 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
 
                 # Surface source failures: 0 hits after a failed source is
                 # NOT a confirmed miss - Claude Generated
-                if search_cli.last_errors:
-                    source_failures.update(search_cli.last_errors)
+                term_failures, term_misses = split_cache_misses(search_cli.last_errors)
+                for _src, _terms in term_misses.items():
+                    cache_misses.setdefault(_src, []).extend(_terms)
+                if term_failures:
+                    source_failures.update(term_failures)
                     failed_sources = sorted(
-                        {key.split(":", 1)[0] for key in search_cli.last_errors}
+                        {key.split(":", 1)[0] for key in term_failures}
                     )
                     if stream_callback:
                         stream_callback(
@@ -628,6 +634,13 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
             search_results = self._validate_catalog_subjects(
                 search_results, stream_callback
             )
+
+        for _src, _terms in cache_misses.items():
+            _line = cache_only_summary(_src, len(dict.fromkeys(_terms)), len(keywords_list))
+            if self.logger:
+                self.logger.info(f"GND search: {_line}")
+            if stream_callback:
+                stream_callback(f"ℹ️ {_line}\n", "search")
 
         if source_failures:
             if self.logger:

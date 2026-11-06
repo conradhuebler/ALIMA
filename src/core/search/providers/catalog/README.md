@@ -29,3 +29,15 @@ Modi und Konventionen wie in [`../lobid/README.md`](../lobid/README.md).
   Client als weitere Datei ins Plugin-Verzeichnis legen.
 - Beim Kopieren umbenennen (müssen übereinstimmen): `id` in `plugin.toml`
   **und** das `id`-Klassenattribut in `provider.py`.
+
+## Schalter „Nur Cache (kein Netz)“ (`cache_only`)
+
+Keine SOAP- oder OPAC-Anfrage. Schlagworte und Titel kommen aus
+`search_response_cache`, DK/RVK der Pipeline aus `catalog_dk_cache`, ohne
+Altersgrenze und ohne Rückschreiben; Begriffe ohne Eintrag bleiben ohne Treffer
+und werden je Lauf in einer Zeile gezählt. Grenzen: Es gibt nur, was frühere
+Läufe mit Netz abgelegt haben. Schlagwort-Rohantworten legt die klassische Suche
+ab (Pipeline, Suchtab), nicht die Agent-Werkzeuge; Titel-Rohantworten entstehen
+nur über das Werkzeug einer zweiten catalog-Instanz. Ein gespeicherter
+Fehlschlag (`error`/`timeout`) zählt als fehlender Eintrag. `alima test-catalog`
+baut seinen Client selbst und fragt weiter live ab.

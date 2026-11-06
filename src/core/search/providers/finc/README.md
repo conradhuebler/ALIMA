@@ -51,3 +51,15 @@ Struktur, Modi und Konventionen wie in [`../lobid/README.md`](../lobid/README.md
   Blaupause auf eine andere Instanz: `FincClient(base_url=...).discover_fields()`
   aufrufen (liest die Swagger-`Record`-Schema-Properties live aus) und mit
   `DEFAULT_FIELDS` abgleichen, bevor man sich auf die Feldliste verlässt.
+
+## Schalter „Nur Cache (kein Netz)“ (`cache_only`)
+
+Die Instanz sendet keine HTTP-Anfrage. Records und Facetten kommen aus dem
+Rohantwort-Cache (`search_response_cache`, Schlüssel: Suchart und Facetten), die
+DK/RVK-Titellisten aus `catalog_dk_cache`, jeweils ohne Altersgrenze; nichts wird
+zurückgeschrieben. Begriffe ohne Eintrag bleiben ohne Treffer und werden je Lauf
+in einer Zeile gezählt. Grenzen: Es gibt nur, was frühere Läufe mit Netz geholt
+haben. `filters` und `availability` gehören nicht zum Cache-Schlüssel, im Modus
+kommt der gespeicherte Eintrag für Suchart und Facetten unabhängig davon zurück
+(`limit` kürzt die Records). Ein gespeicherter Fehlschlag zählt als fehlender
+Eintrag.

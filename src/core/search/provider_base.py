@@ -14,11 +14,16 @@ Public plugin API: third-party GND-keyword plugins subclass
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from src.core.plugins.schema import ConfigField, PluginDoc, availability_ok
 
+from src.core.search.cache_only import CACHE_MISS_MESSAGE, is_cache_only
 from src.core.search.provider import ProviderResult, SearchCapability, raw_cache_params_for
+from src.utils.error_visibility import log_caught
+
+_logger = logging.getLogger(__name__)
 
 
 class SuggesterBackedProvider:
@@ -73,6 +78,16 @@ class SuggesterBackedProvider:
             self._suggester = self._build_suggester()
         return self._suggester
 
+    @property
+    def cache_only(self) -> bool:
+        """Whether this instance answers from local caches only, without network.
+
+        The per-instance ``cache_only`` setting (``src/core/search/cache_only.py``);
+        only providers that declare the field offer it in the settings form.
+        - Claude Generated
+        """
+        return is_cache_only(self._config)
+
     def is_available(self, cfg: Any = None) -> bool:
         """Available unless a ``gates_availability`` config field is unset.
 
@@ -109,11 +124,69 @@ class SuggesterBackedProvider:
         **suggester_kwargs: Any,
     ) -> ProviderResult:
         """Run the wrapped suggester and wrap its GND-keyword output."""
+        if self.cache_only:
+            return self._gnd_search_cache_only(query, suggester_kwargs)
         self._wire_progress(progress)
         raw = self.suggester.search(list(query), **suggester_kwargs)
         errors = dict(getattr(self.suggester, "last_errors", {}) or {})
         self._store_raw_responses(query, suggester_kwargs)
         return ProviderResult.from_gnd_keywords(raw, errors=errors)
+
+    # --- cache-only mode (read seam of the WP2 raw cache) -------------------
+    def _cached_raw(self, source: str, term: str, params: Dict[str, Any]) -> Any:
+        """Parsed raw-cache entry for ``(source, term, params)``, whatever its age.
+
+        ``max_age_hours=None`` disables the freshness gate: in cache-only mode a
+        stale entry is still an answer. ``None`` on a miss or an unreadable
+        entry. - Claude Generated
+        """
+        try:
+            hit = self._ukm().get_raw_response(source, term, params, max_age_hours=None)
+        except Exception as e:
+            log_caught(_logger, e, "cache-only raw-cache read", detail=f"{source}:{term}")
+            return None
+        if not hit:
+            return None
+        try:
+            return json.loads(hit["raw_json"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _gnd_search_cache_only(
+        self, query: List[str], suggester_kwargs: Dict[str, Any]
+    ) -> ProviderResult:
+        """``GND_KEYWORDS`` from the raw cache alone (cache-only mode).
+
+        Reads the entry the live path stored (same key via ``raw_cache_params_for``)
+        and reduces it with the suggester's pure ``transform``; the suggester's
+        ``search`` is never called, so there is no network request. Nothing is
+        written back: a rewrite would re-stamp a stale entry as fresh. A term
+        without an entry carries the cache-only marker in ``errors`` (unknown,
+        not "no match"). - Claude Generated
+        """
+        params = raw_cache_params_for(
+            self.id,
+            search_type=suggester_kwargs.get("search_type", "kw"),
+            max_pages=suggester_kwargs.get("max_pages", 5),
+            facets=suggester_kwargs.get("facets"),
+        )
+        transform = getattr(self.suggester, "transform", None)
+        per_term: Dict[str, Any] = {}
+        errors: Dict[str, str] = {}
+        for term in query:
+            raw = self._cached_raw(self.id, term, params) if transform else None
+            reduced = None
+            if raw is not None:
+                try:
+                    reduced = transform(raw)
+                except Exception as e:  # an unreadable blob is a miss, not a crash
+                    log_caught(_logger, e, "cache-only transform", detail=f"{self.id}:{term}")
+            if reduced is None:
+                per_term[term] = {}
+                errors[term] = CACHE_MISS_MESSAGE
+            else:
+                per_term[term] = reduced
+        return ProviderResult.from_gnd_keywords(per_term, errors=errors)
 
     # --- WP2 raw-first dual-write ----------------------------------------
     def _ukm(self):

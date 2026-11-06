@@ -55,6 +55,7 @@ class FincCatalogClient:
         knowledge_manager: Any = None,
         logger_: Optional[logging.Logger] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
+        cache_only: bool = False,
     ):
         """Initialize the finc catalog extractor.
 
@@ -73,7 +74,12 @@ class FincCatalogClient:
                 (injected in tests); lazily created otherwise.
             logger_: optional logger.
             stream_callback: optional single-arg progress sink.
+            cache_only: no finc request at all; titles come from the shared
+                DK cache at any age, keywords without an entry are listed in
+                ``last_cache_misses`` (reset per call). - Claude Generated
         """
+        self.cache_only = bool(cache_only)
+        self.last_cache_misses: List[str] = []
         self.base_url = base_url
         self.web_record_url = web_record_url or ""
         self.institution_filter = institution_filter or ""
@@ -97,6 +103,7 @@ class FincCatalogClient:
             base_url=self.base_url,
             web_record_url=self.web_record_url,
             timeout=self.timeout,
+            cache_only=self.cache_only,
         )
 
     def _thread_client(self) -> FincClient:
@@ -135,6 +142,7 @@ class FincCatalogClient:
         usable titles/classifications are omitted (same as BiblioClient).
         """
         results: List[Dict[str, Any]] = []
+        self.last_cache_misses = []
         for kw in keywords or []:
             clean = (kw or "").split("(")[0].strip()
             if not clean:
@@ -168,6 +176,8 @@ class FincCatalogClient:
         ``title_list`` items: ``{"rsn", "title", "classifications": ["DK ...",
         "RVK ..."]}``.
         """
+        if self.cache_only:
+            return self._titles_cache_only(clean_kw)
         if self.use_cache and not force_update:
             cached = self._km_or_init().get_catalog_dk_cache(clean_kw)
             if cached:
@@ -210,6 +220,24 @@ class FincCatalogClient:
                     clean_kw, [], status="no_results", ttl_minutes=30
                 )
         return title_list, "finc"
+
+    def _titles_cache_only(self, clean_kw: str) -> Tuple[List[Dict[str, Any]], str]:
+        """Cache-only title list: the shared DK cache at any age, no finc request.
+
+        ``success`` is a hit, ``no_results`` a known empty answer; a missing row
+        or a cached failure is a miss (``last_cache_misses``). Nothing is
+        written. - Claude Generated
+        """
+        cached = (
+            self._km_or_init().get_catalog_dk_cache(clean_kw, ignore_ttl=True)
+            if self.use_cache else None
+        )
+        status = cached[1] if cached else None
+        if status == "success" and cached[0]:
+            return cached[0], "cache"
+        if status != "no_results":
+            self.last_cache_misses.append(clean_kw)
+        return [], "cache"
 
     # ------------------------------------------------------------------
     # Step 2: per-title DK/RVK (parallel)
