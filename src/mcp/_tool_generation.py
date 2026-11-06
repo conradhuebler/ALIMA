@@ -306,6 +306,25 @@ class ToolGenerationMixin:
             logger.debug(f"transform for '{source}' unavailable: {e}")
         return None
 
+    @staticmethod
+    def _cache_only_block(provider, term_errors):
+        """The ``cache_only`` block of a search-tool result, ``None`` when off.
+
+        Tells the agent that the source answered from the local cache only and
+        which terms had no entry, so an empty result is not read as "the
+        catalog has nothing". ``term_errors`` is keyed by term. - Claude Generated
+        """
+        if getattr(provider, "cache_only", False) is not True:
+            return None
+        from src.core.search.cache_only import is_cache_miss
+
+        return {
+            "active": True,
+            "missing_terms": [t for t, m in (term_errors or {}).items() if is_cache_miss(m)],
+            "note": "Nur Cache: keine Netzabfrage. Begriffe ohne Cache-Eintrag "
+                    "liefern keine Treffer; das belegt nicht, dass der Katalog sie nicht hat.",
+        }
+
     def _make_search_handler(self, spec, inst):
         """Handler for a canonical instance: the nuanced, factory-backed path.
 
@@ -382,10 +401,11 @@ class ToolGenerationMixin:
                     for rec in term_data.get("records", []):
                         if not rec.get("web_url") and rec.get("id"):
                             rec["web_url"] = f"{cat_base}/{rec['id']}"
-            return json.dumps(
-                {"source": "finc", "results": results, "errors": dict(res.errors or {})},
-                ensure_ascii=False,
-            )
+            out = {"source": "finc", "results": results, "errors": dict(res.errors or {})}
+            block = self._cache_only_block(provider, res.errors)
+            if block:
+                out["cache_only"] = block
+            return json.dumps(out, ensure_ascii=False)
 
         return handler
 
@@ -430,6 +450,14 @@ class ToolGenerationMixin:
                         # non-default searches also populate the raw cache. - Claude Generated
                         self._store_suggester_raw(spec.provider_id, terms, kw, sugg, inst=inst)
                         errors = {}
+                elif getattr(base_provider, "cache_only", False) is True:
+                    # Cache-only: the provider answers from the raw cache; the
+                    # bare suggester would go to the network. - Claude Generated
+                    res = base_provider.search(
+                        SearchCapability.GND_KEYWORDS, list(terms), search_type=search_type
+                    )
+                    results = res.to_gnd_keywords()
+                    errors = dict(res.errors or {})
                 else:
                     sugg = underlying_suggester(base_provider)
                     results = sugg.search(list(terms), search_type=search_type)
@@ -449,6 +477,9 @@ class ToolGenerationMixin:
             out = {"source": spec.source_label, "results": serialized}
             if spec.include_errors:
                 out["errors"] = errors
+            block = None if spec.cached else self._cache_only_block(base_provider, errors)
+            if block:
+                out["cache_only"] = block
             self._attach_agent_view(out, raw_id, terms, search_type, max_pages=max_pages)
             return json.dumps(out, ensure_ascii=False)
 
@@ -568,7 +599,10 @@ class ToolGenerationMixin:
                         {"error": spec.unavailable_message or "catalog not available"}
                     )
                 sugg = underlying_suggester(provider)
-                if sugg is not None:
+                # Cache-only goes through the provider contract (raw cache), the
+                # suggester would query the catalog. - Claude Generated
+                cache_only = getattr(provider, "cache_only", False) is True
+                if sugg is not None and not cache_only:
                     results = sugg.search_titles(
                         list(terms), search_type=search_type, max_results=max_results
                     )
@@ -594,6 +628,9 @@ class ToolGenerationMixin:
                         out["meta"] = meta
                     if spec.include_errors:
                         out["errors"] = dict(res.errors or {})
+                    block = self._cache_only_block(provider, res.errors)
+                    if block:
+                        out["cache_only"] = block
             except Exception as exc:
                 logger.error("search tool '%s' failed: %s", spec.name, exc)
                 return json.dumps({"error": str(exc)})
@@ -637,6 +674,9 @@ class ToolGenerationMixin:
                     }
                     if spec.include_errors:
                         out["errors"] = dict(res.errors or {})
+                    block = self._cache_only_block(provider, res.errors)
+                    if block:
+                        out["cache_only"] = block
                     return json.dumps(out, ensure_ascii=False)
                 # title_records / finc → TITLE_RECORDS
                 st = search_type or ("title" if spec.result_shape == "title_records" else "kw")
@@ -659,6 +699,9 @@ class ToolGenerationMixin:
                 out = {"source": spec.source_label, "results": results}
                 if spec.include_errors:
                     out["errors"] = dict(res.errors or {})
+                block = self._cache_only_block(provider, res.errors)
+                if block:
+                    out["cache_only"] = block
                 return json.dumps(out, ensure_ascii=False)
             except Exception as exc:  # never break the agent on an extra instance
                 return json.dumps({"error": f"{inst.instance_id}: {exc}"})

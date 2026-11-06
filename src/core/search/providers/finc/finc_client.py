@@ -140,6 +140,7 @@ class FincClient:
         default_limit: int = DEFAULT_LIMIT,
         timeout: int = DEFAULT_TIMEOUT,
         session: Optional[requests.Session] = None,
+        cache_only: bool = False,
     ):
         """Initialize the finc client.
 
@@ -153,7 +154,11 @@ class FincClient:
             default_limit: default number of records per search (1..100).
             timeout: HTTP timeout in seconds.
             session: optional pre-configured requests.Session (mainly for tests).
+            cache_only: send no HTTP request at all; ``search``/``get_records``
+                return an ERROR envelope carrying the cache-only marker
+                (``src/core/search/cache_only.py``). - Claude Generated
         """
+        self.cache_only = bool(cache_only)
         self.base_url = (base_url or "").rstrip("/")
         self.web_record_url = (web_record_url or "").rstrip("/")
         if self.web_record_url:
@@ -173,6 +178,15 @@ class FincClient:
     def is_configured(self) -> bool:
         """Return True if the client has a base_url that can be queried."""
         return bool(self.base_url)
+
+    @staticmethod
+    def _cache_only_envelope(**extra: Any) -> Dict[str, Any]:
+        """ERROR envelope returned instead of a request in cache-only mode - Claude Generated"""
+        from src.core.search.cache_only import CACHE_MISS_MESSAGE
+
+        logger.debug("finc: request suppressed in cache-only mode")
+        return {"status": "ERROR", "resultCount": 0, "records": [],
+                "error": CACHE_MISS_MESSAGE, "http_status": None, **extra}
 
     # ------------------------------------------------------------------
     # Rate limiting (lightweight — finc is local + fast)
@@ -240,6 +254,8 @@ class FincClient:
                 "facets": {},
                 "error": "finc_base_url not configured",
             }
+        if self.cache_only:
+            return self._cache_only_envelope(facets={})
         if not lookfor or not str(lookfor).strip():
             return {
                 "status": "ERROR",
@@ -400,6 +416,8 @@ class FincClient:
                 "status": "ERROR", "resultCount": 0, "records": [],
                 "error": "finc_base_url not configured",
             }
+        if self.cache_only:
+            return self._cache_only_envelope()
         id_list = [str(i) for i in (ids or []) if i]
         if not id_list:
             return {
@@ -583,7 +601,7 @@ class FincClient:
         response, unexpected shape) rather than raising — this is a
         diagnostic helper, not part of the request path. - Claude Generated
         """
-        if not self.is_configured():
+        if not self.is_configured() or self.cache_only:
             return {}
         url = f"{self.base_url}{self.SCHEMA_PATH}"
         try:

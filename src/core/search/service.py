@@ -335,6 +335,8 @@ def _search_from_raw(
     transform_by_source: Dict[str, Any] = {}
     params_by_source: Dict[str, Dict[str, Any]] = {}
     ok_sources: List[str] = []
+    # Cache-only sources read raw at any age (src/core/search/cache_only.py). - Claude Generated
+    age_by_source: Dict[str, Optional[int]] = {}
 
     for inst in instances:
         source = getattr(inst, "provider_id", "?")
@@ -353,9 +355,12 @@ def _search_from_raw(
             transform_by_source[source] = transform
             params_by_source[source] = raw_cache_params_for(source)
             ok_sources.append(source)
+            if getattr(provider, "cache_only", False) is True:
+                age_by_source[source] = None
 
     agg = aggregate_gnd_results(
         terms, ok_sources, ukm, transform_by_source,
         params_by_source=params_by_source, max_age_hours=max_age_hours,
+        max_age_by_source=age_by_source,
     )
     return nested_from_aggregate(agg), errors

@@ -37,6 +37,7 @@ class BiblioSuggester(BaseSuggester):
         catalog_details: str = "",
         web_search_url: str = "",
         web_record_url: str = "",
+        cache_only: bool = False,
     ):
         """
         Initialize the BiblioSuggester.
@@ -50,6 +51,8 @@ class BiblioSuggester(BaseSuggester):
             web_search_url: Web frontend search URL (BiblioClient web fallback)
             web_record_url: Web frontend record base URL, used to build each
                 title record's catalog ``web_url`` (…/Record/<rsn>)
+            cache_only: forwarded to ``BiblioClient``: no SOAP/web request at
+                all, DK extraction from the DK cache only. - Claude Generated
         """
         super().__init__(data_dir, debug)
 
@@ -69,6 +72,7 @@ class BiblioSuggester(BaseSuggester):
             soap_details_url=catalog_details or "",
             web_search_url=web_search_url or "",
             web_record_url=web_record_url or "",
+            cache_only=cache_only,
         )
 
         self.logger = logging.getLogger("biblio_suggester")

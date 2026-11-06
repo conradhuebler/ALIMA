@@ -58,6 +58,11 @@ class CachingProvider:
     def is_available(self, cfg: Any = None) -> bool:
         return self.inner.is_available(cfg)
 
+    @property
+    def cache_only(self) -> bool:
+        """Cache-only mode of the wrapped provider - Claude Generated"""
+        return getattr(self.inner, "cache_only", False) is True
+
     def search(
         self,
         capability: SearchCapability,
@@ -68,6 +73,12 @@ class CachingProvider:
     ) -> ProviderResult:
         if capability is not SearchCapability.GND_KEYWORDS:
             # Records / facets are not cached.
+            return self.inner.search(capability, query, progress=progress, **opts)
+        if self.cache_only:
+            # Cache-only: the inner provider answers from the raw cache at any age
+            # without network. The mapping layer is bypassed both ways: its
+            # freshness gate would hide stale entries, and its write-back would
+            # re-stamp cache-derived data as a fresh live answer. - Claude Generated
             return self.inner.search(capability, query, progress=progress, **opts)
 
         per_term = {}

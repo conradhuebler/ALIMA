@@ -63,6 +63,59 @@ Abschlusskarte beim Laden einer Datei. Tests: `tests/test_geo_sachdb_result.py`
 (26, gegen die synthetische Datenbank der Plugin-Tests; 15 Mutationen, alle rot).
 WP: [`docs/wp_geo_sachdb_plugin.md`](docs/wp_geo_sachdb_plugin.md) §7.1.
 
+### Schalter „Nur Cache (kein Netz)“ für catalog und finc (November 6, 2026)
+
+Aus manchen Netzen sind Libero und finc nicht erreichbar (gemeldet: 30 s
+Connect-Timeout je Schlagwort). Abschalten entfernte die Instanz ganz, samt
+Cache-Hülle. Neu ist je Instanz `cache_only` (BOOL, Standard aus,
+`src/core/search/cache_only.py`: Feld, Fehl-Marker, Zusammenfassung), deklariert
+nur von `catalog` und `finc`; das Plugin-Formular zeigt ihn über `config_fields`.
+
+**Zwei Pfade, eine Quelle.** Der Schalter reist mit den Instanz-Einstellungen:
+`build_provider` → Provider (`SuggesterBackedProvider.cache_only`) → Suggester →
+Client. *Plugin-Hülle:* `_gnd_search` liest im Modus den Rohantwort-Cache ohne
+Altersgrenze und reduziert mit `transform` (`_gnd_search_cache_only`, Lesenaht
+`_cached_raw`); `CachingProvider` reicht direkt an den inneren Provider durch
+(kein Frische-Gate, kein Zurückschreiben, das einen alten Eintrag als frisch
+stempeln würde); `aggregate_gnd_results(max_age_by_source=…)` hebt das Alter für
+diese Quelle auf (gesetzt von `service._search_from_raw` und dem
+`aggregate_gnd_results`-Werkzeug). Titel (`catalog_titles`) und finc-Records
+kommen ebenso aus dem Rohcache. *Direktpfad:* `resolve_dk_extractor` baut den
+Extraktor aus der aktivierten Instanz, also mit dem Schalter;
+`BiblioClient._extract_dk_cache_only` und `FincCatalogClient._titles_cache_only`
+lesen `catalog_dk_cache` mit `ignore_ttl=True` (neu an
+`get_catalog_dk_cache`): `success` ist Treffer, `no_results` bekannte Leere,
+fehlende Zeile oder gespeicherter Fehlschlag ist ein Fehl-Eintrag in
+`last_cache_misses`. Eine deaktivierte Instanz wird nirgends gebaut; der
+DK-Rückfall ohne Instanz hat keine Endpunkte. Als Netz-Sperre darunter liefern
+die Anfrage-Methoden von `BiblioClient` (SOAP-Suche, Titeldetails, beide
+Web-Fallbacks) und `FincClient` (`search`, `get_records`, `discover_fields`) im
+Modus leer, ohne Anfrage.
+
+**Fehl-Einträge.** Ein Begriff ohne Cache-Eintrag steht mit dem Marker
+`cache_only:` in `ProviderResult.errors` (unbekannt, nicht „kein Treffer“), so
+schreibt keine Cache-Schicht ihn als leeren Treffer fest. Gemeldet wird je Lauf
+eine Zeile je Quelle statt je Begriff: klassische Schlagwortsuche
+(`execute_gnd_search`, `split_cache_misses`), DK-Schritt (`execute_notation_search`,
+dazu `statistics.cache_only_misses`), agentisches `gnd_batch_search`, Statuszeile
+des Suchtabs. Die Agent-Werkzeuge `search_catalog`, `search_catalog_titles`,
+`search_finc` gehen im Modus über den Provider statt den Suggester, tragen im
+Ergebnis einen Block `cache_only.missing_terms` und in der Beschreibung den
+Hinweis, dass keine Netzfehler zu erwarten sind.
+
+**Grenzen.** Im Cache steht nur, was frühere Läufe mit Netz abgelegt haben. Die
+Agent-Werkzeuge `search_catalog`/`search_catalog_titles` legen bei Live-Abfragen
+keine Rohantwort ab (vorbestehend), Titel-Rohantworten entstehen nur über das
+Werkzeug einer zweiten catalog-Instanz. finc-Filter und `availability` gehören
+nicht zum Cache-Schlüssel. `alima test-catalog` baut seinen `BiblioClient` selbst
+und kennt den Schalter nicht. Das Verhalten an einem echten nicht erreichbaren
+Netz ist nicht gemessen, nur über Attrappen geprüft.
+
+Tests: `tests/test_cache_only_mode.py` (28, temporäre SQLite-DB, Netz-Stolperdraht
+auf `requests.Session.request` und `socket.connect` mit Positivkontrolle). 36
+Mutationen (30 im Modus, 6 im Modus aus), alle rot, Dateien per sha256
+wiederhergestellt.
+
 ### Einstellungsdialog: Phase 1 aufgeräumt (September 10, 2026)
 
 Der Dialog war über 52 Commits auf 1624 Zeilen gewachsen. Die Analyse fand

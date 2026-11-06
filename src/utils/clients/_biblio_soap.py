@@ -26,6 +26,21 @@ logger = logging.getLogger("biblio_extractor")
 class BiblioRequestMixin:
     """SOAP search/details requests + web-scraping fallbacks. Mixed into :class:`BiblioClient`."""
 
+    def _network_blocked(self, what: str) -> bool:
+        """True when cache-only mode forbids this network request - Claude Generated
+
+        The guard on every request method of this axis (SOAP search/details, both
+        web fallbacks), so no caller reaches the network while ``cache_only`` is
+        set. The cache-only paths never get here; a hit means some caller still
+        asked for a live request, which is logged once per client.
+        """
+        if getattr(self, "cache_only", False) is not True:
+            return False
+        if not getattr(self, "_cache_only_block_logged", False):
+            self._cache_only_block_logged = True
+            logger.warning(f"catalog: {what} im Modus „nur Cache“ unterdrückt (keine Netzabfrage)")
+        return True
+
     def search(self, term: str, search_type: str = "ku") -> List[Dict[str, Any]]:
         """
         Search for items in the catalog with retry logic for transient errors.
@@ -37,6 +52,8 @@ class BiblioRequestMixin:
         Returns:
             A list of search result items
         """
+        if self._network_blocked("SOAP-Suche"):
+            return []
         # Retry configuration - Claude Generated
         max_retries = 3
         backoff_base = 1  # Start at 1 second
@@ -270,6 +287,9 @@ class BiblioRequestMixin:
                 self._soap_lookups_needed = 0
             self._soap_lookups_needed += 1
             # Continue with SOAP even if JSON lookup fails
+
+        if self._network_blocked("Titeldetails"):
+            return None
 
         # If web mode is active, use web scraping directly - Claude Generated
         if self._using_web_mode:
@@ -546,6 +566,8 @@ class BiblioRequestMixin:
         Returns:
             List of search results with rsn (web record ID) and title
         """
+        if self._network_blocked("Web-Suche"):
+            return []
         try:
             from bs4 import BeautifulSoup
 
@@ -605,6 +627,8 @@ class BiblioRequestMixin:
         Returns:
             Dictionary with title details (same format as SOAP response) or None
         """
+        if self._network_blocked("Web-Titeldetails"):
+            return None
         try:
             from bs4 import BeautifulSoup
 

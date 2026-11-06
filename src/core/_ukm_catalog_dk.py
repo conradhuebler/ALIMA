@@ -23,8 +23,12 @@ from typing import Any, Dict, List, Optional
 class CatalogDkCacheMixin:
     """The ``catalog_dk_cache`` subsystem. Mixed into :class:`UnifiedKnowledgeManager`."""
 
-    def get_catalog_dk_cache(self, search_term: str) -> Optional[tuple]:
+    def get_catalog_dk_cache(self, search_term: str, ignore_ttl: bool = False) -> Optional[tuple]:
         """Retrieve catalog titles from dedicated cache with TTL support - Claude Generated
+
+        ``ignore_ttl=True`` (cache-only mode) returns a failure row even after its
+        ``retry_after`` has passed, so the caller can tell a known ``no_results``
+        answer from a missing row. ``success`` rows carry no TTL either way.
 
         Returns:
             Tuple of (titles, status, error_message) or None if cache miss or TTL expired
@@ -43,7 +47,7 @@ class CatalogDkCacheMixin:
                 return None
 
             # Check TTL for failed searches
-            if row['search_status'] != 'success' and row['retry_after']:
+            if row['search_status'] != 'success' and row['retry_after'] and not ignore_ttl:
                 from datetime import datetime
                 try:
                     retry_val = row['retry_after']

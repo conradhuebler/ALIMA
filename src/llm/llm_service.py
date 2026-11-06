@@ -266,6 +266,48 @@ def _detect_image_media_type(img_bytes: bytes, accepted: Dict[str, str]) -> "tup
         return "image/jpeg", img_bytes
 
 
+_ANTHROPIC_CACHE = {"type": "ephemeral"}
+
+
+def _anthropic_cached_system(system_text: str) -> List[Dict[str, Any]]:
+    """System-Prompt als Textblock mit Cache-Haltepunkt - Claude Generated.
+
+    Anthropic cached alles bis einschließlich des markierten Blocks (Reihenfolge
+    tools, system, messages). Unter der Mindestlänge des Modells wird die Marke
+    ohne Fehler ignoriert.
+    """
+    return [{"type": "text", "text": system_text, "cache_control": _ANTHROPIC_CACHE}]
+
+
+def _anthropic_mark_last_block(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Kopie von ``messages`` mit Cache-Haltepunkt am letzten Inhaltsblock - Claude Generated.
+
+    In einer Werkzeugschleife wächst der Verlauf von Runde zu Runde; der Haltepunkt
+    am Ende lässt die Anfrage der nächsten Runde den bisherigen Verlauf aus dem
+    Cache lesen. Die übergebene Liste bleibt unverändert.
+    """
+    if not messages:
+        return messages
+    out = list(messages)
+    last = dict(out[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        if not content:
+            return messages
+        blocks: List[Any] = [{"type": "text", "text": content}]
+    elif isinstance(content, list) and content:
+        blocks = list(content)
+    else:
+        return messages
+    tail = blocks[-1]
+    if not isinstance(tail, dict):
+        return messages
+    blocks[-1] = {**tail, "cache_control": _ANTHROPIC_CACHE}
+    last["content"] = blocks
+    out[-1] = last
+    return out
+
+
 def _anthropic_image_block(img_bytes: bytes) -> Dict[str, Any]:
     """Build an Anthropic image content block with the real media_type."""
     media_type, data = _detect_image_media_type(img_bytes, _ANTHROPIC_IMAGE_MEDIA_TYPES)
@@ -1955,7 +1997,7 @@ class LlmService(QObject):
 
             # Add system message if provided
             if system:
-                params["system"] = system
+                params["system"] = _anthropic_cached_system(system)
 
             # Add user message. Image + text go as plain content-block dicts -
             # the SDK has no ImageContent/TextContent/ContentBlock classes (never
@@ -2934,13 +2976,16 @@ class LlmService(QObject):
             # (tuned for deterministic extraction) are non-default on all of them.
             # Anthropic's own guidance: omit and steer from the prompt instead.
             # - Claude Generated
+            # Prompt-Cache: Haltepunkte am System-Prompt (deckt die Tool-Liste mit
+            # ab, die in der API davor steht) und am Ende des Verlaufs. Zwei von
+            # höchstens vier erlaubten. - Claude Generated
             params = {
                 "model": model,
-                "messages": anthropic_messages,
+                "messages": _anthropic_mark_last_block(anthropic_messages),
                 "max_tokens": max_tokens,
             }
             if system_text:
-                params["system"] = system_text
+                params["system"] = _anthropic_cached_system(system_text)
             if anthropic_tools:
                 params["tools"] = anthropic_tools
             if thinking_callback is not None:

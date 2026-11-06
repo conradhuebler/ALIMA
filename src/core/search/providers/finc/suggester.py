@@ -62,6 +62,7 @@ class FincSuggester(BaseSuggester):
         institution_filter: str = "",
         debug: bool = False,
         data_dir: Optional[Union[str, Path]] = None,
+        cache_only: bool = False,
     ):
         """Initialize the FincSuggester.
 
@@ -75,6 +76,8 @@ class FincSuggester(BaseSuggester):
             debug: enable verbose logging.
             data_dir: storage directory (required by BaseSuggester; finc
                 itself does not cache).
+            cache_only: forwarded to ``FincClient``, which then sends no HTTP
+                request. - Claude Generated
         """
         super().__init__(data_dir, debug)
         self.client = FincClient(
@@ -82,6 +85,7 @@ class FincSuggester(BaseSuggester):
             web_record_url=web_record_url,
             default_limit=default_limit,
             timeout=timeout,
+            cache_only=cache_only,
         )
         self.institution_filter = institution_filter or ""
         self.default_filters: Dict[str, str] = {}

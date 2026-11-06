@@ -183,6 +183,12 @@ def gnd_batch_search(
                     f"  ⚠️ {src}: {len(term_errors)} Teilfehler ({failed_terms}{more}) — "
                     f"leere Treffer dafür sind NICHT bestätigt\n"
                 )
+            # Cache-only source: one summary line for its misses. - Claude Generated
+            cache_only_info = payload.get("cache_only") if isinstance(payload, dict) else None
+            if cache_only_info and cache_only_info.get("missing_terms") and stream_callback:
+                from src.core.search.cache_only import summary as cache_only_summary
+
+                stream_callback(f"  ℹ️ {cache_only_summary(src, len(cache_only_info['missing_terms']), len(keywords))}\n")
             data, terms_map = parse_batch_response_with_terms(payload)
             if not aggregate_from_raw:
                 # Legacy inline aggregation from the tool's reduced results.
