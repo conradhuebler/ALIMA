@@ -6,8 +6,9 @@
 > Schema v1 (als Built-in registriert), kleines Verfügbarkeits-Gate im
 > Werkzeuggenerator, deterministischer Schritt `geo_candidates` in
 > `alima_v51_105`, Übernahme ins Ergebnis (`KeywordAnalysisState.geo_sachdb`,
-> §7.1). Nicht vorhanden: GUI-Anbindung außer dem Plugin-Tab,
-> LLM-Auswahlschritt. Die
+> §7.1), lokale PPN im gemeinsamen WinIBW-Eintrag (`src/utils/winibw_record.py`,
+> §7.1, Stand 6.11.2026). Nicht vorhanden: GUI-Anbindung außer dem Plugin-Tab
+> und der Abschlusskarte, LLM-Auswahlschritt. Die
 > Antworten des Entwicklers stehen in Abschnitt 8; Schema und Importer setzen sie um.
 >
 > Kennzeichnung: **[gemessen]** = mit Werkzeug an den Kopien in `.scratch/`
@@ -37,7 +38,7 @@ lokalen Bestand. Lokale Daten schlagen vor, entscheiden nie (Grundsatz wie bei
 | Vorbild eigene SQLite: `webindex` | `src/utils/lookups/webindex/store.py` (eigene DB über `DatabaseManager`) | hier statt QtSql das Standardmodul `sqlite3` mit `mode=ro`, weil nur gelesen wird |
 | Tier-2-Laden registriert die Klasse selbst | `src/core/plugins/loader.py:281` (`register_code_type`) | Plugin braucht keinen Import-Seiteneffekt |
 | Lokale Daten im Workflow: `shelf_candidates` → `shelf_select` → `shelf_guard` | `src/core/agents/deterministic_functions.py:1843-1909`, `:1912`; `workflows/alima_v51_105.yaml:897-` | `build_lookup` → `None` ergibt leeres Ergebnis (`deterministic_functions.py:1890-1892`) |
-| Aufstellung gelangt ins Ergebnis über `extra.shelf_final` | `src/core/agents/shared_context.py:630-638` | `geo_sachdb` auf demselben Weg über `extra.geo_sachdb` (`:642`, §7.1) |
+| Aufstellung gelangt ins Ergebnis über `extra.shelf_final` | `src/core/agents/shared_context.py:637-649` | `geo_sachdb` auf demselben Weg über `extra.geo_sachdb` (`:651`, §7.1) |
 
 ### Entscheidung: Kategorie `lookup`
 
@@ -318,9 +319,9 @@ Suche.
 | | |
 |---|---|
 | Ort | nach `dk_postprocess`, vor `shelf_candidates` (`workflows/alima_v51_105.yaml:858`); `depends_on: [dk_postprocess]` |
-| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2044`) |
+| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2051`) |
 | Eingaben | `keywords: ${extra.final_keywords}`, `notations: ${dk_classifications}`; fehlen sie, liest die Funktion dieselben Werte aus dem Kontext |
-| Ausgabe | `extra.geo_sachdb` mit `status`, `keyword_matches` (lokale Sätze je Schlagwort mit Art, PPN und Zeile), `not_found` (Schlagworte ohne lokalen Satz), `notation_matches` (lokale Einträge je vergebener Notation des Systems `scheme`, Standard DK; andere Systeme bleiben draußen), `candidates` (Notationen aus den getroffenen lokalen Sätzen, `assigned` = schon vergeben, mit `line`), `lines` (5550 je getroffenem Satz, 6700 je Kandidat), `prompt_text`, `source` |
+| Ausgabe | `extra.geo_sachdb` mit `status`, `keyword_matches` (lokale Sätze je Schlagwort mit Art, PPN und Zeile), `not_found` (Schlagworte ohne lokalen Satz), `notation_matches` (lokale Einträge je vergebener Notation des Systems `scheme`, Standard DK, mit `system`; andere Systeme bleiben draußen), `candidates` (Notationen aus den getroffenen lokalen Sätzen, `assigned` = schon vergeben, mit `line`), `lines` (5550 je getroffenem Satz, 6700 je Kandidat), `prompt_text`, `source` |
 | Schalter | die Plugin-Instanz selbst: keine Instanz/abgeschaltet → `status: disabled`; ohne Datei oder mit anderem Schema → `status: unavailable` mit Grund; beides leeres Ergebnis, der Lauf geht weiter. `config.kinds` begrenzt die Arten (leer = alle), `config.scheme` das System |
 | Schutz gegen Erfindungen | kein LLM beteiligt; nur identische Ansetzungen/Verweisungsformen (`min_score: 90`); `dk_classifications` wird nicht verändert (Test) |
 | Budget | `meta_agent.max_cycles` 20 → 21 (13 aktivierte Schritte); Planner- und Reflexionsregeln nennen den Schritt als Abschluss, kein Prüftor |
@@ -330,64 +331,135 @@ Klassifikation.
 
 **Ergebnisübernahme (umgesetzt, Muster `shelf`):**
 `SharedContext.to_keyword_analysis_state` legt in
-`KeywordAnalysisState.geo_sachdb` ab (`_geo_sachdb_for_state` in
-`src/core/agents/shared_context.py`):
+`KeywordAnalysisState.geo_sachdb` ab (`_geo_sachdb_for_state`,
+`src/core/agents/shared_context.py:115`):
 
-- `lines`: die Zeilen als reiner Kopierblock. Die Schlagwortzeilen kommen vom
-  Plugin alle als `5550 …` (die Funktion kennt die Ketten nicht und bleibt
-  deterministisch) und werden hier fortlaufend nummeriert: jedes lokale
-  Schlagwort ist ein Einzelschlagwort ohne `$ADE-105` mit eigener Feldnummer,
-  beginnend nach den Schlagwortketten des Ergebnisses. Startnummer = 5550 +
-  Anzahl der Ketten (ohne Ketten 5550, 5551, …; bei vier Ketten 5554, 5555, …).
-  Gezählt werden die Ketten, die die Abschlusskarte zeigt (mindestens ein nicht
-  leeres Glied). 6700-Zeilen bleiben `6700`.
-- `entries`: dieselben Zeilen mit ihrer Bedeutung; Schlagwort
-  `{type: heading, line, label, kind}`, Notation
-  `{type: notation, line, system, notation, label, assigned}`.
-- `exhausted`: Schlagwörter, für die bis 5599 keine Nummer mehr frei war. Sie
-  erhalten keine Zeile.
-- `numbering` (`chains`, `first_tag`, `last_tag`), `not_found`, `candidates`
-  und von `source` nur `source`, `source_date`, `source_sha256`,
-  `schema_version`.
+- `terms`: je nachgeschlagenem Schlagwort die lokalen Sätze (`records`:
+  Bezeichnung, Art, PPN), der Satz, für den es steht (`record`), `status` und
+  die verwendbare `ppn`. Eindeutig (`unique`) ist ein Treffer mit genau einem
+  lokalen Satz oder mit genau einem Satz der Art Sachschlagwort unter mehreren
+  (`_geo_pick`, `:34`); hat dieser Satz keine PPN, heißt der Status `no_ppn`,
+  sonst `ambiguous`.
+- `notations`: je vergebener Notation des Systems `scheme` die lokalen
+  Einträge, `status` (`unique`: genau eine PPN unter den Einträgen;
+  `ambiguous`: mehrere verschiedene; `no_ppn`; `not_local`) und die verwendbare
+  `ppn`. Dafür trägt jeder Eintrag von `notation_matches` im Schritt jetzt
+  `system`.
+- `not_found`, `candidates` und von `source` nur `source`, `source_date`,
+  `source_sha256`, `schema_version`.
 
-**Annahme, ungeprüft:** Eine Schlagwortkette des Ergebnisses belegt genau eine
-Feldnummer, die erste Kette 5550. Ob das der WinIBW-Praxis entspricht, ist
-nicht geprüft. Die Annahme steht nur in `_geo_first_heading_tag`
-(`shared_context.py:40`), die Obergrenze in `_GEO_HEADING_LAST_TAG` (5599).
-Der K10+-Export `generate_k10plus_lines` (`src/utils/exporters.py:137`)
-nummeriert Ketten nach einer eigenen Regel (eine Nummer je Kette, ab der
-zehnten Kette alle unter 5559, laut Docstring „K10+ defines 5550-5559“) und
-gibt keine geo_sachdb-Zeilen aus. Welche Obergrenze stimmt, ist offen.
+Die Funktion schreibt keine Zeilen. Die frühere eigene Nummerierung der lokalen
+Schlagwörter (`lines`, `entries`, `exhausted`, `numbering`; 5550 + Zahl der
+Ketten bis 5599) ist entfallen: lokale Treffer gehen jetzt in den
+WinIBW-Eintrag ein. Ohne Schritt, mit einem Schrittergebnis ohne Plugin
+(`status` ungleich `ok`) oder ohne jeden Treffer, Vorschlag und Fehlbegriff
+bleibt das Feld `{}`.
 
-Ohne Schritt oder ohne Zeilen und ohne `not_found` (kein Plugin, keine Datei,
-keine Eingabe) bleibt das Feld `{}` und nichts wird angezeigt. Anzeige:
+**WinIBW-Eintrag (`src/utils/winibw_record.py`, `build_winibw_record`):** ein
+deterministischer Aufbau aus Ketten, finalen Schlagwörtern, Formschlagwörtern
+und Notationen, für einen Zustand ebenso wie für ein Export-Payload. Form:
 
-- Abschlusskarte (`format_final_result_card_html`, also GUI-Log und Webapp-Log
-  am Ende eines Laufs): Block „Lokale Sacherschließung (geo_sachdb)“, die Zeilen
-  als reiner Text in einem eigenen `<pre>` mit Kopierknopf (kopiert nur diese
-  Zeilen). Darunter eine Liste mit einem Eintrag je Zeile: Zeile, Bezeichnung
-  und Art, bei Notationen System, Notation und Bezeichnung, bei einer im Lauf
-  nicht vergebenen Notation der Vermerk „im Lauf nicht vergeben“. Danach
-  „Ohne Feldnummer (5599 erreicht)“ und die Begriffe ohne lokales Schlagwort.
-- CLI `show-protocol <datei>` (Format `detailed`, Schritt `dk_classification`,
-  auch ohne DK): die Zeilen ohne Einrückung, darunter eingerückt dieselbe Liste
-  (`<Zeile> = <Bezeichnung> · <Art>`) und die Hinweise.
+```
+5550 <Glied 1 der Kette 1>
+5550 <Glied 2 der Kette 1>
+5550 $ADE-105
 
-Beide Ansichten beschreiben eine Zeile über dieselbe Funktion
-(`geo_sachdb_entry_parts` in `src/utils/pipeline_formatters.py`).
-Ergebnisse aus dem Stand vor `entries` (alle Schlagwortzeilen `5550`) laden und
-erscheinen so, wie sie gespeichert sind: ohne Liste, die im Lauf nicht
-vergebenen Notationen in einer eigenen Zeile „6700, im Lauf nicht vergeben“.
-Neu nummeriert werden sie nicht.
+5551 <Glied 1 der Kette 2>
+5551 $ADE-105
 
+5552 <Einzelschlagwort>
+5553 <Einzelschlagwort>
+
+1131 <Formschlagwort>
+
+6700 DK <Notation>
+6700 <RVK-Notation>
+```
+
+- Ketten ab 5550, eine Feldnummer je Kette für alle Glieder, Abschluss
+  `<nr> $ADE-105`, eine Leerzeile zwischen den Ketten und zwischen den
+  Abschnitten. Kettenquelle und GND-ID-Bereinigung wie im früheren K10+-Export.
+- Einzelschlagwörter: finale Schlagwörter, die in keiner Kette stehen und keine
+  Formschlagwörter sind, jedes einmal (Vergleich ohne Groß-/Kleinschreibung, NFC);
+  je eine eigene Feldnummer, ohne `$ADE-105`.
+- Formschlagwörter (`form_keywords`) als `1131 <Begriff>`, immer als Text; ein
+  Formschlagwort in einer Kette wird aus der Kette genommen (Vermerk an der
+  1131-Zeile).
+- DK als `6700 DK <Notation>`, RVK als `6700 <Notation>` ohne Präfix. Andere
+  Systeme (DDC, BK) bekommen keine Zeile und stehen in `skipped`.
+- Mit `terms`/`notations`: ein Begriff mit Status `unique` erscheint als
+  `<nr> !PPN!` (in Ketten wie als Einzelschlagwort), eine vergebene Notation
+  mit Status `unique` als `6700 !PPN!`. Mehrdeutige Treffer und Treffer ohne PPN
+  bleiben Text und tragen einen Vermerk. Zwei Begriffe mit derselben lokalen PPN
+  ergeben eine Zeile. Begriff und Treffer werden über die gleiche Schreibung des
+  nachgeschlagenen Schlagworts zugeordnet.
+- Obergrenze der Schlagwortfelder: die Konstante `WINIBW_SUBJECT_LAST_TAG`
+  (5559, wie der frühere K10+-Export). Eine Kette oder ein Einzelschlagwort
+  darüber bekommt keine Zeile und steht in `overflow`; nichts wird auf die
+  letzte Nummer gelegt.
+- Rückgabe: `lines` (mit Leerzeilen), `text`, `entries` (je Zeile Herkunft,
+  Begriff, verwendeter lokaler Satz, Vermerk), `overflow`, `skipped`,
+  `last_tag`.
+
+**Ungeprüfte Annahmen** (nicht an WinIBW geprüft): Feld 1131 für
+Formschlagwörter; die Obergrenze 5559 (5599 ist ebenfalls im Gespräch, die
+Entscheidung steht aus); eine Kette belegt genau eine Feldnummer; WinIBW nimmt
+einen Begriff als Text statt PPN an und löst ihn selbst auf; Leerzeilen zwischen
+den Feldern stören beim Einfügen nicht; Feld 6700 wird je Notation ohne Zählung
+wiederholt (die Klassifikations-Prompts erwähnen `6700, 6701, …`).
+
+Weitere Grenzen: Die Eindeutigkeit beurteilt nur die Sätze, die der Schritt
+liefert (höchstens `max_per_keyword`, Standard 3, je Schlagwort). Die
+GND-ID-Bereinigung schneidet ab der ersten Klammer (`strip_gnd_id`, wie bisher);
+eine Ansetzung mit eigener Klammer verliert diesen Teil.
+
+**Ausgaben mit `build_winibw_record`:** Abschlusskarte
+(`format_final_result_card_html`, GUI-Log und Webapp-Log am Ende eines Laufs),
+CLI `show-protocol` (`detailed`, Schritt `dk_classification`, auch ohne DK) und
+`show-protocol --format k10plus`, Review-Reiter
+(`AnalysisReviewTab._generate_k10plus_format`), `exporters.generate_k10plus_lines`
+und damit der Export `marc` (auch über das MCP-Werkzeug `export`), `results.winibw`
+im JSON-Export (`extract_results_from_analysis_state`; beim Laden verworfen und
+aus den übrigen Feldern neu gebaut). **Nicht:** `rule_output` (von einem
+Sprachmodell nach persönlichen Regeln geschrieben, unverändert und unabhängig),
+`show-protocol --format compact`, die Ergebnisübersicht der Webapp (`app.js`),
+die Konsolenausgabe nach einem Lauf.
+
+Anzeige:
+
+- Abschlusskarte: Block „WinIBW-Eintrag“ mit dem Eintrag als reinem Kopierblock
+  (`<pre class="alima-result__winibw">`, eigener Kopierknopf; nicht
+  `alima-result__pre`, weil der Knopf der Zusatzregel das erste
+  `.alima-result__pre` der Karte wählt), darunter die Liste, wofür jede Zeile
+  steht, und gegebenenfalls „Ohne Feldnummer (5559 erreicht)“ und „Nicht
+  übernommen“. Danach der Block „Lokale Sacherschließung (geo_sachdb)“: lokale
+  Treffer je Begriff und je vergebener Notation (Begriff → lokaler Satz, Art,
+  PPN; mehrdeutige Fälle mit allen Sätzen), „Weitere lokale DK-Vorschläge“
+  (Notationen getroffener lokaler Sätze, im Lauf nicht vergeben, mit fertiger
+  Zeile nach derselben Regel in einem eigenen Kopierblock
+  `alima-result__geo-proposals`, nicht im WinIBW-Eintrag) und „Ohne lokales
+  Schlagwort“.
+- CLI `show-protocol`: dieselben Blöcke; Eintrag und Vorschlagszeilen ohne
+  Einrückung, Erklärungen eingerückt. Karte und CLI beschreiben Zeilen über
+  dieselben Funktionen (`winibw_entry_parts`, `geo_sachdb_hits`,
+  `geo_sachdb_proposals`).
+
+Rückwärtskompatibilität: Ergebnisdateien ohne `geo_sachdb` oder aus dem Stand
+vor `terms`/`notations` (mit `lines`/`entries`) laden. Der Eintrag wird dann
+ohne lokale PPN gebaut, die gespeicherten alten Zeilen werden nicht mehr
+angezeigt; Vorschläge (`candidates`) und `not_found` erscheinen weiter.
 Gespeichert wird das Feld in beiden JSON-Formaten (`save_analysis_state`,
-Webapp-Export `results.geo_sachdb`); Dateien ohne das Feld laden mit `{}`.
-Tests: `tests/test_geo_sachdb_result.py`.
+`results.geo_sachdb`).
 
-Grenzen: nicht in `show-protocol --format k10plus` und `compact`, nicht in den
-GUI-Reitern, nicht in der Ergebnisübersicht der Webapp (`app.js`), nicht in der
-Konsolenausgabe nach einem Lauf; geladene Dateien zeigen keine Abschlusskarte.
-`from_keyword_analysis_state` bringt das Feld nicht nach `extra` zurück.
+Tests: `tests/test_winibw_record.py` (Aufbau, Obergrenze, lokale PPN, Karte,
+gleicher Text über alle Ausgabewege), `tests/test_geo_sachdb_result.py`
+(Zustand gegen eine synthetische Datenbank mit mehrdeutigen Fällen, Geo-Block,
+Speichern/Laden, alte Dateien).
+
+Grenzen: Die Abschlusskarte entsteht nur am Ende eines Laufs (GUI
+`on_pipeline_completed`, Webapp-Lauf); geladene Dateien zeigen den Eintrag im
+Review-Reiter und in der CLI. `from_keyword_analysis_state` bringt das Feld
+nicht nach `extra` zurück.
 
 ### 7.2 Vorschlag: Vorwissen vor `classification` (Plan, Phase 3)
 
@@ -464,7 +536,7 @@ Datenbank; wo er es nicht wusste, gilt der Standard und der Punkt ist als
 |---|---|---|
 | 1 ✅ | Analyse, Umwandler, Plugin-Gerüst, Gate, `geo_candidates` (dieser Branch) | erledigt |
 | 2 | F1-F7 klären; Abbildung bestätigen; `convert` der aktuellen Datei; Plugin registrieren (Built-in oder Tier-2), Preset `lookup` | 0,5-1 Tag |
-| 3 | Ergebnisübernahme ✅ (`KeywordAnalysisState.geo_sachdb`, Abschlusskarte, CLI `show-protocol`, Export; Grenzen §7.1); offen: optional `geo_prior`/`geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
+| 3 | Ergebnisübernahme ✅ (`KeywordAnalysisState.geo_sachdb`, lokale PPN im WinIBW-Eintrag, Abschlusskarte, CLI `show-protocol`, Export; Grenzen §7.1); offen: optional `geo_prior`/`geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
 | 4 | optional normalisierte Schicht + FTS5, `CLASSIFICATION`-Suchquelle für die klassische Pipeline, PPN → GND-ID | 2-4 Tage |
 
 ## 10. Reproduktion

@@ -38,11 +38,6 @@ from .styles import (
 from ..core.data_models import KeywordAnalysisState, LlmKeywordAnalysis
 from ..utils.pipeline_utils import AnalysisPersistence
 
-# K10+/WinIBW export format tags - Claude Generated
-# These can be moved to config later for configurability
-K10PLUS_KEYWORD_TAG = "5550"
-K10PLUS_CLASSIFICATION_TAG = "6700"
-
 
 class AnalysisReviewTab(QWidget):
     """Tab for reviewing and exporting analysis results - Claude Generated (Refactored)"""
@@ -569,39 +564,16 @@ class AnalysisReviewTab(QWidget):
         self.steps_tree.expandAll()
 
     def _generate_k10plus_format(self) -> List[str]:
-        """Generate K10+/WinIBW export lines - Claude Generated
+        """K10+/WinIBW lines of the current analysis, blank lines included.
 
-        Format: TAG TERM (no GND-IDs, no PPNs)
+        The lines of ``winibw_record.build_winibw_record``, the same entry as
+        the result card, the CLI and the exports. - Claude Generated
         """
-        lines = []
+        if not self.current_analysis:
+            return []
+        from ..utils.winibw_record import build_winibw_record
 
-        # GND Keywords (5550)
-        if self.current_analysis and self.current_analysis.final_llm_analysis:
-            analysis = self.current_analysis.final_llm_analysis
-            if isinstance(analysis, dict):
-                keywords = analysis.get('extracted_gnd_keywords', [])
-            else:
-                keywords = getattr(analysis, 'extracted_gnd_keywords', [])
-
-            for keyword in keywords:
-                # Remove GND-ID from "Keyword (GNDID)" format
-                if "(" in keyword and ")" in keyword:
-                    term = keyword.split("(")[0].strip()
-                else:
-                    term = keyword.strip()
-
-                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
-
-        # Klassifikationen (6700)
-        if self.current_analysis:
-            for classification in self.current_analysis.classifications:
-                system, code = self._split_classification_code(classification)
-                if not code:
-                    continue
-                export_system = system or "DK"
-                lines.append(f"{K10PLUS_CLASSIFICATION_TAG} {export_system} {code}")
-
-        return lines
+        return list(build_winibw_record(self.current_analysis)["lines"])
 
     def copy_k10plus_to_clipboard(self):
         """Copy K10+ format to clipboard - Claude Generated"""

@@ -6,6 +6,49 @@
 
 ## 2026
 
+### Ein WinIBW-Eintrag für alle Ausgaben, lokale PPN aus geo_sachdb (November 6, 2026)
+
+Bisher gab es drei getrennte Aufbauten: `exporters.generate_k10plus_lines`
+(Ketten 5550…, ohne `$ADE-105`, ab der zehnten Kette alles unter 5559; ohne
+Ketten alle Schlagwörter unter 5550), eigene Schleifen in CLI
+`show-protocol --format k10plus` und im Review-Reiter (alle Schlagwörter 5550,
+`6700 RVK …`) und den Geo-Block der Abschlusskarte mit eigener Nummerierung ab
+5550 + Kettenzahl.
+
+- Neu `src/utils/winibw_record.py` (`build_winibw_record`, reines Python):
+  Ketten ab 5550 mit einer Feldnummer je Kette und `<nr> $ADE-105`, Leerzeile
+  zwischen Ketten und Abschnitten; Einzelschlagwörter ohne `$ADE-105` mit
+  weiterzählender Nummer; Formschlagwörter als `1131 <Begriff>` (auch aus
+  Ketten genommen); `6700 DK <Notation>`, RVK `6700 <Notation>` ohne Präfix;
+  andere Systeme ohne Zeile (`skipped`). Obergrenze als Konstante
+  `WINIBW_SUBJECT_LAST_TAG` (5559); darüber keine Zeile, Vermerk in `overflow`
+  statt Zusammenlegen. Liest Zustand und Export-Payload gleich.
+- geo_sachdb: `_geo_sachdb_for_state` liefert `terms` (lokale Sätze je
+  Schlagwort, eindeutig = ein Satz oder genau ein Sachschlagwort) und
+  `notations` (lokale Einträge je vergebener Notation, eindeutig = genau eine
+  PPN); `notation_matches` des Schritts trägt `system`. Eindeutige Treffer
+  erscheinen im Eintrag als `!PPN!`, sonst Text mit Vermerk.
+  `lines`/`entries`/`exhausted`/`numbering`, `_geo_first_heading_tag`,
+  `_GEO_HEADING_LAST_TAG`, `_count_keyword_chains`, `geo_sachdb_entry_parts`,
+  `geo_sachdb_exhausted` und die CSS-Klassen `alima-result__geo-lines`/
+  `-geo-entries` sind entfernt.
+- Aufrufer: Abschlusskarte (Block „WinIBW-Eintrag“, Kopierblock
+  `alima-result__winibw` mit Erklärliste; Geo-Block mit Treffern je Begriff,
+  „Weitere lokale DK-Vorschläge“ in eigenem Kopierblock, „Ohne lokales
+  Schlagwort“), CLI `show-protocol` (`detailed` und `--format k10plus`),
+  Review-Reiter, `generate_k10plus_lines`/`marc`, `results.winibw` im
+  JSON-Export. `rule_output` bleibt unverändert und unabhängig.
+- **Ungeprüft an WinIBW:** 1131 für Formschlagwörter, Obergrenze 5559 oder
+  5599, eine Kette = eine Feldnummer, Text statt PPN, Leerzeilen beim Einfügen.
+- Alte Tests bewusst geändert (`tests/test_input_export_tools.py`): RVK ohne
+  Präfix, Einzelschlagwörter zählen hoch, `$ADE-105` und Leerzeilen;
+  `tests/test_geo_sachdb_result.py` neu gefasst (Nummerierung entfallen,
+  synthetische Datenbank um mehrdeutige Sätze erweitert).
+
+Tests: `tests/test_winibw_record.py`, `tests/test_geo_sachdb_result.py` (zusammen
+84; 37 Mutationen, alle rot). WP:
+[`docs/wp_geo_sachdb_plugin.md`](docs/wp_geo_sachdb_plugin.md) §7.1.
+
 ### Chat-Agent: voller Eingabetext über `get_input_text` (November 2, 2026)
 
 Die Kontextzeile im Prompt kürzt den Abstract (GUI 500 Zeichen, CLI und

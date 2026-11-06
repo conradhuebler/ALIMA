@@ -235,7 +235,10 @@ class TestExporters(unittest.TestCase):
         lines = Path(out).read_text(encoding="utf-8").splitlines()
         self.assertTrue(any(line.startswith("5550 ") for line in lines))
         self.assertTrue(any(line.startswith("6700 DK 504.054") for line in lines))
-        self.assertTrue(any(line.startswith("6700 RVK WI 4400") for line in lines))
+        # RVK without the system prefix (operator rule, Nov 2026; before:
+        # "6700 RVK WI 4400"). Format details: tests/test_winibw_record.py.
+        self.assertIn("6700 WI 4400", lines)
+        self.assertNotIn("6700 RVK WI 4400", lines)
 
     def test_generate_k10plus_lines_with_chains(self):
         state = {
@@ -252,20 +255,26 @@ class TestExporters(unittest.TestCase):
             }
         }
         lines = exporters.generate_k10plus_lines(state)
-        # First chain → 5550, second → 5551, third → 5552
-        self.assertTrue(any(line == "5550 Mikroplastik" for line in lines))
-        self.assertTrue(any(line == "5550 Meeresökologie" for line in lines))
-        self.assertTrue(any(line == "5551 Umweltchemie" for line in lines))
-        self.assertTrue(any(line == "5551 Toxikologie" for line in lines))
-        self.assertTrue(any(line == "5552 Einzelschlagwort" for line in lines))
-        # Classifications still 6700
-        self.assertTrue(any(line.startswith("6700 ") for line in lines))
+        # One field number per chain, each closed by $ADE-105, a blank line
+        # between; the final keyword outside every chain follows as a single
+        # keyword with the next number (before Nov 2026 the lines had no
+        # $ADE-105 and no blank lines, and "Fallback" was dropped whenever
+        # chains existed).
+        self.assertEqual(lines, [
+            "5550 Mikroplastik", "5550 Meeresökologie", "5550 $ADE-105", "",
+            "5551 Umweltchemie", "5551 Toxikologie", "5551 $ADE-105", "",
+            "5552 Einzelschlagwort", "5552 $ADE-105", "",
+            "5553 Fallback", "",
+            "6700 DK 504.054",
+        ])
 
     def test_generate_k10plus_lines_no_chains_fallback(self):
         lines = exporters.generate_k10plus_lines(self.state)
-        # No chains → falls back to flat final_keywords under 5550
-        self.assertTrue(any(line == "5550 Mikroplastik" for line in lines))
-        self.assertTrue(any(line == "5550 Meeresökologie" for line in lines))
+        # No chains → each final keyword is a single keyword with its own
+        # number, without $ADE-105 (operator rule, Nov 2026; before, all of
+        # them shared 5550).
+        self.assertEqual(lines[:2], ["5550 Mikroplastik", "5551 Meeresökologie"])
+        self.assertNotIn("$ADE-105", "\n".join(lines))
 
     def test_extract_chains_normalizes_various_shapes(self):
         state = {

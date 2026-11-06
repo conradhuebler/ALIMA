@@ -13,51 +13,95 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .pipeline_text_utils import repair_display_text, flatten_keyword_centric_results
+from .winibw_record import (
+    build_winibw_record,
+    classification_line,
+    winibw_entry_parts,
+    winibw_entry_text,
+    winibw_notes,
+)
 
 logger = logging.getLogger(__name__)
 
-#: Note on a 6700 line of the local subject database whose notation the run
-#: did not give. - Claude Generated
-GEO_NOT_ASSIGNED = "im Lauf nicht vergeben"
+#: Titles of the two blocks of the result card (and the CLI protocol).
+WINIBW_TITLE = "WinIBW-Eintrag"
+GEO_TITLE = "Lokale Sacherschließung (geo_sachdb)"
 
 
-def geo_sachdb_entry_parts(entry: Any) -> Tuple[str, str, str]:
-    """``(line, description, note)`` of one ``geo_sachdb`` entry. - Claude Generated
+def _geo_record_text(record: Dict[str, Any]) -> str:
+    """``label · kind · PPN …`` of one local heading or notation entry. - Claude Generated"""
+    parts = [str(record.get(key) or "").strip() for key in ("notation", "label", "kind")]
+    ppn = str(record.get("ppn") or "").strip()
+    parts.append(f"PPN {ppn}" if ppn else "ohne PPN")
+    return " · ".join(part for part in parts if part)
 
-    Heading: description = local label, note = its kind. Notation:
-    description = system, notation and label, note = ``GEO_NOT_ASSIGNED`` when
-    the run did not give it. The result card and the CLI protocol both describe
-    a line through this, so they say the same.
+
+def geo_sachdb_hits(geo: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """``(term, description)`` per local hit: each looked-up keyword with its
+    local heading(s), then each assigned notation with local entries.
+    Ambiguous hits name every candidate. Empty for results saved before
+    ``terms``/``notations`` existed. - Claude Generated
     """
-    if not isinstance(entry, dict):
-        return str(entry or ""), "", ""
-    line = str(entry.get("line") or entry.get("value") or "")
-    label = str(entry.get("label") or "").strip()
-    if entry.get("type") == "notation":
-        notation = str(entry.get("notation") or "").strip()
-        description = " ".join(part for part in (notation, label) if part)
-        return line, description, "" if entry.get("assigned") else GEO_NOT_ASSIGNED
-    return line, label, str(entry.get("kind") or "").strip()
+    rows: List[Tuple[str, str]] = []
+    for item in geo.get("terms") or []:
+        if not isinstance(item, dict) or not item.get("keyword"):
+            continue
+        records = [r for r in (item.get("records") or []) if isinstance(r, dict)]
+        if item.get("status") == "ambiguous":
+            text = "mehrdeutig, als Text: " + "; ".join(_geo_record_text(r) for r in records)
+        else:
+            record = item.get("record") if isinstance(item.get("record"), dict) else (records[0] if records else {})
+            text = _geo_record_text(record)
+        rows.append((str(item["keyword"]), text))
+    for item in geo.get("notations") or []:
+        if not isinstance(item, dict) or item.get("status") in (None, "not_local"):
+            continue
+        local = [n for n in (item.get("local") or []) if isinstance(n, dict)]
+        text = "; ".join(_geo_record_text({**n, "notation": ""}) for n in local)
+        if item.get("status") == "ambiguous":
+            text = "mehrdeutig, als Text: " + text
+        term = f"{item.get('system') or ''} {item.get('notation') or ''}".strip()
+        rows.append((term, text))
+    return rows
 
 
-def geo_sachdb_entry_text(entry: Any) -> str:
-    """One entry as plain text: ``<line> = <description> · <note>``. - Claude Generated"""
-    line, description, note = geo_sachdb_entry_parts(entry)
-    text = f"{line} = {description}" if description else line
-    return f"{text} · {note}" if note else text
-
-
-def geo_sachdb_exhausted(geo: Dict[str, Any]) -> Tuple[str, str]:
-    """``(label, text)`` naming the headings left without a field number, or ``("", "")``.
-
-    - Claude Generated
+def geo_sachdb_proposals(geo: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Notations of the matched local headings the run did not give, each with
+    its finished line (same rule as the WinIBW entry), what it stands for, and
+    the keywords that led to it. Not part of the WinIBW entry. - Claude Generated
     """
-    items = [item for item in (geo.get("exhausted") or []) if isinstance(item, dict)]
-    if not items:
-        return "", ""
-    last = (geo.get("numbering") or {}).get("last_tag")
-    label = f"Ohne Feldnummer ({last} erreicht)" if last else "Ohne Feldnummer"
-    return label, "; ".join(geo_sachdb_entry_text(item) for item in items)
+    out: List[Dict[str, str]] = []
+    for cand in geo.get("candidates") or []:
+        if not isinstance(cand, dict) or cand.get("assigned"):
+            continue
+        system = str(cand.get("system") or "DK").upper()
+        code = str(cand.get("code") or "").strip()
+        line = classification_line(system, code, str(cand.get("ppn") or ""))
+        if not (code and line):
+            continue
+        description = " ".join(
+            part for part in (str(cand.get("notation") or f"{system} {code}"), str(cand.get("label") or ""))
+            if part
+        )
+        via = ", ".join(str(term) for term in (cand.get("via_keywords") or []) if term)
+        out.append({"line": line, "system": system, "description": description,
+                    "note": f"über {via}" if via else ""})
+    return out
+
+
+def geo_sachdb_proposals_title(proposals: List[Dict[str, str]]) -> str:
+    """``Weitere lokale DK-Vorschläge`` (system names from the proposals). - Claude Generated"""
+    systems: List[str] = []
+    for item in proposals:
+        if item["system"] not in systems:
+            systems.append(item["system"])
+    return f"Weitere lokale {'/'.join(systems) or 'DK'}-Vorschläge"
+
+
+def geo_sachdb_proposal_text(item: Dict[str, str]) -> str:
+    """One proposal as plain text: ``<line> = <description> · <note>``. - Claude Generated"""
+    text = f"{item['line']} = {item['description']}" if item["description"] else item["line"]
+    return f"{text} · {item['note']}" if item["note"] else text
 
 
 class PipelineResultFormatter:
@@ -897,7 +941,9 @@ class PipelineResultFormatter:
 
         One card instead of five log lines that scroll apart: what a cataloguer
         takes away from the run — the RSWK core, the chains, the notations, the
-        shelf place, and the entry a personal rule produced for the catalogue.
+        shelf place, the WinIBW entry (``winibw_record.build_winibw_record``),
+        the local subject database's hits and proposals, and the entry a
+        personal rule produced for the catalogue (kept apart: an LLM wrote it).
         The long lists sit in ``<details>`` so the card stays readable.
 
         The rule output is rendered as ``<pre>``, never through the Markdown
@@ -927,10 +973,11 @@ class PipelineResultFormatter:
             chains = list(getattr(final_llm, "keyword_chains", []) or [])
         shelf = dict(_get("shelf", {}) or {})
         geo = dict(_get("geo_sachdb", {}) or {})
-        geo_lines = [str(line) for line in (geo.get("lines") or []) if line]
+        geo_hits = geo_sachdb_hits(geo)
+        geo_proposals = geo_sachdb_proposals(geo)
         geo_missing = [str(term) for term in (geo.get("not_found") or []) if term]
-        geo_entries = [e for e in (geo.get("entries") or []) if isinstance(e, dict) and e.get("line")]
-        geo_exhausted_label, geo_exhausted_text = geo_sachdb_exhausted(geo)
+        record = build_winibw_record(analysis_state)
+        record_notes = winibw_notes(record)
         rule_output = str(_get("rule_output", "") or "").strip()
         entries = list(_get("classification_entries", []) or [])
         codes = list(_get("dk_classifications", []) or [])
@@ -950,8 +997,8 @@ class PipelineResultFormatter:
                     if "→" in line or "->" in line
                 ][:10]
 
-        if not any((core, form, chains, shelf, geo_lines, geo_missing, geo_exhausted_text,
-                    rule_output, entries, codes, keywords)):
+        if not any((core, form, chains, shelf, geo_hits, geo_proposals, geo_missing,
+                    record["lines"], record_notes, rule_output, entries, codes, keywords)):
             return "", ""
 
         rows: List[str] = []
@@ -1092,69 +1139,94 @@ class PipelineResultFormatter:
             )
 
         body = "".join(rows)
-        if geo_lines or geo_missing or geo_exhausted_text:
-            # Local subject database: the finished WinIBW lines as one <pre>,
-            # one line each, with a copy button of its own. The <pre> carries
-            # its own class, not ``alima-result__pre``: the rule snippet's
-            # button selects the first ``.alima-result__pre`` in the card and
-            # would otherwise copy these lines. What each line stands for
-            # follows in a list of its own, outside the <pre>, so the button
-            # still copies the bare lines. - Claude Generated
-            geo_title = "Lokale Sacherschließung (geo_sachdb)"
+
+        def _muted_row(label: str, plain: str) -> str:
+            text.append(f"{label}: {plain}")
+            return (
+                f'<div class="alima-result__row">'
+                f'<span class="alima-result__label">{esc(label)}</span>'
+                f'<span class="alima-result__value alima-result__muted">{esc(plain)}</span></div>'
+            )
+
+        def _explained(css_class: str, items: List[Tuple[str, str, str]]) -> str:
+            # ``(line, description, note)`` as a list below a copy block, outside
+            # the <pre>, so the copy button still takes the bare lines.
+            lis = []
+            for line, description, note in items:
+                item = f"<code>{esc(line)}</code>"
+                if description:
+                    item += f" <span>{esc(description)}</span>"
+                if note:
+                    item += f' <span class="alima-result__muted">{esc(note)}</span>'
+                lis.append(f"<li>{item}</li>")
+            return f'<ul class="{css_class}">{"".join(lis)}</ul>'
+
+        def _copy_head(title: str, target: str) -> str:
             button = (
                 '<button type="button" class="alima-copy" '
-                'data-alima-copy=".alima-result__geo-lines">Kopieren</button>'
-                if geo_lines else ""
+                f'data-alima-copy=".{target}">Kopieren</button>' if target else ""
             )
-            geo_html = (
-                '<div class="alima-result__snippet">'
+            return (
                 '<div class="alima-result__snippet-head">'
-                f"<span>{esc(geo_title)}</span>{button}</div>"
+                f"<span>{esc(title)}</span>{button}</div>"
             )
+
+        if record["lines"] or record_notes:
+            # The WinIBW entry (``winibw_record.build_winibw_record``, the same
+            # builder as CLI, review tab and exports) as one <pre> with its own
+            # copy button. The <pre> has its own class, not
+            # ``alima-result__pre``: the rule snippet's button selects the first
+            # ``.alima-result__pre`` of the card. - Claude Generated
+            block = '<div class="alima-result__snippet">'
+            block += _copy_head(WINIBW_TITLE, "alima-result__winibw" if record["lines"] else "")
             text.append("")
-            text.append(f"{geo_title}:")
-            if geo_lines:
-                joined_lines = "\n".join(geo_lines)
-                geo_html += f'<pre class="alima-result__geo-lines">{esc(joined_lines)}</pre>'
-                text.extend(geo_lines)
-            if geo_entries:
-                items = []
-                for entry in geo_entries:
-                    line, description, note = geo_sachdb_entry_parts(entry)
-                    item = f"<code>{esc(line)}</code>"
-                    if description:
-                        item += f" <span>{esc(description)}</span>"
-                    if note:
-                        item += f' <span class="alima-result__muted">{esc(note)}</span>'
-                    items.append(f"<li>{item}</li>")
-                    text.append("  " + geo_sachdb_entry_text(entry))
-                geo_html += f'<ul class="alima-result__geo-entries">{"".join(items)}</ul>'
-            # A 6700 line also stands for a notation the run did not give. The
-            # list above marks those per line; a result saved before the list
-            # existed has no entries, so they are named in one row instead.
-            proposed = []
-            if not geo_entries:
-                proposed = [
-                    str(cand.get("notation") or cand.get("code") or "")
-                    for cand in (geo.get("candidates") or [])
-                    if isinstance(cand, dict) and cand.get("line") and not cand.get("assigned")
-                ]
-                proposed = [p for p in proposed if p]
-            for label, values in (
-                ("6700, im Lauf nicht vergeben", proposed),
-                (geo_exhausted_label, [geo_exhausted_text] if geo_exhausted_text else []),
-                ("Ohne lokales Schlagwort", geo_missing),
-            ):
-                if not values:
-                    continue
-                plain = ", ".join(values)
-                geo_html += (
-                    f'<div class="alima-result__row">'
-                    f'<span class="alima-result__label">{esc(label)}</span>'
-                    f'<span class="alima-result__value alima-result__muted">{esc(plain)}</span></div>'
+            text.append(f"{WINIBW_TITLE}:")
+            if record["lines"]:
+                block += f'<pre class="alima-result__winibw">{esc(record["text"])}</pre>'
+                text.extend(record["lines"])
+                block += _explained("alima-result__winibw-entries",
+                                    [winibw_entry_parts(e) for e in record["entries"]])
+                text.extend("  " + winibw_entry_text(e) for e in record["entries"])
+            for label, plain in record_notes:
+                block += _muted_row(label, plain)
+            body += block + "</div>"
+
+        if geo_hits or geo_proposals or geo_missing:
+            # Local subject database: what was found per keyword and notation,
+            # the notations the run did not give (own copy block, NOT in the
+            # WinIBW entry above) and the keywords without a local heading.
+            # - Claude Generated
+            block = '<div class="alima-result__snippet">' + _copy_head(GEO_TITLE, "")
+            text.append("")
+            text.append(f"{GEO_TITLE}:")
+            if geo_hits:
+                lis = "".join(
+                    f'<li><span>{esc(term)}</span> → <span class="alima-result__muted">{esc(desc)}</span></li>'
+                    for term, desc in geo_hits
                 )
-                text.append(f"{label}: {plain}")
-            body += geo_html + "</div>"
+                block += f'<ul class="alima-result__geo-hits">{lis}</ul>'
+                text.extend(f"  {term} → {desc}" for term, desc in geo_hits)
+            if geo_proposals:
+                title_p = geo_sachdb_proposals_title(geo_proposals)
+                proposal_text = "\n".join(item["line"] for item in geo_proposals)
+                # Eingeklappt: die Liste ist oft lang und gehört nicht zum Eintrag.
+                # Der Kopierknopf steckt im aufgeklappten Teil und wirkt auf dessen pre.
+                block += (
+                    '<details class="alima-result__more alima-result__geo-more">'
+                    f"<summary>{esc(title_p)} ({len(geo_proposals)})</summary>"
+                    '<div class="alima-result__snippet">'
+                    + _copy_head(title_p, "alima-result__geo-proposals")
+                    + f'<pre class="alima-result__geo-proposals">{esc(proposal_text)}</pre>'
+                    + _explained("alima-result__geo-proposal-entries",
+                                 [(i["line"], i["description"], i["note"]) for i in geo_proposals])
+                    + "</div></details>"
+                )
+                text.append(f"{title_p} (nicht im WinIBW-Eintrag):")
+                text.extend(item["line"] for item in geo_proposals)
+                text.extend("  " + geo_sachdb_proposal_text(item) for item in geo_proposals)
+            if geo_missing:
+                block += _muted_row("Ohne lokales Schlagwort", ", ".join(geo_missing))
+            body += block + "</div>"
         if rule_output:
             body += (
                 '<div class="alima-result__snippet">'

@@ -11,6 +11,7 @@
 - `pdf_extractor` (P-η): PyPDF2 extraction + quality heuristic + optional Vision-LLM OCR fallback.
 - `image_analyzer` (P-η): sync wrapper over `LlmService.generate_response(image=...)`.
 - `exporters` / `report_renderer` (P-θ): JSON/CSV/TeX/MARC writers + `load_state`; Jinja2 LaTeX reports (delimiters `(((  )))` / `((* *))`).
+- `winibw_record` (Nov 6): `build_winibw_record`, der eine WinIBW-Eintrag (Ketten 555x + `$ADE-105`, Einzelschlagwörter, 1131, 6700, lokale PPN aus `geo_sachdb`) für Karte, CLI, Review-Reiter, `marc`, `results.winibw`. ⚠️ 1131 und Obergrenze `WINIBW_SUBJECT_LAST_TAG` (5559) an WinIBW ungeprüft. WP §7.1.
 - `batch_processor`: batch engine over `PipelineStepExecutor` (DOI/PDF/TXT/IMG/URL; resume via `BatchState`).
 - `pipeline_config_parser` / `pipeline_config_builder`: single source of truth for CLI/GUI pipeline param parsing + validation.
 

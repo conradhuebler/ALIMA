@@ -17,12 +17,15 @@ from typing import List, Dict, Any
 
 from src.core.data_models import KeywordAnalysisState
 from src.utils.pipeline_utils import PipelineJsonManager
-from src.utils.pipeline_formatters import geo_sachdb_entry_text, geo_sachdb_exhausted
-
-
-# K10+/WinIBW export format tags
-K10PLUS_KEYWORD_TAG = "5550"
-K10PLUS_CLASSIFICATION_TAG = "6700"
+from src.utils.pipeline_formatters import (
+    GEO_TITLE,
+    WINIBW_TITLE,
+    geo_sachdb_hits,
+    geo_sachdb_proposal_text,
+    geo_sachdb_proposals,
+    geo_sachdb_proposals_title,
+)
+from src.utils.winibw_record import build_winibw_record, winibw_entry_text, winibw_notes
 
 
 def display_protocol(json_file: str, steps: List[str]):
@@ -305,7 +308,8 @@ def format_step_dk_classification(state: KeywordAnalysisState):
 
     if not state.dk_classifications:
         print("  (No DK classifications assigned)")
-        # The subject-heading lines of the local database need no notation.
+        # The entry's subject lines and the local database need no notation.
+        _print_winibw_record(state)
         _print_geo_sachdb(state)
         return
 
@@ -320,43 +324,54 @@ def format_step_dk_classification(state: KeywordAnalysisState):
             print(f"  * {code}" + (f" - {label}" if label else ""))
 
     _print_shelf(state)
+    _print_winibw_record(state)
     _print_geo_sachdb(state)
 
 
-def _print_geo_sachdb(state: KeywordAnalysisState):
-    """Print the lines of the local subject database, if the workflow produced any.
+def _print_winibw_record(state: KeywordAnalysisState):
+    """Print the WinIBW entry (``winibw_record.build_winibw_record``).
 
-    The lines are printed without indentation, one per line, so they can be
-    copied into WinIBW as they stand; what each line stands for and the notes
-    follow indented. A result saved before ``entries`` existed has no such
-    list; its notations the run did not give are named in one line instead.
-    - Claude Generated
+    The entry is printed without indentation, blank lines included, so it can
+    be copied into WinIBW as it stands; what each line stands for and what was
+    left out follow indented. - Claude Generated
+    """
+    record = build_winibw_record(state)
+    notes = winibw_notes(record)
+    if not (record["lines"] or notes):
+        return
+    print(f"\n{WINIBW_TITLE}:")
+    for line in record["lines"]:
+        print(line)
+    if record["entries"]:
+        print()
+    for entry in record["entries"]:
+        print("  " + winibw_entry_text(entry))
+    for label, text in notes:
+        print(f"  {label.lower()}: {text}")
+
+
+def _print_geo_sachdb(state: KeywordAnalysisState):
+    """Print what the local subject database found, if the workflow ran it.
+
+    The local hits per keyword and notation, the notations the run did not
+    give (their lines unindented, to copy apart from the WinIBW entry) and the
+    keywords without a local heading. - Claude Generated
     """
     geo = getattr(state, "geo_sachdb", None) or {}
-    lines = [str(line) for line in (geo.get("lines") or []) if line]
+    hits = geo_sachdb_hits(geo)
+    proposals = geo_sachdb_proposals(geo)
     missing = [str(term) for term in (geo.get("not_found") or []) if term]
-    entries = [e for e in (geo.get("entries") or []) if isinstance(e, dict) and e.get("line")]
-    exhausted_label, exhausted_text = geo_sachdb_exhausted(geo)
-    if not (lines or missing or exhausted_text):
+    if not (hits or proposals or missing):
         return
-    print("\nLokale Sacherschließung (geo_sachdb):")
-    for line in lines:
-        print(line)
-    if not lines:
-        print("  (keine Zeilen)")
-    for entry in entries:
-        print("  " + geo_sachdb_entry_text(entry))
-    if not entries:
-        proposed = [
-            str(cand.get("notation") or cand.get("code") or "")
-            for cand in (geo.get("candidates") or [])
-            if isinstance(cand, dict) and cand.get("line") and not cand.get("assigned")
-        ]
-        proposed = [p for p in proposed if p]
-        if proposed:
-            print("  6700, im Lauf nicht vergeben: " + ", ".join(proposed))
-    if exhausted_text:
-        print(f"  {exhausted_label.lower()}: {exhausted_text}")
+    print(f"\n{GEO_TITLE}:")
+    for term, description in hits:
+        print(f"  {term} → {description}")
+    if proposals:
+        print(f"  {geo_sachdb_proposals_title(proposals)} (nicht im WinIBW-Eintrag):")
+        for item in proposals:
+            print(item["line"])
+        for item in proposals:
+            print("    " + geo_sachdb_proposal_text(item))
     if missing:
         print("  ohne lokales Schlagwort: " + ", ".join(missing))
 
@@ -427,9 +442,9 @@ def display_protocol_compact(json_file: str, steps: List[str]):
 def display_protocol_k10plus(json_file: str):
     """Display protocol in K10+/WinIBW catalog export format.
 
-    Format:
-        5550 Schlagwort
-        6700 DK CODE
+    Prints the WinIBW entry of ``winibw_record.build_winibw_record`` as it
+    stands (blank lines included), the same text as the result card, the
+    review tab and the ``marc`` export. - Claude Generated
     """
     # Check if file exists
     if not os.path.exists(json_file):
@@ -438,37 +453,7 @@ def display_protocol_k10plus(json_file: str):
 
     try:
         state = PipelineJsonManager.load_analysis_state(json_file)
-
-        # Generate K10+ export lines
-        lines = []
-
-        # GND Keywords (5550 - Schlagworte)
-        if state.final_llm_analysis:
-            analysis = state.final_llm_analysis
-            if isinstance(analysis, dict):
-                keywords = analysis.get('extracted_gnd_keywords', [])
-            else:
-                keywords = getattr(analysis, 'extracted_gnd_keywords', [])
-
-            for keyword in keywords:
-                # Remove GND-ID from "Keyword (GNDID)" format
-                if "(" in keyword and ")" in keyword:
-                    term = keyword.split("(")[0].strip()
-                else:
-                    term = keyword.strip()
-
-                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
-
-        # DK Classifications (6700 - Systematiken)
-        for dk in state.dk_classifications:
-            # Remove label if present ("628.5 - Label" -> "628.5")
-            dk_code = dk.split(" - ")[0].strip() if " - " in dk else dk.strip()
-            # Remove "DK " prefix if present
-            dk_clean = dk_code.replace("DK ", "").strip()
-            lines.append(f"{K10PLUS_CLASSIFICATION_TAG} DK {dk_clean}")
-
-        # Print all lines
-        for line in lines:
+        for line in build_winibw_record(state)["lines"]:
             print(line)
 
     except json.JSONDecodeError as e:

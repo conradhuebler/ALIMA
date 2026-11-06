@@ -2156,6 +2156,7 @@ def geo_sachdb_candidates(
             payload["source"] = res.get("source") or payload["source"]
             payload["notation_matches"].append({
                 "code": code,
+                "system": scheme,
                 "normalized": res.get("normalized"),
                 "line": res.get("line"),
                 "local": [{"notation": n["notation"], "label": n.get("label") or "", "ppn": n.get("ppn"),

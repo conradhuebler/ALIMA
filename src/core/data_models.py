@@ -167,22 +167,21 @@ class KeywordAnalysisState:
     # - Claude Generated
     shelf: Dict[str, Any] = field(default_factory=dict)
     # What the local subject database (lookup plugin ``geo_sachdb``, workflow
-    # step ``geo_candidates``) says about this work: ``{lines, entries,
-    # exhausted, numbering, not_found, candidates, source}``. ``lines`` are the
-    # finished WinIBW lines as a plain copy block (one 555x line per matched
-    # local heading, numbered on after the result's keyword chains, see
-    # ``shared_context._geo_first_heading_tag``; one 6700 line per notation of
-    # a matched heading, given in this run or not); ``entries`` the same lines
-    # with what each stands for (heading: ``label``, ``kind``; notation:
-    # ``system``, ``notation``, ``label``, ``assigned``); ``exhausted`` the
-    # headings left without a line because the numbers reached 5599;
-    # ``not_found`` the final keywords without a local heading; ``candidates``
-    # those notations with ``assigned`` marking the ones the run gave;
-    # ``source`` the database version. Results saved before ``entries``
-    # existed carry only ``lines`` (all 5550), ``not_found``, ``candidates``,
-    # ``source``. Proposals only, nothing here enters ``dk_classifications``.
-    # Empty for every run without the step, without a usable plugin, or without
-    # any lookup result. - Claude Generated
+    # step ``geo_candidates``) says about this work: ``{terms, notations,
+    # not_found, candidates, source}``. ``terms``: per looked-up keyword its
+    # local headings (``records``: label, kind, ppn), the one it stands for
+    # (``record``) and ``status`` unique/no_ppn/ambiguous with the usable
+    # ``ppn``; ``notations``: per assigned notation its local entries and
+    # ``status`` unique/ambiguous/no_ppn/not_local with the usable ``ppn``;
+    # ``not_found`` the keywords without a local heading; ``candidates`` the
+    # notations of the matched headings, ``assigned`` marking those the run
+    # gave; ``source`` the database version. The WinIBW entry
+    # (``src/utils/winibw_record.py``) reads ``terms``/``notations``. Results
+    # saved before these two fields carry ``lines``/``entries``/... instead;
+    # those are no longer read, the entry is then built without local PPNs.
+    # Proposals only, nothing here enters ``dk_classifications``. Empty for
+    # every run without the step, without a usable plugin, or without any
+    # lookup result. - Claude Generated
     geo_sachdb: Dict[str, Any] = field(default_factory=dict)
 
     # Iterative refinement support - Claude Generated

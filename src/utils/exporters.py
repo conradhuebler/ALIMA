@@ -10,7 +10,8 @@ Supported formats:
 - `json`: canonical web/API export payload (same as `pipeline_utils.export_analysis_state_to_file`)
 - `csv`: flat row-per-keyword/classification table
 - `tex`: minimal stand-alone LaTeX snippet (sections: title, abstract, keywords, classifications)
-- `marc`: K10+/WinIBW catalog tags (5550 keywords, 6700 classifications)
+- `marc`: the WinIBW entry of ``winibw_record.build_winibw_record`` (555x
+  chains/single keywords, 1131 form keywords, 6700 notations)
 """
 
 from __future__ import annotations
@@ -24,10 +25,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from .winibw_record import build_winibw_record, chains_from_payload
+from .winibw_record import strip_gnd_id as _strip_gnd_id
 
-K10PLUS_KEYWORD_TAG = "5550"
-K10PLUS_CLASSIFICATION_TAG = "6700"
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -89,13 +90,6 @@ def _input(state: Dict[str, Any]) -> Dict[str, Any]:
     return state.get("input") or {}
 
 
-def _strip_gnd_id(keyword: str) -> str:
-    """`"Wort (123456-7)"` → `"Wort"`."""
-    if "(" in keyword and ")" in keyword:
-        return keyword.split("(")[0].strip()
-    return keyword.strip()
-
-
 def _split_classification(value: Any) -> tuple[str, str]:
     """Return (system, code) from a string or dict entry."""
     if isinstance(value, dict):
@@ -108,72 +102,22 @@ def _split_classification(value: Any) -> tuple[str, str]:
 
 
 def _extract_chains(state: Dict[str, Any]) -> List[List[str]]:
-    """Pull keyword_chains from various places in the payload.
+    """Keyword chains of the payload as list-of-lists, GND ids stripped.
 
-    Returns list-of-lists (keywords per chain). Chain entries can live
-    as `{"chain": [...]}` dicts or raw lists. Empty if no chains found.
+    Kept for existing callers; the logic lives in
+    ``winibw_record.chains_from_payload``. - Claude Generated
     """
-    results = _results(state)
-    raw_chains = results.get("keyword_chains") or []
-    if not raw_chains:
-        details = results.get("final_llm_call_details") or {}
-        if isinstance(details, dict):
-            raw_chains = details.get("keyword_chains") or []
-
-    chains: List[List[str]] = []
-    for entry in raw_chains:
-        if isinstance(entry, dict):
-            kws = entry.get("chain") or []
-        elif isinstance(entry, (list, tuple)):
-            kws = list(entry)
-        else:
-            continue
-        cleaned = [_strip_gnd_id(str(kw)) for kw in kws if str(kw).strip()]
-        if cleaned:
-            chains.append(cleaned)
-    return chains
+    return chains_from_payload(state)
 
 
 def generate_k10plus_lines(state: Dict[str, Any]) -> List[str]:
-    """K10+/WinIBW tag lines from an export payload dict.
+    """K10+/WinIBW lines of an export payload dict, blank lines included.
 
-    Keyword chains (Schlagwortketten) get per-chain tags 5550, 5551,
-    5552, ... (one tag-line per keyword in the chain). Capped at 5559
-    — chains beyond index 9 share tag 5559 (K10+ defines 5550-5559).
-    If no chains are present, all final keywords fall back under 5550.
-    Classifications always under 6700.
+    The lines of ``winibw_record.build_winibw_record``, the one builder every
+    output uses (layout and unverified assumptions documented there).
+    - Claude Generated
     """
-    lines: List[str] = []
-    results = _results(state)
-
-    chains = _extract_chains(state)
-    if chains:
-        for idx, chain in enumerate(chains):
-            tag_idx = min(idx, 9)
-            tag = f"555{tag_idx}"
-            for kw in chain:
-                lines.append(f"{tag} {kw}")
-    else:
-        final_kws = results.get("final_keywords") or []
-        final_details = results.get("final_llm_call_details") or {}
-        if not final_kws and isinstance(final_details, dict):
-            final_kws = final_details.get("extracted_gnd_keywords") or []
-        for kw in final_kws:
-            term = _strip_gnd_id(str(kw))
-            if term:
-                lines.append(f"{K10PLUS_KEYWORD_TAG} {term}")
-
-    classifications = results.get("classifications") or results.get(
-        "dk_classifications"
-    ) or []
-    for entry in classifications:
-        system, code = _split_classification(entry)
-        if not code:
-            continue
-        export_system = system or "DK"
-        lines.append(f"{K10PLUS_CLASSIFICATION_TAG} {export_system} {code}")
-
-    return lines
+    return list(build_winibw_record(state)["lines"])
 
 
 # ============================================================
@@ -323,7 +267,7 @@ def export_tex(state: Dict[str, Any], output_path: str) -> str:
 
 
 def export_marc(state: Dict[str, Any], output_path: str) -> str:
-    """K10+/WinIBW catalog tag export. Plain text, one tag per line."""
+    """K10+/WinIBW catalog export: the WinIBW entry as plain text, one line per field line."""
     lines = generate_k10plus_lines(state)
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
