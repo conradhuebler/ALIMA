@@ -29,9 +29,9 @@ Split out of the former `pipeline_utils.py` god-module; all re-exported from `pi
 
 ### Lookups (`lookups/`)
 - `LOOKUP_REGISTRY` + `@register_lookup`; a lookup answers an authority question and is exposed purely as an agent tool (`mcp_tool_specs`). One construction path per source via `build_lookup` (honours the operator's disable switch — **callers must guard against `None`**).
-- Types: `rvk_api`, `k10plus`, `dnb`, `webindex`, `local_scheme`.
+- Types: `rvk_api`, `k10plus`, `dnb`, `webindex`, `local_scheme`, `geo_sachdb`.
 - Optional `is_available()` on a lookup class gates its tools in `_generated_lookup_tools` (classes without it unchanged).
-- `geo_sachdb/` (Nov 4, **not registered as built-in**; Tier-2 or explicit `register_lookup`): reads only its own SQLite schema v1 (`schema.py`: heading/classification/link/meta), filled per house by an importer (Freiberg: `scripts/access_to_sql.py import-geo`); emits WinIBW lines 5550/6700. WP: [`docs/wp_geo_sachdb_plugin.md`](../../docs/wp_geo_sachdb_plugin.md).
+- `geo_sachdb/` (Nov 6, **built-in**; inactive without `db_path`): reads only its own SQLite schema v1 (`schema.py`: heading/classification/link/meta), filled per house by an importer (Freiberg: `scripts/access_to_sql.py import-geo`); emits WinIBW lines 5550/6700. WP: [`docs/wp_geo_sachdb_plugin.md`](../../docs/wp_geo_sachdb_plugin.md).
 - `local_scheme` (Sept 9): an institution's own Aufstellungssystematik as a vocabulary file (`vocabularies/<id>.yaml`), matched by notation proximity (decimal-hierarchy containment, ranges, nearest neighbours) plus optional label hits. Proposes shelf places, never decides. Measured hit rate against 407 real UB Freiberg call numbers: 66.6 % top-1 / 76.9 % top-5 from the core notation; using every assigned notation instead costs 25 points. Consumed by the `shelf_*` steps of `alima_v51_105`.
 
 ### Configuration

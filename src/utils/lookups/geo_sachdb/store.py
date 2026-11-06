@@ -40,7 +40,9 @@ def fold(text: Any) -> str:
     The Geo data mostly spells umlauts out (``Lagerstaette``) while GND headings
     use the letters; folding both sides the same way lets them meet.
     """
-    raw = str(text or "").lower().replace("¬", "")
+    # GND-Titel tragen Umlaute teils zerlegt (a + U+0308); erst zusammensetzen,
+    # sonst greift die Umschrift unten nicht. - Claude Generated
+    raw = unicodedata.normalize("NFC", str(text or "")).lower().replace("¬", "")
     raw = "".join(_TRANSLIT.get(ch, ch) for ch in raw)
     raw = unicodedata.normalize("NFKD", raw)
     raw = "".join(ch for ch in raw if not unicodedata.combining(ch))

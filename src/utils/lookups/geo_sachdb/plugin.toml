@@ -1,7 +1,7 @@
-# Manifest des Lookup-Plugins geo_sachdb. Das Verzeichnis ist NICHT als Built-in
-# registriert (src/utils/lookups/__init__.py importiert es nicht). Nutzung als
-# Tier-2-Code-Plugin: Verzeichnis nach ~/.config/alima/plugins/geo_sachdb/
-# kopieren, Code-Plugins erlauben, im Plugins-Tab freigeben.
+# Manifest des Lookup-Plugins geo_sachdb. Das Plugin ist als Built-in registriert
+# (src/utils/lookups/__init__.py); dieses Manifest wird nur gebraucht, wenn das
+# Verzeichnis unter anderem Namen als Tier-2-Code-Plugin nach
+# ~/.config/alima/plugins/ kopiert wird (id und Klassen-id müssen dann abweichen).
 
 [plugin]
 id = "geo_sachdb"

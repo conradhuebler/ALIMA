@@ -122,6 +122,17 @@ class SchemaHelpers(unittest.TestCase):
         self.assertEqual(fold("Lagerstätte"), fold("Lagerstaette"))
         self.assertEqual(fold("Bénédict ¬de¬"), "benedict de")
 
+    def test_fold_meets_decomposed_umlauts(self):
+        """GND-Titel kommen teils mit zerlegten Umlauten (a + U+0308)."""
+        import unicodedata
+
+        for word in ("Lagerstätte", "Größe", "Überhang"):
+            decomposed = unicodedata.normalize("NFD", word)
+            self.assertNotEqual(decomposed, word)
+            self.assertEqual(fold(decomposed), fold(word))
+        self.assertEqual(fold(unicodedata.normalize("NFD", "Silberlagerstätte")),
+                         fold("Silberlagerstaette"))
+
     def test_check_schema(self):
         conn = sqlite3.connect(":memory:")
         self.assertIn("fehlen", schema_mod.check_schema(conn))
@@ -308,11 +319,16 @@ class _PlainLookup:
 class ToolGenerationGate(_DbCase):
     def setUp(self):
         super().setUp()
+        self._prior = LOOKUP_REGISTRY.get("geo_sachdb")
         LOOKUP_REGISTRY["geo_sachdb"] = GeoSachdbLookup
         LOOKUP_REGISTRY["geo_plain_lk"] = _PlainLookup
 
     def tearDown(self):
-        LOOKUP_REGISTRY.pop("geo_sachdb", None)
+        # Der Eintrag ist ein Built-in; er darf nach dem Test nicht fehlen.
+        if self._prior is not None:
+            LOOKUP_REGISTRY["geo_sachdb"] = self._prior
+        else:
+            LOOKUP_REGISTRY.pop("geo_sachdb", None)
         LOOKUP_REGISTRY.pop("geo_plain_lk", None)
         super().tearDown()
 
@@ -342,18 +358,34 @@ class ToolGenerationGate(_DbCase):
 
 
 class Packaging(unittest.TestCase):
-    def test_not_registered_on_import(self):
-        LOOKUP_REGISTRY.pop("geo_sachdb", None)
-        importlib.reload(provider_mod)
-        importlib.import_module("src.utils.lookups.geo_sachdb")
-        self.assertNotIn("geo_sachdb", LOOKUP_REGISTRY)
-        init_src = (PLUGIN_DIR.parent / "__init__.py").read_text(encoding="utf-8")
-        self.assertNotIn("geo_sachdb", init_src)
+    def test_registered_as_builtin(self):
+        import src.utils.lookups as lookups
+
+        self.assertIn("geo_sachdb", lookups.list_lookups())
+        self.assertIs(lookups.get_lookup("geo_sachdb"), provider_mod.GeoSachdbLookup)
+
+    def test_importing_the_lookup_package_alone_registers_it(self):
+        """In einem frischen Prozess, ohne dass jemand das Paket selbst importiert."""
+        import subprocess
+
+        repo = Path(__file__).resolve().parent.parent
+        out = subprocess.run(
+            [sys.executable, "-c",
+             "import src.utils.lookups as l; print('geo_sachdb' in l.list_lookups())"],
+            cwd=repo, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(out.stdout.strip().splitlines()[-1], "True", out.stderr[-500:])
+
+    def test_builtin_without_database_is_unavailable_and_offers_no_tools(self):
+        cls = provider_mod.GeoSachdbLookup
+        self.assertFalse(cls().is_available())
+        self.assertFalse(cls(db_path="/nonexistent/geo.db").is_available())
 
     def test_loads_as_tier2_code_plugin(self):
         from src.core.plugins import loader as loader_mod
 
         root = Path(tempfile.mkdtemp())
+        builtin = LOOKUP_REGISTRY.pop("geo_sachdb", None)
         try:
             shutil.copytree(PLUGIN_DIR, root / "geo_sachdb", ignore=shutil.ignore_patterns("__pycache__"))
             result = loader_mod.discover(root, approved_plugins={}, approve_cb=lambda *a: True,
@@ -365,6 +397,8 @@ class Packaging(unittest.TestCase):
             self.assertFalse(cls().is_available())  # ohne db_path: aus
         finally:
             LOOKUP_REGISTRY.pop("geo_sachdb", None)
+            if builtin is not None:
+                LOOKUP_REGISTRY["geo_sachdb"] = builtin
             for name in [m for m in sys.modules if m.startswith("alima_plugin_")]:
                 sys.modules.pop(name, None)
             shutil.rmtree(root, ignore_errors=True)

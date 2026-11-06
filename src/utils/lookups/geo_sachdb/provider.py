@@ -16,9 +16,10 @@ Without a database file, or with a file in another schema, ``is_available()`` is
 False: the tool generator then offers none of its tools, and every method
 answers with an ``error`` entry instead of raising.
 
-Not registered as a built-in on import (``src/utils/lookups/__init__.py`` does
-not import it). It is registered by the plugin loader as a Tier-2 code plugin, or
-explicitly via ``register_lookup(GeoSachdbLookup)``.
+Registered as a built-in lookup (``src/utils/lookups/__init__.py`` imports the
+package). Every installation therefore gets a ``geo_sachdb`` instance in the
+lookup list (``plugin_migration.ensure_lookup_instances``); it stays inactive
+without ``db_path``.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from src.core.plugins.schema import INT, TEXT, ConfigField, PluginDoc
-from src.utils.lookups.registry import LookupToolSpec
+from src.utils.lookups.registry import LookupToolSpec, register_lookup
 
 from .schema import KINDS, normalize_notation
 from .store import ClassificationRecord, GeoSachdbStore, HeadingRecord, fold, normalize_kinds
@@ -41,6 +42,7 @@ _KIND_PARAM = {
 }
 
 
+@register_lookup
 class GeoSachdbLookup:
     """Lookup over a local subject database in schema v1. - Claude Generated"""
 

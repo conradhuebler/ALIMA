@@ -8,7 +8,7 @@ Freiberger Access-Datenbank ist das `scripts/access_to_sql.py import-geo`.
 | | |
 |---|---|
 | Kategorie | `lookup` (Agent-Werkzeuge, freies Dict-Ergebnis) |
-| Registrierung | **nicht** als Built-in. Laden als Tier-2-Code-Plugin (Verzeichnis nach `~/.config/alima/plugins/geo_sachdb/` kopieren, Code-Plugins erlauben, freigeben) oder per `register_lookup(GeoSachdbLookup)` |
+| Registrierung | Built-in (`src/utils/lookups/__init__.py`). Jede Installation führt die Instanz `geo_sachdb` in der Lookup-Liste; ohne `db_path` ist sie nicht verfügbar und erzeugt keine Werkzeuge. Keine Freigabe von Code-Plugins nötig |
 | Konfiguration | `db_path` (Datei im Schema v1), `max_results` (Standard 10) |
 | Werkzeuge | `geo_sachdb_search`, `geo_sachdb_lines`, `geo_sachdb_notation` |
 | Workflow | deterministische Funktion `geo_sachdb_candidates` (Schritt `geo_candidates` in `alima_v51_105`) |
