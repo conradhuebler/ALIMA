@@ -46,8 +46,8 @@ class CLISetupWizard:
         # Load institution presets - Claude Generated
         from .preset_loader import PresetLoader
         self._presets = PresetLoader.load()
-        if self._presets.institution_name:
-            print(f"💼 Institutions-Presets geladen: {self._presets.institution_name}")
+        if self._presets.display_name():
+            print(f"💼 Institutions-Presets geladen: {self._presets.display_name()}")
 
     def run(self) -> bool:
         """Run the setup wizard - Claude Generated
@@ -98,6 +98,15 @@ class CLISetupWizard:
                 })
 
             self.config_manager.save_config(config)
+
+            # Institution, workflow, plugins and files of the preset, with the
+            # same plan as `alima preset apply`; never raises. - Claude Generated
+            if self._presets.path:
+                from .preset_apply import apply_after_setup
+
+                for line in apply_after_setup(self._presets.path, self.config_manager,
+                                              self._presets.source or "given"):
+                    print(line)
             logger.info("CLI setup wizard completed successfully")
             print("\n✅ Konfiguration gespeichert! Sie können ALIMA jetzt starten.\n")
             return True
@@ -223,12 +232,11 @@ class CLISetupWizard:
         """Setup OpenAI-compatible provider - Claude Generated"""
         print("\n🔷 OpenAI-Compatible API Konfiguration\n")
 
-        # Use preset URL/key as defaults if provider type matches - Claude Generated
+        # Use the preset URL as default if provider type matches (a preset
+        # carries no API keys) - Claude Generated
         preset_url = ""
-        preset_key = ""
         if self._presets.llm_provider_type == 'openai_compatible':
             preset_url = self._presets.llm_base_url
-            preset_key = self._presets.llm_api_key
 
         prompt_url = f"API Basis-URL (Standard: {preset_url}): " if preset_url else "API Basis-URL (z.B. http://localhost:8000/v1): "
         base_url = input(prompt_url).strip() or preset_url
@@ -236,8 +244,7 @@ class CLISetupWizard:
             print("❌ Basis-URL erforderlich")
             return self._setup_openai_compatible()
 
-        prompt_key = f"API-Schlüssel (Standard: {'(aus Preset)' if preset_key else 'leer'}): " if preset_key else "API-Schlüssel (oder leer lassen falls nicht erforderlich): "
-        api_key = input(prompt_key).strip() or preset_key
+        api_key = input("API-Schlüssel (oder leer lassen falls nicht erforderlich): ").strip()
 
         print("\n🧪 Teste Verbindung...\n")
         result = OllamaConnectionValidator.test_openai_compatible(base_url, api_key)
@@ -266,10 +273,7 @@ class CLISetupWizard:
         print("\n🟡 Google Gemini API Konfiguration\n")
         print("API-Schlüssel erhalten Sie unter: https://aistudio.google.com/app/apikey\n")
 
-        # Use preset key as default if provider type matches - Claude Generated
-        preset_key = self._presets.llm_api_key if self._presets.llm_provider_type == 'gemini' else ""
-        prompt = f"Gemini API-Schlüssel (Standard: aus Preset): " if preset_key else "Geben Sie Ihren Gemini API-Schlüssel ein: "
-        api_key = input(prompt).strip() or preset_key
+        api_key = input("Geben Sie Ihren Gemini API-Schlüssel ein: ").strip()
         if not api_key:
             print("❌ API-Schlüssel erforderlich")
             return self._setup_gemini()
@@ -296,10 +300,7 @@ class CLISetupWizard:
         print("\n🔴 Anthropic Claude API Konfiguration\n")
         print("API-Schlüssel erhalten Sie unter: https://console.anthropic.com/\n")
 
-        # Use preset key as default if provider type matches - Claude Generated
-        preset_key = self._presets.llm_api_key if self._presets.llm_provider_type == 'anthropic' else ""
-        prompt = f"Anthropic API-Schlüssel (Standard: aus Preset): " if preset_key else "Geben Sie Ihren Anthropic API-Schlüssel ein: "
-        api_key = input(prompt).strip() or preset_key
+        api_key = input("Geben Sie Ihren Anthropic API-Schlüssel ein: ").strip()
         if not api_key:
             print("❌ API-Schlüssel erforderlich")
             return self._setup_anthropic()
@@ -491,7 +492,6 @@ class CLISetupWizard:
         # Show preset values if available - Claude Generated
         preset_search = self._presets.catalog_soap_search_url
         preset_details = self._presets.catalog_soap_details_url
-        preset_token = self._presets.catalog_token
         has_presets = bool(preset_search or preset_details)
 
         if has_presets:
@@ -500,8 +500,6 @@ class CLISetupWizard:
                 print(f"   Search URL: {preset_search}")
             if preset_details:
                 print(f"   Details URL: {preset_details}")
-            if preset_token:
-                print(f"   Token: (gesetzt)")
             print("   Eingabe leer lassen = Preset übernehmen\n")
             default_choice = 'j'
         else:
@@ -513,7 +511,6 @@ class CLISetupWizard:
             if has_presets:
                 self.catalog_search_url = preset_search
                 self.catalog_details_url = preset_details
-                self.catalog_token = preset_token
                 print("✅ Katalog-Presets übernommen")
             else:
                 print("⏭️  Katalog übersprungen")
@@ -531,8 +528,7 @@ class CLISetupWizard:
         )
         self.catalog_details_url = input(details_prompt).strip() or preset_details
 
-        token_prompt = "Auth-Token (Standard: aus Preset): " if preset_token else "Auth-Token (leer lassen falls nicht erforderlich): "
-        self.catalog_token = input(token_prompt).strip() or preset_token
+        self.catalog_token = input("Auth-Token (leer lassen falls nicht erforderlich): ").strip()
 
         if self.catalog_search_url or self.catalog_token:
             print("✅ Katalog-Konfiguration gespeichert")
@@ -584,7 +580,7 @@ class CLISetupWizard:
             self.finc_web_record_url = web_record.rstrip("/") + "/"
 
         institution = input(
-            "Institutions-Filter (z.B. DE-105, leer lassen für keinen): "
+            "Institutions-Filter (ISIL Ihrer Bibliothek, leer lassen für keinen): "
         ).strip()
         self.finc_institution_filter = institution
 

@@ -104,7 +104,13 @@ class CachingProvider:
                 and self._has_titles(mapping)
             ):
                 logger.debug("cache hit for '%s' (%s)", term, self.id)
-                return self._items_from_cache(mapping), None
+                items = self._items_from_cache(mapping)
+                # Per-run source overview: answered from the mapping cache.
+                # - Claude Generated
+                from .source_usage import CACHE, record
+
+                record(getattr(self.inner, "source_id", None), CACHE, hit=bool(items))
+                return items, None
         return self._live_search(term, progress, **opts)
 
     @staticmethod

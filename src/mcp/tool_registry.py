@@ -1338,11 +1338,16 @@ class ToolRegistry(ToolGenerationMixin):
         for provider_id, instances in by_type.items():
             specs = specs_by_provider.get(provider_id)
             if not specs:
-                continue  # gnd_local/sru declare no MCP tool
+                continue  # gnd_local declares no MCP tool
             canonical = self._canonical_instance(instances)
             for inst in instances:
                 is_canonical = inst is canonical
-                for spec in specs:
+                for type_spec in specs:
+                    # A type may adapt its tool to the instance (sru: preset
+                    # k10plus → search_k10plus). - Claude Generated
+                    spec = self._instance_spec(provider_id, type_spec, inst)
+                    if spec is None:
+                        continue  # the type offers no tool for this instance
                     if is_canonical:
                         name = spec.name
                         handler = self._make_search_handler(spec, inst)
@@ -1376,7 +1381,29 @@ class ToolRegistry(ToolGenerationMixin):
                             handler,
                         )
                     )
+        # Names of the generated search tools, for handlers that point the agent
+        # at another tool (kvk → search_k10plus). - Claude Generated
+        self._generated_search_tool_names = [td.name for td, _ in tools]
         return tools
+
+    @staticmethod
+    def _instance_spec(provider_id, spec, inst):
+        """``spec`` as the type adapts it to ``inst`` (``instance_tool_spec``),
+        unchanged for types without the hook or when the hook fails; ``None``
+        when the type offers no tool for this instance. - Claude Generated"""
+        from src.core.search.registry import PROVIDER_REGISTRY
+
+        cls = PROVIDER_REGISTRY.get(provider_id)
+        hook = getattr(cls, "instance_tool_spec", None)
+        if not callable(hook):
+            return spec
+        try:
+            return hook(spec, getattr(inst, "settings", None) or {})
+        except Exception as exc:  # noqa: BLE001 - one plugin must not break tool generation
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, f"instance_tool_spec {provider_id}/{getattr(inst, 'instance_id', '?')}")
+            return spec
 
     def _search_instances(self):
         """Enabled search-provider instances driving tool generation.
@@ -1543,6 +1570,16 @@ class ToolRegistry(ToolGenerationMixin):
         # Library tools — search tools generated from provider specs (P3)
         for td, handler in self._generated_search_tools():
             self.register(td, handler)
+        # One title search over all title sources, in list order. - Claude Generated
+        from src.mcp._title_search import build_title_search_tool
+
+        try:
+            title_tool = build_title_search_tool(self)
+        except Exception as exc:  # noqa: BLE001 - one tool must not break the registry
+            log_caught(logger, exc, "search_titles generation")
+            title_tool = None
+        if title_tool is not None:
+            self.register(*title_tool)
         # Input-source tools generated per instance (e.g. the 3 DOI resolvers,
         # individually callable so an agent can compare sources). - Claude Generated
         for td, handler in self._generated_input_tools():

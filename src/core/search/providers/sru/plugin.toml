@@ -15,6 +15,6 @@ module = "provider.py"
 class = "SruProvider"
 
 [doc]
-description = "SRU-Suche (MARC-XML): Titel-Datensätze und Klassifikationen von konfigurierbaren SRU-Endpunkten (DNB, K10plus, …)."
-input = "Suchbegriff + Suchtyp (keyword/title/author/subject/isbn); Endpoint per Preset oder base_url."
-output = "Geparste MARC-Records (Titel, Autoren, Klassifikationen …)."
+description = "SRU-Suche: Titel-Datensätze und Klassifikationen von konfigurierbaren SRU-Endpunkten (DNB, K10plus, …); Preset k10plus in PICA-XML mit lokalen Daten der Bibliothek."
+input = "Suchbegriff + Suchtyp (kw/title/author/subject/isbn, bei k10plus auch ppn); Endpoint per Preset oder base_url."
+output = "Geparste MARC-Records bzw. bei Preset k10plus PICA-Sätze (Titel, Autoren, Ketten, lokale Notationen …)."

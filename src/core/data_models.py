@@ -183,6 +183,34 @@ class KeywordAnalysisState:
     # every run without the step, without a usable plugin, or without any
     # lookup result. - Claude Generated
     geo_sachdb: Dict[str, Any] = field(default_factory=dict)
+    # The local notations the step ``geo_prior`` gave the classification as
+    # evidence (lookup plugin ``geo_sachdb``, workflow ``alima_v51_105``):
+    # ``{candidates}``, one entry per notation of a matched local heading with
+    # ``notation``, ``system``, ``code``, ``label``, ``via_keywords`` (the final
+    # keywords that reach it), ``via_core_keywords`` (those of the RSWK core)
+    # and ``in_catalog`` (the notation was also in the run's catalogue DK data).
+    # The DK card and the CLI protocol read it to say where an assigned
+    # notation came from. Empty for every run without the step or without a
+    # local notation, and for files saved before the field existed.
+    # - Claude Generated
+    geo_prior: Dict[str, Any] = field(default_factory=dict)
+    # The publication form the step ``publication_form`` read off the input
+    # text (workflow ``alima_v51_105``, rule table in
+    # ``src/utils/publication_form.py``): ``{form, label, system, code,
+    # form_keyword, evidence, rule}``. The step put the notation into
+    # ``dk_classifications`` and the form keyword into ``form_keywords``; the
+    # DK card and the CLI protocol read this field to show where that notation
+    # came from and the passage it rests on. Empty for every run without the
+    # step or without a hit, and for files saved before the field existed.
+    # - Claude Generated
+    publication_form: Dict[str, Any] = field(default_factory=dict)
+    # Which search sources the run asked and what came of it, one row per
+    # source with a request or a skip (``src/core/search/source_usage.py``):
+    # ``{source, label, requests, cache, network, hits, records, errors,
+    # skipped, cache_misses, down, kinds, text}``. Empty for states written
+    # before the field existed and for runs that asked no source; an empty
+    # list is left out of saved files. - Claude Generated
+    source_usage: List[Dict[str, Any]] = field(default_factory=list)
 
     # Iterative refinement support - Claude Generated
     refinement_iterations: List[Dict[str, Any]] = field(default_factory=list)  # Iteration history with metadata

@@ -14,7 +14,7 @@ siehe [`../lobid/README.md`](../lobid/README.md).
 | Eingabe | Suchbegriffe; `search_type` `kw`/`title`/`freetext`, `max_pages` (Paginierung) |
 | Ausgabe | `{Begriff: {Schlagwort: {count, gnd_ids, classifications}}}` als `ProviderResult` (Vertrag v2) |
 | MCP-Tool | `search_swb` |
-| Konfiguration | keine (öffentlicher Katalog) |
+| Konfiguration | `timeout_s` (Standard 15 s = `REQUEST_TIMEOUT_S`), `cache_only` (Zustand „Nur Cache“); öffentlicher Katalog |
 
 ## Spezifisch für diese Blaupause
 

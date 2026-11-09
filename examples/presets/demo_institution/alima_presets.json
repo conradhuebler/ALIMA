@@ -1,0 +1,88 @@
+{
+  "_comment": "Beispielpaket mit erfundenen Werten (Demo-Bibliothek). Vorschau: alima preset apply examples/presets/demo_institution --dry-run",
+  "format": 2,
+  "preset": {
+    "id": "demo_institution",
+    "version": "2026.1",
+    "label": "Demo-Bibliothek"
+  },
+  "institution_name": "Demo-Universitätsbibliothek",
+  "institution": {
+    "isil": "ZZ-DEMO",
+    "eln": "9999"
+  },
+  "workflow": "alima_v51",
+  "llm": {
+    "provider_type": "ollama",
+    "provider_name": "Demo-LLM-Server",
+    "base_url": "http://llm.demo-ub.example:11434",
+    "task_models": {
+      "pipeline": "demo-modell:12b",
+      "vision": "demo-vision:7b"
+    }
+  },
+  "plugins": [
+    {
+      "instance": "catalog",
+      "state": "on",
+      "settings": {
+        "catalog_search_url": "https://libero.demo-ub.example/libero/LiberoWebServices.CatalogueSearcher.cls",
+        "catalog_details": "https://libero.demo-ub.example/libero/LiberoWebServices.LibraryAPI.cls",
+        "catalog_web_search_url": "https://katalog.demo-ub.example/Search/Results",
+        "catalog_web_record_url": "https://katalog.demo-ub.example/Record/"
+      }
+    },
+    {
+      "instance": "swb",
+      "state": "off"
+    },
+    {
+      "instance": "k10plus_demo",
+      "type": "sru",
+      "category": "search_provider",
+      "label": "K10plus (SRU, Demo)",
+      "state": "on",
+      "settings": {
+        "preset": "k10plus"
+      }
+    },
+    {
+      "instance": "geo_sachdb",
+      "state": "on",
+      "settings": {
+        "db_path": "@file:geo_demo_db",
+        "max_results": 10
+      }
+    },
+    {
+      "instance": "local_scheme",
+      "state": "on",
+      "settings": {
+        "vocabulary": "@file:demo_systematik"
+      }
+    }
+  ],
+  "files": [
+    {
+      "id": "geo_demo_db",
+      "kind": "geo_sachdb_db",
+      "source": "files/geo_demo.sqlite",
+      "target": "geo_sachdb/geo_demo.sqlite",
+      "sha256": "d9c87cb7e9362ad69ff3e66c06af818b1435944bf5b221fbed2427d3894cbc0b"
+    },
+    {
+      "id": "demo_systematik",
+      "kind": "vocabulary",
+      "source": "files/demo_systematik.yaml",
+      "target": "local_scheme/demo_systematik.yaml",
+      "sha256": "8d0e16512a587778185b94f0d082f5dcaf60f7b3eeada5b22294818b85c2f238"
+    }
+  ],
+  "secrets": [
+    {
+      "plugin": "catalog",
+      "key": "token",
+      "hint": "persönlicher Libero-SOAP-Token"
+    }
+  ]
+}

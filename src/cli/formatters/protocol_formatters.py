@@ -20,10 +20,15 @@ from src.utils.pipeline_utils import PipelineJsonManager
 from src.utils.pipeline_formatters import (
     GEO_TITLE,
     WINIBW_TITLE,
+    geo_prior_origin,
+    geo_prior_origin_text,
+    geo_prior_origins,
     geo_sachdb_hits,
     geo_sachdb_proposal_text,
     geo_sachdb_proposals,
     geo_sachdb_proposals_title,
+    publication_form_origin,
+    publication_form_origin_text,
 )
 from src.utils.winibw_record import build_winibw_record, winibw_entry_text, winibw_notes
 
@@ -70,6 +75,7 @@ def display_protocol(json_file: str, steps: List[str]):
             elif step == "dk_classification":
                 format_step_dk_classification(state)
 
+        _print_source_usage(state)
         print("\n" + "="*70 + "\n")
 
     except json.JSONDecodeError as e:
@@ -78,6 +84,19 @@ def display_protocol(json_file: str, steps: List[str]):
         print(f"Error reading protocol: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
+
+
+def _print_source_usage(state: KeywordAnalysisState):
+    """Which search sources the run asked (``source_usage``); nothing for a
+    state without it - Claude Generated"""
+    from src.core.search import source_usage
+
+    lines = source_usage.row_lines(getattr(state, "source_usage", None) or [])
+    if not lines:
+        return
+    print(f"\n{source_usage.TITLE}:")
+    for line in lines:
+        print(f"  {line}")
 
 
 def format_step_input(state: KeywordAnalysisState):
@@ -315,13 +334,28 @@ def format_step_dk_classification(state: KeywordAnalysisState):
 
     print(f"DK Classifications ({len(state.dk_classifications)} assigned):")
 
+    # Origin of a notation the local subject database had (geo_prior); the
+    # lines stay as they were without that data. - Claude Generated
+    origins = geo_prior_origins(getattr(state, "geo_prior", None))
+    # The notation the step publication_form took from the input text, with
+    # the passage. - Claude Generated
+    publication = getattr(state, "publication_form", None)
+
+    def _origin(code: str) -> str:
+        origin = geo_prior_origin(origins, code)
+        text = f" · {geo_prior_origin_text(origin)}" if origin else ""
+        form_origin = publication_form_origin(publication, code)
+        if form_origin:
+            text += f" · {publication_form_origin_text(form_origin)}"
+        return text
+
     for classification in state.dk_classifications:
         if isinstance(classification, str):
-            print(f"  * {classification}")
+            print(f"  * {classification}{_origin(classification)}")
         elif isinstance(classification, dict):
             code = classification.get('code', 'unknown')
             label = classification.get('label', '')
-            print(f"  * {code}" + (f" - {label}" if label else ""))
+            print(f"  * {code}" + (f" - {label}" if label else "") + _origin(str(code)))
 
     _print_shelf(state)
     _print_winibw_record(state)

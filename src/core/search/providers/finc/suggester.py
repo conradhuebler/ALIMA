@@ -42,7 +42,8 @@ _SEARCH_TYPE_TO_VUFIND = {
     "title": "Title",
     "subject": "Subject",
     "author": "Author",
-    "dk": "udk_raw_de105",
+    # "dk" searches the library's DK facet, ``institution.finc_dk_facet()``
+    # (``udk_raw_de105`` for DE-105); see ``_map_search_type``. - Claude Generated
     "rvk": "rvk_facet",
 }
 
@@ -63,6 +64,7 @@ class FincSuggester(BaseSuggester):
         debug: bool = False,
         data_dir: Optional[Union[str, Path]] = None,
         cache_only: bool = False,
+        source_id: Optional[str] = None,
     ):
         """Initialize the FincSuggester.
 
@@ -71,13 +73,15 @@ class FincSuggester(BaseSuggester):
             web_record_url: optional record base URL used to build web_url.
             default_limit: default cap on records per search.
             timeout: HTTP timeout in seconds.
-            institution_filter: optional default facet filter (e.g.
-                "DE-105"); applied as `filter[]=institution_facet:"DE-105"`.
+            institution_filter: optional default facet filter (the ISIL of
+                the library); applied as `filter[]=institution:"<value>"`.
             debug: enable verbose logging.
             data_dir: storage directory (required by BaseSuggester; finc
                 itself does not cache).
             cache_only: forwarded to ``FincClient``, which then sends no HTTP
                 request. - Claude Generated
+            source_id: instance id for ``source_health``, forwarded to
+                ``FincClient``. - Claude Generated
         """
         super().__init__(data_dir, debug)
         self.client = FincClient(
@@ -86,6 +90,7 @@ class FincSuggester(BaseSuggester):
             default_limit=default_limit,
             timeout=timeout,
             cache_only=cache_only,
+            source_id=source_id,
         )
         self.institution_filter = institution_filter or ""
         self.default_filters: Dict[str, str] = {}
@@ -105,10 +110,14 @@ class FincSuggester(BaseSuggester):
         return None
 
     @staticmethod
-    def _map_search_type(search_type: str) -> str:
-        return _SEARCH_TYPE_TO_VUFIND.get(
-            (search_type or "").lower(), "AllFields"
-        )
+    def _map_search_type(search_type: str) -> Optional[str]:
+        """VuFind ``type`` of a search axis; ``None`` for ``dk`` without ISIL."""
+        key = (search_type or "").lower()
+        if key == "dk":
+            from src.utils.institution import finc_dk_facet
+
+            return finc_dk_facet()
+        return _SEARCH_TYPE_TO_VUFIND.get(key, "AllFields")
 
     def search(
         self,
@@ -129,7 +138,7 @@ class FincSuggester(BaseSuggester):
                 it should pass `{**self.default_filters, **filters}`).
             limit: optional per-call record cap.
             facets: optional list of facet field names to compute per term
-                (e.g. ["udk_raw_de105", "rvk_facet"]); surfaced under each
+                (e.g. ["udk_raw_<isil>", "rvk_facet"]); surfaced under each
                 term's "facets" key.
 
         Returns:
@@ -158,6 +167,15 @@ class FincSuggester(BaseSuggester):
                 "facets": {},
                 "errors": [],
             }
+            if vufind_type is None:
+                # search_type "dk" needs the library's DK facet, which needs an
+                # ISIL: reported, not sent. - Claude Generated
+                from src.utils.institution import NOT_SET_MESSAGE
+
+                self.last_errors[term] = NOT_SET_MESSAGE
+                entry["errors"].append(NOT_SET_MESSAGE)
+                results[term] = entry
+                continue
             try:
                 payload = self.client.search(
                     lookfor=term,

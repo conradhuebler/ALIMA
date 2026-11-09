@@ -161,6 +161,8 @@ class MarcXmlClient:
         debug: bool = False,
         timeout: int = 30,
         max_records: int = 50,
+        source_id: Optional[str] = None,
+        cache_only: bool = False,
     ):
         """
         Initialize the MARC XML client.
@@ -173,8 +175,23 @@ class MarcXmlClient:
             debug: Enable debug logging
             timeout: Request timeout in seconds
             max_records: Maximum records to retrieve per search
+            source_id: plugin instance id under which ``source_health`` counts
+                connection failures; while the source is down ``search``
+                returns ``[]`` without a request and the DK extraction lists the
+                keyword in ``last_source_down``. ``None`` leaves requests
+                untracked. - Claude Generated
+            cache_only: no request at all (``search`` returns ``[]``); the DK
+                extraction lists every keyword in ``last_cache_misses``, since
+                no MARC answer is cached. - Claude Generated
         """
         self.debug = debug
+        self.source_id = source_id
+        self.last_source_down: List[str] = []
+        self.cache_only = bool(cache_only)
+        self.last_cache_misses: List[str] = []
+        self.last_search_error: Optional[str] = None
+        # numberOfRecords of the last parsed answer (None before one). - Claude Generated
+        self.last_number_of_records: Optional[int] = None
         self.timeout = timeout
         self.max_records = max_records
         self.session = requests.Session()
@@ -205,10 +222,19 @@ class MarcXmlClient:
         Returns:
             List of parsed MARC records as dictionaries
         """
+        # Message of the last failed request, read by the DK extraction for
+        # the per-run source overview. - Claude Generated
+        self.last_search_error = None
         if not self.sru_base_url:
             logger.error("No SRU base URL configured")
             return []
-        
+        if self.cache_only:
+            return []  # cache-only: no request - Claude Generated
+        from src.core.search import source_health
+
+        if self.source_id and source_health.is_down(self.source_id):
+            return []  # skipped, announced once by source_health - Claude Generated
+
         # Build CQL query based on search type
         cql_query = self._build_cql_query(term, search_type)
         
@@ -240,7 +266,9 @@ class MarcXmlClient:
             return []
 
         try:
-            response = self.session.get(url, timeout=self.timeout)
+            response = source_health.call(
+                self.source_id, self.session.get, url, timeout=self.timeout
+            )
             response.raise_for_status()
             
             if self.debug:
@@ -252,6 +280,7 @@ class MarcXmlClient:
             
         except requests.exceptions.RequestException as e:
             logger.error(f"SRU request failed: {e}")
+            self.last_search_error = str(e)
             return []
     
     def _build_cql_query(self, term: str, search_type: str) -> str:
@@ -327,6 +356,12 @@ class MarcXmlClient:
             else:
                 root = ET.fromstring(str(xml_input).encode("utf-8"))
             
+            total = root.findtext("srw:numberOfRecords", namespaces=MARC_NS)
+            try:
+                self.last_number_of_records = int(total) if total is not None else None
+            except ValueError:
+                self.last_number_of_records = None
+
             # Check for SRU diagnostics (errors)
             for diag in root.findall(".//srw:diagnostic", MARC_NS):
                 message = diag.findtext("srw:message", namespaces=MARC_NS) or "Unknown error"
@@ -648,8 +683,22 @@ class MarcXmlClient:
             List of classification results with metadata
         """
         all_results = []
-        
+        self.last_source_down = []
+        self.last_cache_misses = []
+        from src.core.search import source_health
+        from src.core.search import source_usage as _usage
+
         for keyword in keywords:
+            if self.cache_only:
+                # Nothing of the MARC path is cached: a miss, no request.
+                # - Claude Generated
+                self.last_cache_misses.append(keyword)
+                _usage.record(self.source_id, _usage.CACHE_MISS)
+                continue
+            if self.source_id and source_health.is_down(self.source_id):
+                self.last_source_down.append(keyword)  # no request - Claude Generated
+                _usage.record(self.source_id, _usage.SKIPPED)
+                continue
             # Strip GND-ID suffix if present, e.g., "Wissenschaft (GND-ID: 4066562-8)" -> "Wissenschaft"
             search_term = re.sub(r'\s*\(GND-ID:\s*[^)]+\)\s*$', '', keyword).strip()
             search_term = html.unescape(search_term)
@@ -696,6 +745,8 @@ class MarcXmlClient:
                         classification_counts[rvk]["titles"].append(title)
             
             keyword_classifications = list(classification_counts.values())
+            _usage.record(self.source_id, _usage.NETWORK, hit=bool(keyword_classifications),
+                          error=bool(getattr(self, "last_search_error", None)))
 
             # Match BiblioClient's keyword-centric interface:
             # one entry per searched keyword with nested classifications.

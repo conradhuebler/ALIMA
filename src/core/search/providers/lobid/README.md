@@ -18,7 +18,7 @@ in zwei Modi identisch:
 | Eingabe | Ein oder mehrere Suchbegriffe (`search_type`: `kw`/`title`/`freetext`) |
 | Ausgabe | `{Begriff: {Schlagwort: {count, gnd_ids, classifications}}}` als `ProviderResult` (Vertrag v2) |
 | MCP-Tool | `search_lobid` (aus `mcp_tool_specs()` generiert) |
-| Konfiguration | keine (öffentliche API, kein Token) |
+| Konfiguration | `page_size`, `timeout_s` (Standard 30 s), `cache_only` (Zustand „Nur Cache“); öffentliche API, kein Token |
 
 ## Anatomie
 

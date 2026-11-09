@@ -68,6 +68,7 @@ class _DialogHarness:
         class _StubTab(QWidget):
             config_changed = pyqtSignal()
             task_preferences_changed = pyqtSignal()
+            preset_applied = pyqtSignal(object, object)  # PluginSettingsTab
 
             def __init__(self, *a, **kw):
                 super().__init__()

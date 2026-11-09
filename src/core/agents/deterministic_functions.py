@@ -176,6 +176,15 @@ def gnd_batch_search(
                 continue
             # Per-term failures recorded by the suggester (partial outage) - Claude Generated
             term_errors = (payload.get("errors") or {}) if isinstance(payload, dict) else {}
+            # Cache-only misses get their own summary line below, a skipped
+            # source is announced once by source_health. - Claude Generated
+            from src.core.search.cache_only import is_cache_miss
+            from src.core.search.source_health import is_source_down
+
+            term_errors = {
+                k: v for k, v in term_errors.items()
+                if not (is_cache_miss(v) or is_source_down(v))
+            }
             if term_errors and stream_callback:
                 failed_terms = ", ".join(sorted(term_errors)[:5])
                 more = f" … +{len(term_errors)-5}" if len(term_errors) > 5 else ""
@@ -425,12 +434,18 @@ def finc_subject_harvest(
     tool_calls = 0
     subject_freq: Dict[str, int] = {}
     harvest_store: Dict[str, Any] = {}
+    # The library's DK facet (udk_raw_de105 for DE-105); without an ISIL only
+    # the RVK distribution is asked for. - Claude Generated
+    from src.utils.institution import finc_dk_facet
+
+    dk_facet = finc_dk_facet()
+    harvest_facets = [dk_facet, "rvk_facet"] if dk_facet else ["rvk_facet"]
 
     for kw in keywords:
         try:
             raw = tool_registry.execute("search_finc", {
                 "terms": [kw], "search_type": "subject",
-                "limit": max_records, "facets": ["udk_raw_de105", "rvk_facet"],
+                "limit": max_records, "facets": harvest_facets,
             })
             tool_calls += 1
         except Exception as e:
@@ -450,7 +465,7 @@ def finc_subject_harvest(
         harvest_store[kw] = {
             "records": [{"id": r.get("id"), "title": r.get("title")}
                         for r in records if r.get("id")],
-            "dk_dist": (entry.get("facets", {}) or {}).get("udk_raw_de105", []),
+            "dk_dist": (entry.get("facets", {}) or {}).get(dk_facet, []) if dk_facet else [],
             "rvk_dist": (entry.get("facets", {}) or {}).get("rvk_facet", []),
         }
         for r in records:
@@ -1052,7 +1067,7 @@ def catalog_multi_search(
       - keyword step: ``finc_subject_harvest`` (harvest_enabled) reconciles
         finc record subjects against the local GND cache into the pool;
       - DK step: ``PipelineStepExecutor.execute_notation_search`` (dk_enabled)
-        reads per-title ``udk_raw_de105``/``rvk_facet`` via ``FincCatalogClient``.
+        reads per-title ``udk_raw_<isil>``/``rvk_facet`` via ``FincCatalogClient``.
     ``catalog_multi_search`` stays swb/lobid/catalog. - Claude Generated
 
     Args:
@@ -1864,8 +1879,15 @@ def shelf_candidates(
     Runs through ``build_lookup`` like every other lookup consumer, so the
     operator's per-instance settings and the disable switch gate it too. A
     disabled or unconfigured plugin yields an empty result, never an error.
-    - Claude Generated
+
+    Form notations (``classification_systems.FORM_NOTATIONS``, e.g. DK 378.245
+    Hochschulschrift) are left out: they name the form of the work, not the
+    subject the shelf place follows. ``classifications`` in the result is the
+    notation list without them, in the given order, for the selection step's
+    prompt. - Claude Generated
     """
+    from src.utils.classification_systems import without_form_notations
+
     cfg = config or {}
     lookup_id = str(cfg.get("lookup") or "local_scheme")
     max_results = int(cfg.get("max_results") or 6)
@@ -1875,13 +1897,15 @@ def shelf_candidates(
     # context. Either way the rank filter applies — a workflow passing
     # ``${dk_classifications}`` still gets the core-first behaviour.
     raw_notations = notations if notations else getattr(context, "dk_classifications", None)
+    subject_notations = without_form_notations(raw_notations)
     raw_keywords = keywords
     if not raw_keywords and context is not None:
         raw_keywords = (getattr(context, "extra", None) or {}).get("final_keywords")
-    codes = _shelf_notations(raw_notations, core_only)
+    codes = _shelf_notations(subject_notations, core_only)
     terms = _shelf_keywords(raw_keywords)
 
-    empty = {"candidates": [], "unplaced": [], "scheme": {}, "prompt_text": "", "count": 0}
+    empty = {"candidates": [], "unplaced": [], "scheme": {}, "prompt_text": "", "count": 0,
+             "classifications": subject_notations}
     if not (codes or terms):
         logger.info("shelf_candidates: no notations and no keywords — nothing to place")
         return empty
@@ -1907,6 +1931,7 @@ def shelf_candidates(
 
     payload["prompt_text"] = _format_shelf_candidates(payload)
     payload["count"] = len(payload.get("candidates") or [])
+    payload["classifications"] = subject_notations
     logger.info(
         f"shelf_candidates: {payload['count']} candidates for {codes or terms} "
         f"({len(payload.get('unplaced') or [])} without a shelf place)"
@@ -2180,6 +2205,180 @@ def geo_sachdb_candidates(
         f"{payload['count']} notations, {len(payload['notation_matches'])} assigned checked"
     )
     return payload
+
+
+#: Title of the block ``geo_sachdb_prior`` writes; a workflow names its own
+#: database through ``config.title``.
+_GEO_PRIOR_TITLE = "Lokale Zuordnungen aus der lokalen Sachdatenbank (kuratiert)"
+_GEO_PRIOR_HINT = (
+    "Kuratierte Zuordnung von Schlagwörtern zu Notationen in der lokalen Datenbank. "
+    "Vorschläge, keine Übernahmeliste: allgemeine Schlagwörter (z. B. „Geschichte“, "
+    "„Thermodynamik“) ziehen Notationen an, die zum Werk nicht passen."
+)
+
+
+def _format_geo_prior(payload: Dict[str, Any], title: str) -> str:
+    """Every candidate as one line for the classification prompt: notation,
+    label, the keywords that reach it and how many of them are core keywords.
+    No candidate → ``""``. No PPN and no WinIBW line: the model needs neither.
+    - Claude Generated
+    """
+    candidates = payload.get("candidates") or []
+    if not candidates:
+        return ""
+    has_core = bool(payload.get("core_keywords"))
+    lines = [f"{title}:", _GEO_PRIOR_HINT]
+    if not has_core:
+        lines.append("Kein Kern bestimmt: Reihenfolge nach Zahl der Schlagwörter.")
+    for cand in candidates:
+        via = list(cand.get("via_keywords") or [])
+        count = (f"Kernschlagwörter {len(cand.get('via_core_keywords') or [])} von {len(via)}"
+                 if has_core else f"Schlagwörter {len(via)}")
+        lines.append(f"- {cand.get('notation')} | {cand.get('label') or 'ohne Bezeichnung'} | "
+                     f"über {', '.join(via)} | {count}")
+    return "\n".join(lines)
+
+
+def _count_geo_prior(source: str, payload: Dict[str, Any], terms: List[str]) -> None:
+    """The asked keywords in the run's source overview: a found keyword is a
+    hit, a failed lookup an error each. No plugin or no input → no request,
+    nothing counted. Best-effort. - Claude Generated
+    """
+    try:
+        from src.core.search import source_usage
+
+        status = payload.get("status")
+        if status == "ok":
+            for _match in payload.get("keyword_matches") or []:
+                source_usage.record(source, source_usage.CALL, hit=True)
+            for _term in payload.get("not_found") or []:
+                source_usage.record(source, source_usage.CALL)
+        elif status == "error":
+            for _term in terms:
+                source_usage.record(source, source_usage.CALL, error=True)
+    except Exception as exc:  # noqa: BLE001 - the overview must never break the step
+        log_caught(logger, exc, "geo_sachdb_prior: source overview")
+
+
+@register_tool_fn("geo_sachdb_prior")
+def geo_sachdb_prior(
+    keywords: Optional[List[Any]] = None,
+    core_keywords: Optional[List[Any]] = None,
+    *,
+    context: Any = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """Local notations of the final keywords, as evidence for the classification.
+
+    The lookup of ``geo_sachdb_candidates`` with the keywords alone (the
+    classification has not run, so there is nothing assigned to check; a
+    rerun after it does not look at ``dk_classifications`` either). Each
+    candidate gets ``via_core_keywords``, the keywords of the RSWK core among
+    ``via_keywords``. All candidates, ordered by core keywords, then by all
+    keywords (both descending), then by notation; ``prompt_text`` lists them
+    for the classification prompt. Keywords and core keywords fall back to
+    ``extra.final_keywords``/``extra.core_keywords``. The asked keywords are
+    counted in the run's source overview under the lookup id.
+
+    No plugin, no input or no candidate → ``prompt_text`` is ``""``; never an
+    error. - Claude Generated
+    """
+    from src.utils.lookups.geo_sachdb.store import fold
+
+    cfg = dict(config or {})
+    extra = (getattr(context, "extra", None) or {}) if context is not None else {}
+    raw_keywords = keywords if keywords else extra.get("final_keywords")
+    raw_core = core_keywords if core_keywords else extra.get("core_keywords")
+    lookup_id = str(cfg.get("lookup") or "geo_sachdb")
+
+    # context=None: the candidate function would otherwise read the assigned
+    # notations off the context.
+    payload = geo_sachdb_candidates(keywords=raw_keywords, notations=None, context=None, config=cfg)
+
+    core_terms = _shelf_keywords(raw_core)
+    core_keys = {fold(term) for term in core_terms}
+    candidates = [cand for cand in payload.get("candidates") or [] if isinstance(cand, dict)]
+    for cand in candidates:
+        cand["via_core_keywords"] = [
+            term for term in cand.get("via_keywords") or [] if fold(term) in core_keys
+        ]
+    payload["candidates"] = sorted(
+        candidates,
+        key=lambda c: (-len(c["via_core_keywords"]), -len(c.get("via_keywords") or []), str(c.get("code") or "")),
+    )
+    payload["core_keywords"] = core_terms
+    payload["prompt_text"] = _format_geo_prior(payload, str(cfg.get("title") or _GEO_PRIOR_TITLE))
+    terms = _shelf_keywords(raw_keywords)[: int(cfg.get("max_keywords") or 30)]
+    _count_geo_prior(lookup_id, payload, terms)
+    logger.info(
+        f"geo_sachdb_prior: {payload.get('status')}, {len(payload['candidates'])} local notations "
+        f"for {len(terms)} keywords ({len(core_terms)} core)"
+    )
+    return payload
+
+
+# ============================================================
+# Publication form from the input text (Dissertation, …)
+# ============================================================
+
+@register_tool_fn("publication_form")
+def publication_form(
+    abstract: Optional[str] = None,
+    form_keywords: Optional[List[Any]] = None,
+    dk_classifications: Optional[List[Any]] = None,
+    *,
+    context: Any = None,
+    stream_callback: Optional[Callable[[str], None]] = None,
+    config: Optional[Dict[str, Any]] = None,
+    **_: Any,
+) -> Dict[str, Any]:
+    """The form the input text gives the work, applied to the result.
+
+    ``src.utils.publication_form.detect_publication_form`` on the input text
+    (rule table, no model). On a hit the form keyword joins ``form_keywords``
+    (once) and the form notation goes to the front of ``dk_classifications``:
+    inserted with ``origin: publication_form`` and ``rank: additional``, or
+    moved there when the classification already assigned it. Returns
+    ``{publication_form, form_keywords, dk_classifications}``; without a hit
+    ``publication_form`` is ``None`` and the two lists are the inputs as they
+    came, so the workflow's output mapping writes nothing new. Inputs fall
+    back to ``context.abstract``, ``extra.form_keywords`` and
+    ``context.dk_classifications``. - Claude Generated
+    """
+    from src.utils.publication_form import (
+        apply_publication_form,
+        detect_publication_form,
+        notation_display,
+    )
+
+    extra = (getattr(context, "extra", None) or {}) if context is not None else {}
+    text = abstract if abstract else getattr(context, "abstract", "")
+    keywords = form_keywords if form_keywords is not None else extra.get("form_keywords")
+    classifications = (
+        dk_classifications if dk_classifications is not None
+        else getattr(context, "dk_classifications", None)
+    )
+
+    detection = detect_publication_form(text)
+    if detection is None:
+        logger.info("publication_form: no form phrase in the input text")
+        return {"publication_form": None, "form_keywords": keywords,
+                "dk_classifications": classifications}
+
+    new_keywords, new_classifications = apply_publication_form(detection, keywords, classifications)
+    payload = dict(detection, notation=list(detection["notation"]))
+    logger.info(
+        f"publication_form: {detection['form']} ({detection['rule']}) → "
+        f"{notation_display(detection)}, {detection['form_keyword']}"
+    )
+    if stream_callback:
+        stream_callback(
+            f"📄 Form aus dem Eingabetext: {detection['label']} → {notation_display(detection)}, "
+            f"Formschlagwort {detection['form_keyword']} („{detection['evidence']}“)\n"
+        )
+    return {"publication_form": payload, "form_keywords": new_keywords,
+            "dk_classifications": new_classifications}
 
 
 def register_all() -> None:

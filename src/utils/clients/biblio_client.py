@@ -91,7 +91,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                  rate_limit_delay_ms: int = 1000, use_json_cache: bool = True,
                  soap_search_url: str = "", soap_details_url: str = "",
                  web_search_url: str = "", web_record_url: str = "",
-                 cache_only: bool = False):
+                 cache_only: bool = False, source_id: Optional[str] = None):
         """
         Initialize the extractor with the given token.
 
@@ -110,6 +110,12 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
             cache_only: no network request at all (SOAP and web fallback are
                 blocked); DK extraction reads ``catalog_dk_cache`` at any age and
                 reports keywords without an entry in ``last_cache_misses`` - Claude Generated
+            source_id: plugin instance id under which ``source_health`` counts
+                connection failures of every SOAP and web request; after three
+                in a row the source is skipped (``last_source_down``, per-term
+                ``last_errors``). ``None`` leaves requests untracked. This sits
+                beside the client's own circuit breaker (3 failures, 60 s,
+                fed only by exceptions that escape ``search``). - Claude Generated
 
         Note:
             - use_json_cache: Controls RSN detail lookups (step 2 of DK search)
@@ -133,6 +139,13 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         self.cache_only = bool(cache_only)
         self.last_cache_misses: List[str] = []
         self._cache_only_block_logged = False
+        # Source health (src/core/search/source_health.py) - Claude Generated
+        self.source_id = source_id
+        self.last_errors: Dict[str, str] = {}
+        self.last_source_down: List[str] = []
+        # Web-fallback steps that needed the institution's ISIL and found none
+        # (src/utils/institution.py); reset per DK extraction. - Claude Generated
+        self.last_not_configured: List[str] = []
 
         # Statistics tracking - Claude Generated
         self._json_cache_hits = 0
@@ -152,6 +165,32 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         self.circuit_breaker_threshold = 3
         self.circuit_breaker_open = False
         self.circuit_breaker_reset_time = None
+
+    def _source_down_error(self) -> Optional[str]:
+        """The per-term marker when ``source_health`` skips this source, else None.
+
+        - Claude Generated
+        """
+        from src.core.search import source_health
+
+        if self.source_id and source_health.is_down(self.source_id):
+            return source_health.down_message(self.source_id)
+        return None
+
+    def _connection_failure_error(self) -> Optional[str]:
+        """Why an empty search is not "no results", or None.
+
+        ``search`` and ``_search_web`` swallow their exceptions and return ``[]``;
+        ``source_health`` remembers whether the latest request to this source
+        failed to connect. - Claude Generated
+        """
+        from src.core.search import source_health
+
+        if not self.source_id or not source_health.failing(self.source_id):
+            return None
+        return self._source_down_error() or (
+            f"{self.source_id}: Katalog nicht erreichbar (Verbindungsfehler)"
+        )
 
     def process_search_results(
         self, results: List[Dict[str, Any]], max_items: int = 100, delay: float = 1.5
@@ -317,10 +356,16 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
         # WP2 raw-first: verbatim parsed records per term for the raw cache. - Claude Generated
         self.last_raw = {}
+        self.last_errors = {}
         results = {}
 
         for search_term in search_terms:
             logger.debug(f"Searching catalog subjects for: {search_term} (use={libero_use})")
+            skip = self._source_down_error()
+            if skip:
+                self.last_errors[search_term] = skip
+                results[search_term] = {}
+                continue
 
             # Search catalog for this term
             search_results = self.search(search_term, search_type=libero_use)
@@ -332,6 +377,9 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
             #logger.info(f"Found {(search_results)} results for '{search_term}'")
             if not search_results:
+                failure = self._connection_failure_error()
+                if failure:
+                    self.last_errors[search_term] = failure
                 results[search_term] = {}
                 continue
                 
@@ -429,9 +477,15 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         libero_use = libero_map.get(search_type, search_type)
 
         results: Dict[str, List[Dict[str, Any]]] = {}
+        self.last_errors = {}
 
         for term in search_terms:
             logger.debug(f"search_titles: '{term}' (use={libero_use})")
+            skip = self._source_down_error()
+            if skip:
+                self.last_errors[term] = skip
+                results[term] = []
+                continue
             hits = self.search(term, search_type=libero_use)
 
             if not hits and self.enable_web_fallback:
@@ -439,6 +493,9 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 hits = self._search_web(term)
 
             if not hits:
+                failure = self._connection_failure_error()
+                if failure:
+                    self.last_errors[term] = failure
                 results[term] = []
                 continue
 
@@ -509,6 +566,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
 
         Returns title-based structures (not classification-based)
         """
+        self.last_not_configured = []
         if self.cache_only:
             return self._extract_dk_cache_only(keywords)
 
@@ -533,6 +591,11 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         # Try file-based lookup first for each keyword - Claude Generated Optimization
         file_cached_count = 0
         classification_lookup = get_classification_lookup_service()
+        # Per keyword: where the answer came from, for the per-run source
+        # overview (source_usage); the last step taken wins. - Claude Generated
+        from src.core.search import source_usage as _usage
+
+        usage_origin: Dict[str, tuple] = {}
 
         for clean_kw in normalized_keywords.keys():
             # Try to get titles from file-based lookup
@@ -541,6 +604,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 all_titles.extend(file_titles)
                 file_cached_keywords.add(clean_kw)
                 file_cached_count += 1
+                usage_origin[clean_kw] = (_usage.CACHE, False)
                 logger.debug(f"FILE CACHE HIT for '{clean_kw}': {len(file_titles)} titles from JSON files")
                 # Mark as cached to avoid live search
                 cached_keywords.add(clean_kw)
@@ -552,10 +616,15 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         # Try cache for each keyword with Rate Limiting & Circuit Breaker - Claude Generated FIX
         cached_count = file_cached_count  # Start with file-based hits
         failed_keywords = []  # Track which keywords failed
+        # Keywords skipped because source_health marks the source down: no
+        # request, nothing cached, reported once by source_health. - Claude Generated
+        self.last_source_down = []
+        skipped_down = set()
 
         for clean_kw in normalized_keywords.keys():
             # Check circuit breaker first
             if self._check_circuit_breaker():
+                usage_origin[clean_kw] = (_usage.SKIPPED, False)
                 failed_keywords.append((clean_kw, 'circuit_breaker', 'Too many consecutive failures'))
                 logger.warning(f"⏩ Skipping '{clean_kw}' - circuit breaker open")
                 continue
@@ -571,6 +640,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 cached_titles, status, error_msg = cache_result
 
                 if status == 'success' and cached_titles:
+                    usage_origin[clean_kw] = (_usage.CACHE, False)
                     all_titles.extend(cached_titles)
                     cached_keywords.add(clean_kw)  # Track as cached
                     cached_count += 1
@@ -580,11 +650,18 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 elif status != 'success':
                     # Cached failure - respect TTL
                     logger.debug(f"Cached failure for '{clean_kw}': {status} - {error_msg}")
+                    usage_origin[clean_kw] = (_usage.CACHE, status != 'no_results')
                     failed_keywords.append((clean_kw, status, error_msg))
                     self._record_search_success()  # Don't count as new failure
                     continue
 
             # Cache miss - perform live search with rate limiting
+            if self._source_down_error():
+                usage_origin[clean_kw] = (_usage.SKIPPED, False)
+                skipped_down.add(clean_kw)
+                self.last_source_down.append(normalized_keywords[clean_kw])
+                continue
+            usage_origin[clean_kw] = (_usage.NETWORK, False)
             self._apply_rate_limit()
             self._reset_session_if_needed()
 
@@ -604,6 +681,14 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 if not search_results and self.enable_web_fallback:
                     logger.info(f"SOAP failed, trying web fallback for '{clean_kw}'")
                     search_results = self._search_web(clean_kw)
+
+                if not search_results and self._connection_failure_error():
+                    # The server was not reached: unknown, not "no results"
+                    # (nothing cached, so the next run asks again). - Claude Generated
+                    logger.warning(f"Catalog not reached for '{clean_kw}' (connection failure)")
+                    usage_origin[clean_kw] = (_usage.NETWORK, True)
+                    failed_keywords.append((clean_kw, 'error', 'Verbindungsfehler'))
+                    continue
 
                 if not search_results:
                     logger.warning(f"No results found for '{clean_kw}'")
@@ -674,6 +759,7 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                     self._record_search_success()
 
             except Exception as e:
+                usage_origin[clean_kw] = (_usage.NETWORK, True)
                 if isinstance(e, requests.exceptions.Timeout):
                     logger.error(f"⏱️ Timeout searching '{clean_kw}': {e}")
                     # RESPECT disable_sql_cache flag for testing - Claude Generated
@@ -705,6 +791,8 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
         keyword_results = []
 
         for clean_kw, original_kw in normalized_keywords.items():
+            if clean_kw in skipped_down:
+                continue
             # Get titles for THIS keyword only (from cache - all keywords have been searched/cached by now)
             # Now returns tuple of (titles, status, error_message)
             cache_result = dk_cache.get_catalog_dk_cache(clean_kw)
@@ -735,6 +823,10 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
                 logger.info(f"✅ Keyword '{clean_kw}': {len(kw_classifications)} classifications from {len(kw_titles)} titles")
             else:
                 logger.debug(f"⚠️ Keyword '{clean_kw}': {len(kw_titles)} titles but no classifications extracted")
+
+        answered_keywords = {str(r.get("keyword", "")).split('(')[0].strip() for r in keyword_results}
+        for clean_kw, (origin, failed) in usage_origin.items():
+            _usage.record(self.source_id, origin, hit=clean_kw in answered_keywords, error=failed)
 
         # Cache statistics - Claude Generated
         total_keywords = len(normalized_keywords)
@@ -770,19 +862,24 @@ class BiblioClient(BiblioParsingMixin, BiblioTransportMixin, BiblioRequestMixin)
             if clean not in normalized_keywords:
                 normalized_keywords[clean] = kw
 
+        from src.core.search import source_usage as _usage
+
         keyword_results = []
         for clean_kw, original_kw in normalized_keywords.items():
             cache_result = dk_cache.get_catalog_dk_cache(clean_kw, ignore_ttl=True)
             status = cache_result[1] if cache_result else None
             if status not in ("success", "no_results"):
                 self.last_cache_misses.append(original_kw)
+                _usage.record(self.source_id, _usage.CACHE_MISS)
                 continue
             kw_titles = cache_result[0] or []
             if not kw_titles:
+                _usage.record(self.source_id, _usage.CACHE)
                 continue
             kw_classifications = dk_cache.extract_classifications_from_titles(
                 kw_titles, matched_keywords=[clean_kw]
             )
+            _usage.record(self.source_id, _usage.CACHE, hit=bool(kw_classifications))
             if kw_classifications:
                 keyword_results.append({
                     "keyword": original_kw,

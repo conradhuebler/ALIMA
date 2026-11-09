@@ -166,11 +166,18 @@ class LobidSuggester(BaseSuggester):
     #: QObject.__getattr__ and raise instead. - Claude Generated
     page_size = DEFAULT_PAGE_SIZE
 
+    #: Request timeout in seconds, the limit lobid had before it became an
+    #: instance setting (``timeout_s``). - Claude Generated
+    DEFAULT_TIMEOUT_S = 30
+
     def __init__(
         self,
         data_dir: Optional[Union[str, Path]] = None,
         debug: bool = False,
         page_size: Optional[int] = None,
+        timeout: Optional[int] = None,
+        source_id: Optional[str] = None,
+        cache_only: bool = False,
     ):
         """
         Initialize the LobidSuggester.
@@ -184,12 +191,25 @@ class LobidSuggester(BaseSuggester):
                 harvest; beyond ~50 a subject-rich response can exceed the raw
                 cache's 1 MB cap, and an uncached response loses the harvest
                 again. - Claude Generated
+            timeout: seconds per lobid request (default :data:`DEFAULT_TIMEOUT_S`).
+            source_id: instance id under which ``source_health`` counts
+                connection failures; ``None`` leaves requests untracked.
+            cache_only: the instance answers from the raw cache; the GND
+                subject table is then never downloaded (a missing local copy
+                makes ``transform`` fail, which the caller reads as a miss).
+                - Claude Generated
         """
         super().__init__(data_dir, debug)
         try:
             self.page_size = int(page_size) if page_size else self.DEFAULT_PAGE_SIZE
         except (TypeError, ValueError):
             self.page_size = self.DEFAULT_PAGE_SIZE
+        try:
+            self.timeout = int(timeout) if timeout else self.DEFAULT_TIMEOUT_S
+        except (TypeError, ValueError):
+            self.timeout = self.DEFAULT_TIMEOUT_S
+        self.source_id = source_id
+        self.cache_only = bool(cache_only)
 
         # File paths for the GND data
         self.subjects_file_gz = self.data_dir / self.GND_URL.split("/")[-1]
@@ -296,9 +316,15 @@ class LobidSuggester(BaseSuggester):
         network/parse error; callers turn that into a per-term source failure.
         Split out of ``_get_results`` for the WP2 raw-first cache. - Claude Generated
         """
+        from src.core.search import source_health
+
         encoded = urllib.parse.quote(query)
         url = self._get_search_url(encoded, search_type=search_type)
-        with urllib.request.urlopen(url, timeout=30) as response:
+        # source_health counts connection failures and refuses a source that is
+        # down (SourceDownError, a per-term failure for _get_results). - Claude Generated
+        with source_health.call(
+            self.source_id, urllib.request.urlopen, url, timeout=self.timeout
+        ) as response:
             result = json.load(response)
             self._last_fetch_status = getattr(response, "status", None)
         return result
@@ -310,6 +336,14 @@ class LobidSuggester(BaseSuggester):
         I/O-free; the dump is fetched/parsed once, on the first transform that
         needs it. - Claude Generated"""
         if self.gnd_subjects is None:
+            if self.cache_only and not (
+                self.subjects_file_gz.exists() and self.subjects_file_json.exists()
+            ):
+                # No download in cache-only mode. - Claude Generated
+                raise LobidSuggesterError(
+                    "GND-Sachbegriffsliste fehlt lokal; im Modus „nur Cache“ wird sie "
+                    "nicht heruntergeladen"
+                )
             self.prepare(False)
 
     @staticmethod

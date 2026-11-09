@@ -20,6 +20,8 @@ class LobidProvider(SuggesterBackedProvider):
     @classmethod
     def config_fields(cls):
         from src.core.plugins.schema import INT, ConfigField
+        from src.core.search.cache_only import cache_only_field
+        from src.core.search.timeouts import timeout_field
 
         return [
             ConfigField(
@@ -38,6 +40,8 @@ class LobidProvider(SuggesterBackedProvider):
                     "Klassifikationen wieder."
                 ),
             ),
+            timeout_field(30),
+            cache_only_field(),
         ]
 
     @classmethod
@@ -79,11 +83,16 @@ class LobidProvider(SuggesterBackedProvider):
         )]
 
     def _build_suggester(self):
+        from src.core.search.timeouts import timeout_from
+
         from .suggester import LobidSuggester
 
         return LobidSuggester(
             debug=self._config.get("debug", False),
             page_size=self._config.get("page_size"),
+            timeout=timeout_from(self._config, 30),
+            source_id=self.source_id,
+            cache_only=self.cache_only,
         )
 
     def search(

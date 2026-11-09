@@ -44,6 +44,15 @@ class PluginTypeMeta:
     capabilities: List[str] = field(default_factory=list)
     builtin: bool = True
     doc: PluginDoc = field(default_factory=PluginDoc)
+    # What an instance of this type does to a run, as the settings form shows it
+    # ("Wirkung"); ``effect_multi`` is added when the list holds several
+    # instances of the type. Filled by each category adapter. - Claude Generated
+    effect: str = ""
+    effect_multi: str = ""
+    # Search sources: why the "Nur Cache" state is unavailable for this type
+    # (shown as a disabled entry). Empty = the state is offered when the type
+    # declares a ``cache_only`` field, and not shown otherwise. - Claude Generated
+    cache_only_note: str = ""
 
 
 class PluginCategory(ABC):
@@ -76,6 +85,15 @@ class PluginCategory(ABC):
         raise NotImplementedError(
             f"Category '{self.name}' does not support code plugins"
         )
+
+    def type_class(self, type_id: str) -> Any:
+        """The registered class of ``type_id``; the settings tab reads its
+        ``__module__`` to tell built-in types from code plugins. ``None`` when
+        an adapter does not expose its classes. Raises ``KeyError`` for an
+        unknown type. - Claude Generated"""
+        if not self.has_type(type_id):
+            raise KeyError(type_id)
+        return None
 
     def has_type(self, type_id: str) -> bool:
         return type_id in self.list_types()

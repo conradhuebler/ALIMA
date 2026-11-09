@@ -78,8 +78,18 @@ def build_provider(
     try:
         provider._cache_raw = cache_raw
         provider._ukm_ref = ukm
+        # The instance id is the key source_health counts failures under.
+        # - Claude Generated
+        provider._source_id = getattr(instance, "instance_id", None) or None
     except Exception:
         pass
+    # Name of the instance in the per-run source overview. - Claude Generated
+    from . import source_usage
+
+    source_usage.set_label(
+        getattr(instance, "instance_id", None),
+        getattr(instance, "label", "") or getattr(cls, "label", "") or instance.provider_id,
+    )
     if cache and SearchCapability.GND_KEYWORDS in getattr(cls, "capabilities", set()):
         provider = CachingProvider(
             provider, ukm=ukm, max_age_hours=max_age_hours, force_update=force_update
@@ -283,10 +293,10 @@ def resolve_gnd_source_tools(requested: Any, config: Any = None):
     return out_ids, out_map
 
 
-# Built-in provider ids — lets a *custom* CLASSIFICATION plugin take precedence
-# over the Libero default while preserving the finc→SRU→Libero order for the
-# built-ins. - Claude Generated
-_BUILTIN_PROVIDER_IDS = {"lobid", "swb", "catalog", "finc", "sru", "gnd_local"}
+# Built-in provider ids: their DK switch is the setting ``dk_enabled``; a
+# non-built-in CLASSIFICATION plugin is a DK source while it is active.
+# - Claude Generated
+_BUILTIN_PROVIDER_IDS = {"lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"}
 
 
 def _call_dk_extractor(provider: Any, *, logger_: Any, stream_callback: Any) -> Any:
@@ -298,19 +308,10 @@ def _call_dk_extractor(provider: Any, *, logger_: Any, stream_callback: Any) -> 
         return provider.dk_extractor()
 
 
-def _dk_extractor_from_instance(
-    inst: Any, *, debug: bool, logger_: Any, stream_callback: Any,
-    require_available: bool = True,
-) -> Any:
-    """Build ``inst``'s provider through the factory and return its DK extractor.
-
-    ``None`` when the instance is missing, unbuildable, declares no
-    ``dk_extractor``, or (when ``require_available``) is unavailable. ``debug`` is
-    threaded into the instance settings so the extractor's client keeps its
-    verbose mode. - Claude Generated
-    """
-    if inst is None:
-        return None
+def _dk_provider_from_instance(inst: Any, *, debug: bool, require_available: bool) -> Any:
+    """The factory-built provider of a DK source, ``None`` when it cannot be
+    built, has no ``dk_extractor`` or (``require_available``) is not available.
+    - Claude Generated"""
     try:
         if debug:
             from dataclasses import replace
@@ -328,52 +329,216 @@ def _dk_extractor_from_instance(
                 return None
         except Exception:
             pass
+    return provider
+
+
+def _dk_extractor_from_instance(
+    inst: Any, *, debug: bool, logger_: Any, stream_callback: Any,
+    require_available: bool = True,
+) -> Any:
+    """Build ``inst``'s provider through the factory and return its DK extractor.
+
+    ``None`` when the instance is missing, unbuildable, declares no
+    ``dk_extractor``, or (when ``require_available``) is unavailable. ``debug`` is
+    threaded into the instance settings so the extractor's client keeps its
+    verbose mode. - Claude Generated
+    """
+    if inst is None:
+        return None
+    provider = _dk_provider_from_instance(inst, debug=debug, require_available=require_available)
+    if provider is None:
+        return None
     return _call_dk_extractor(provider, logger_=logger_, stream_callback=stream_callback)
 
 
-def _custom_classification_extractor(
-    config: Any, *, logger_: Any, stream_callback: Any, debug: bool = False,
-) -> Any:
-    """First enabled *non-built-in* CLASSIFICATION-capable provider's DK extractor.
+#: Setting that switches an instance on as a DK source (finc, sru, catalog).
+DK_SWITCH_KEY = "dk_enabled"
 
-    The extension point behind the classic DK step: a library without finc/Libero
-    can ship its own DK/RVK catalog plugin (declaring ``CLASSIFICATION`` + a
-    ``dk_extractor()``) and it is picked up here — no core change. ``None`` when
-    there is no such plugin (or the config can't be read). - Claude Generated
+
+class NoDkSourceError(RuntimeError):
+    """No instance serves the DK step: every DK switch is off - Claude Generated"""
+
+
+def _classification_class(inst: Any) -> Any:
+    """The registered class of ``inst`` when it declares CLASSIFICATION, else None."""
+    try:
+        cls = get_provider(getattr(inst, "provider_id", ""))
+    except KeyError:
+        return None
+    if SearchCapability.CLASSIFICATION not in getattr(cls, "capabilities", set()):
+        return None
+    return cls
+
+
+def _legacy_catalog(inst: Any) -> bool:
+    """A catalog instance that never stored its DK switch (configs from before
+    the switch existed) - Claude Generated"""
+    return (getattr(inst, "provider_id", "") == "catalog"
+            and DK_SWITCH_KEY not in (getattr(inst, "settings", None) or {}))
+
+
+def dk_candidates(config: Any) -> List[Any]:
+    """The instances that can serve the DK step, in the order of the plugin list.
+
+    An instance qualifies when it is active (state An or Nur Cache), its type
+    declares CLASSIFICATION and its DK switch is on:
+
+    * built-in types (finc, sru, catalog): the instance setting ``dk_enabled``;
+      absent means off;
+    * a non-built-in plugin: always on while it is active (no switch);
+    * a catalog instance that never stored ``dk_enabled`` counts only when no
+      other instance qualifies, and only the first such instance. This is how
+      the fixed chain behaved (Libero as the default when nothing else was
+      switched on); once the key is stored it is taken literally.
+
+    Availability (finc without base URL, sru without endpoint) is checked by
+    :func:`resolve_dk_extractor` and :func:`describe_dk_source`, not here.
+    Empty when the config can not be read. - Claude Generated
     """
     if config is None:
-        return None
+        return []
     try:
-        instances = config.enabled_instances_for("search_provider")
+        instances = list(config.enabled_instances_for("search_provider"))
     except Exception:
-        return None
+        return []
+    out: List[Any] = []
+    legacy: Any = None
     for inst in instances:
+        if _classification_class(inst) is None:
+            continue
         pid = getattr(inst, "provider_id", "")
-        if pid in _BUILTIN_PROVIDER_IDS:
-            continue
-        try:
-            cls = get_provider(pid)
-        except KeyError:
-            continue
-        if SearchCapability.CLASSIFICATION not in getattr(cls, "capabilities", set()):
-            continue
-        ext = _dk_extractor_from_instance(
-            inst, debug=debug, logger_=logger_, stream_callback=stream_callback
-        )
-        if ext is not None:
-            return ext
-    return None
+        if pid not in _BUILTIN_PROVIDER_IDS:
+            out.append(inst)
+        elif _legacy_catalog(inst):
+            if legacy is None:
+                legacy = inst
+        elif (getattr(inst, "settings", None) or {}).get(DK_SWITCH_KEY):
+            out.append(inst)
+    if not out and legacy is not None:
+        out.append(legacy)
+    return out
 
 
-def _sru_selected_for_dk(sru_inst: Any, catalog_inst: Any = None) -> bool:
-    """Whether SRU is the operator's chosen DK backend: its own ``dk_enabled``.
+def _requires_available(inst: Any) -> bool:
+    """catalog serves without token (web scraping), the others need their
+    endpoint - Claude Generated"""
+    return getattr(inst, "provider_id", "") != "catalog"
 
-    Symmetric to finc. The legacy ``catalog_type`` on the catalog instance used to
-    be honoured here as a transition fallback; it is now carried over once at load
-    time by ``plugin_migration.migrate_catalog_type`` and the key is dropped, so
-    there is a single knob instead of two that could disagree. - Claude Generated
+
+def _probe_available(inst: Any) -> bool:
+    """Whether ``inst`` passes the availability gate, from a provider object made
+    from its settings (no client, no connection) - Claude Generated"""
+    from src.core.plugins.schema import apply_env_overrides
+
+    if not _requires_available(inst):
+        return True
+    pid = getattr(inst, "provider_id", "")
+    try:
+        cls = get_provider(pid)
+        fields = cls.config_fields() if hasattr(cls, "config_fields") else []
+        probe = cls(**apply_env_overrides(
+            getattr(inst, "instance_id", pid), getattr(inst, "settings", None) or {}, fields))
+        return not (hasattr(probe, "is_available") and not probe.is_available())
+    except Exception:
+        logger.debug("DK source '%s' not checkable", pid, exc_info=True)
+        return False
+
+
+def _dk_fallback_instance(config: Any) -> "tuple":
+    """What the DK step uses when no candidate can serve: ``(kind, instance)``.
+
+    ``("legacy", inst)`` the first active catalog instance without a stored DK
+    switch (the fixed chain ended with catalog); ``("default", None)`` the
+    registry catalog with its built-in defaults when no catalog instance is
+    active (as before); ``("none", None)`` when every catalog instance has its
+    switch stored off. - Claude Generated
     """
-    return bool((getattr(sru_inst, "settings", None) or {}).get("dk_enabled"))
+    catalogs = []
+    if config is not None:
+        try:
+            catalogs = [i for i in config.enabled_instances_for("search_provider")
+                        if getattr(i, "provider_id", "") == "catalog"]
+        except Exception:
+            catalogs = []
+    for inst in catalogs:
+        if _legacy_catalog(inst):
+            return ("legacy", inst)
+    if not catalogs:
+        return ("default", None)
+    return ("none", None)
+
+
+def _usable_dk_chain(config: Any) -> List[Any]:
+    """The candidates that pass the availability gate, plus the fallback of
+    :func:`_dk_fallback_instance` when none does - Claude Generated"""
+    chain = []
+    for inst in dk_candidates(config):
+        cls = _classification_class(inst)
+        if cls is None or not hasattr(cls, "dk_extractor"):
+            continue
+        if _probe_available(inst):
+            chain.append(inst)
+    if not chain:
+        kind, inst = _dk_fallback_instance(config)
+        if kind == "legacy":
+            chain.append(inst)
+    return chain
+
+
+def _source_entry(inst: Any) -> Dict[str, Any]:
+    """``{provider_id, instance_id, label, cache_only}`` of a DK source - Claude Generated"""
+    from src.core.search.cache_only import is_cache_only
+
+    pid = getattr(inst, "provider_id", "")
+    cls = get_provider(pid)
+    settings = getattr(inst, "settings", None) or {}
+    try:
+        declares = any(f.key == "cache_only" for f in cls.config_fields())
+    except Exception:
+        declares = False
+    return {
+        "provider_id": pid,
+        "instance_id": getattr(inst, "instance_id", pid),
+        "label": getattr(inst, "label", "") or getattr(cls, "label", pid),
+        "cache_only": declares and is_cache_only(settings),
+    }
+
+
+def describe_dk_source(config: Any = None) -> Dict[str, Any]:
+    """Which sources the DK step would use, without building an extractor.
+
+    The same chain as :func:`resolve_dk_extractor`: :func:`dk_candidates`,
+    filtered by each provider's own ``is_available()`` on a provider object
+    made from the instance settings (provider constructors build no client and
+    open no connection; ``dk_extractor()`` is never called), and the same
+    fallback when none is usable.
+
+    Returns ``{"chain": [{provider_id, instance_id, label, cache_only}],
+    "text", "fallback"}`` plus the keys of the first source
+    (``provider_id``, ``instance_id``, ``label``, ``cache_only``).
+    ``instance_id`` is ``None`` for the registry catalog with its built-in
+    defaults (no active catalog instance) and when no source is switched on
+    (``provider_id`` ``None`` then). ``fallback`` is True with two or more
+    sources. Not seen here: an extractor that fails to build at run time.
+    - Claude Generated
+    """
+    from .dk_fallback import chain_text
+
+    chain = [_source_entry(inst) for inst in _usable_dk_chain(config)]
+    if chain:
+        first = dict(chain[0])
+        return {**first, "chain": chain, "fallback": len(chain) > 1,
+                "text": chain_text([c["label"] for c in chain])}
+    kind, _inst = _dk_fallback_instance(config)
+    if kind == "default":
+        label = getattr(get_provider("catalog"), "label", "catalog")
+        return {"provider_id": "catalog", "instance_id": None, "label": label,
+                "cache_only": False, "chain": [], "fallback": False,
+                "text": f"DK-Quelle: {label} mit den eingebauten Standardwerten "
+                        "(keine aktive Katalog-Instanz)"}
+    return {"provider_id": None, "instance_id": None, "label": "", "cache_only": False,
+            "chain": [], "fallback": False,
+            "text": "DK-Quelle: keine (bei keiner aktiven Instanz ist der DK-Schalter an)"}
 
 
 def resolve_dk_extractor(
@@ -383,18 +548,20 @@ def resolve_dk_extractor(
     stream_callback: Any = None,
     debug: bool = False,
 ) -> Any:
-    """Resolve the DK/RVK extractor for the classic DK step from the enabled
-    CLASSIFICATION-capable search providers — the D-4 hand-wired site.
+    """Resolve the DK/RVK extractor of the classic DK step.
 
-    Every backend is built through the factory from its own instance settings
-    (WP P4), replacing the former 15-kwarg ``CatalogConfig`` wall + the
-    ``catalog_type`` if-elif. Precedence preserves the operator's June-2026 order:
+    The sources are :func:`dk_candidates` in the order of the plugin list,
+    each built through the factory from its own instance settings. A source
+    whose provider cannot be built or is not available is left out (finc
+    without base URL, sru without endpoint; catalog has no such gate). Then:
 
-    1. **finc** — opt-in via the finc instance's ``dk_enabled``;
-    2. **custom plugin** — any enabled non-built-in provider declaring CLASSIFICATION;
-    3. **SRU / MARC-XML** — opt-in via the sru instance's ``dk_enabled``
-       (see :func:`_sru_selected_for_dk`);
-    4. **Libero SOAP** — the catalog instance, the default.
+    * exactly one source: its own extractor, unchanged;
+    * two or more: a :class:`~src.core.search.dk_fallback.FallbackDkExtractor`
+      over them (same contract, fallback per keyword); an extractor that fails
+      to build is kept as a source that answers nothing;
+    * none: the first active catalog instance without a stored DK switch;
+      without any active catalog instance the registry catalog with its
+      built-in defaults (as before); otherwise :class:`NoDkSourceError`.
 
     Returns an object implementing the shared
     ``extract_dk_classifications_for_keywords`` contract. - Claude Generated
@@ -406,40 +573,100 @@ def resolve_dk_extractor(
         except Exception:
             config = None
 
-    by_id: dict = {}
-    if config is not None:
-        try:
-            for inst in config.enabled_instances_for("search_provider"):
-                by_id.setdefault(getattr(inst, "provider_id", ""), inst)
-        except Exception:
-            pass
-
     common = dict(debug=debug, logger_=logger_, stream_callback=stream_callback)
 
-    # 1. finc — opt-in.
-    finc_inst = by_id.get("finc")
-    if finc_inst is not None and (getattr(finc_inst, "settings", None) or {}).get("dk_enabled"):
-        ext = _dk_extractor_from_instance(finc_inst, **common)
+    usable = []
+    for inst in dk_candidates(config):
+        provider = _dk_provider_from_instance(
+            inst, debug=debug, require_available=_requires_available(inst))
+        if provider is not None:
+            usable.append((inst, provider))
+
+    if len(usable) == 1:
+        inst, provider = usable[0]
+        return _call_dk_extractor(provider, logger_=logger_, stream_callback=stream_callback)
+    if len(usable) > 1:
+        return _fallback_extractor(usable, logger_=logger_, stream_callback=stream_callback)
+
+    kind, inst = _dk_fallback_instance(config)
+    if kind == "legacy":
+        ext = _dk_extractor_from_instance(inst, require_available=False, **common)
         if ext is not None:
             return ext
-    # 2. Custom (non-built-in) CLASSIFICATION plugin.
-    ext = _custom_classification_extractor(
-        config, logger_=logger_, stream_callback=stream_callback, debug=debug
-    )
-    if ext is not None:
-        return ext
-    # 3. SRU — opt-in via its own dk_enabled knob.
-    if _sru_selected_for_dk(by_id.get("sru"), by_id.get("catalog")):
-        ext = _dk_extractor_from_instance(by_id.get("sru"), **common)
-        if ext is not None:
-            return ext
-    # 4. Libero catalog — default (built unconditionally; empty token → web scraping).
-    ext = _dk_extractor_from_instance(by_id.get("catalog"), require_available=False, **common)
-    if ext is not None:
-        return ext
+    if kind == "none":
+        raise NoDkSourceError(
+            "Keine DK-Quelle: bei keiner aktiven Instanz ist der DK-Schalter an")
     # No catalog instance configured — build the registry default.
     prov = get_provider("catalog")(debug=debug)
     return _call_dk_extractor(prov, logger_=logger_, stream_callback=stream_callback)
+
+
+def _fallback_extractor(usable: List["tuple"], *, logger_: Any, stream_callback: Any) -> Any:
+    """A FallbackDkExtractor over ``[(instance, provider)]`` - Claude Generated"""
+    from .dk_fallback import DkCandidate, FallbackDkExtractor
+
+    candidates = []
+    for inst, provider in usable:
+        entry = _source_entry(inst)
+        cand = DkCandidate(
+            source_id=entry["instance_id"], label=entry["label"],
+            provider_id=entry["provider_id"], cache_only=entry["cache_only"],
+            settings=dict(getattr(inst, "settings", None) or {}),
+        )
+        try:
+            cand.extractor = _call_dk_extractor(
+                provider, logger_=logger_, stream_callback=stream_callback)
+        except Exception as exc:  # noqa: BLE001 - this source answers nothing, the next ones do
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, "DK extractor build", detail=entry["instance_id"])
+            cand.init_error = str(exc)
+        candidates.append(cand)
+    return FallbackDkExtractor(candidates)
+
+
+def search_effect(cls: Any) -> "tuple[str, str]":
+    """``(effect, effect_multi)`` texts of a search type for the settings form.
+
+    Derived from what the runtime selects on: the declared capabilities, and
+    whether the type exposes agent tools (``mcp_tool_specs``). Titles are only
+    described as an agent tool when the type has a TITLE_RECORDS tool.
+    - Claude Generated
+    """
+    caps = getattr(cls, "capabilities", set()) or set()
+    try:
+        specs = list(cls.mcp_tool_specs()) if hasattr(cls, "mcp_tool_specs") else []
+    except Exception:
+        specs = []
+    tool_caps = {getattr(s, "capability", None) for s in specs}
+    lines = []
+    if SearchCapability.GND_KEYWORDS in caps:
+        lines.append(
+            "GND-Schlagwortsuche: ergänzt die anderen GND-Quellen (Vereinigung der Treffer)."
+        )
+    if SearchCapability.CLASSIFICATION in caps:
+        lines.append(
+            "DK-Schritt: fragt die Quellen mit eingeschaltetem DK-Schalter in der "
+            "Reihenfolge der Liste; ein Schlagwort, das eine Quelle nicht beantwortet "
+            "(gesperrt, nicht im Cache, Einrichtung fehlt), geht an die nächste. "
+            "Keine Treffer sind eine Antwort. Welche Quellen gelten, steht über der Liste."
+        )
+    if SearchCapability.TITLE_RECORDS in tool_caps:
+        lines.append(
+            "Titeldaten: Werkzeug für den Agenten; die gemeinsame Titelsuche "
+            "search_titles fragt die Titelquellen in der Reihenfolge der Liste, die "
+            "erste mit Treffern liefert."
+        )
+    parts = []
+    if SearchCapability.GND_KEYWORDS in caps:
+        parts.append("die GND-Suche nutzt die erste aktive Instanz in der Liste")
+    if SearchCapability.CLASSIFICATION in caps:
+        parts.append("der DK-Schritt fragt jede aktive Instanz mit eingeschaltetem "
+                     "DK-Schalter, in der Reihenfolge der Liste")
+    if specs:
+        parts.append("der Agent erhält für jede aktive Instanz ein eigenes Werkzeug")
+    multi = ("Mehrere Instanzen dieses Typs: " + "; ".join(parts) + ".") if parts else ""
+    return " ".join(lines), multi
 
 
 class SearchProviderCategory(PluginCategory):
@@ -457,6 +684,7 @@ class SearchProviderCategory(PluginCategory):
         caps = sorted(c.value for c in getattr(cls, "capabilities", set()))
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
         doc = cls.doc() if hasattr(cls, "doc") else PluginDoc()
+        effect, effect_multi = search_effect(cls)
         return PluginTypeMeta(
             type_id=type_id,
             label=getattr(cls, "label", type_id),
@@ -466,7 +694,14 @@ class SearchProviderCategory(PluginCategory):
             capabilities=caps,
             builtin=True,
             doc=doc,
+            effect=effect,
+            effect_multi=effect_multi,
+            cache_only_note=str(getattr(cls, "cache_only_note", "") or ""),
         )
+
+    def type_class(self, type_id: str) -> Any:
+        """The registered provider class (read only) - Claude Generated"""
+        return get_provider(type_id)
 
     def build(self, instance: "PluginInstanceConfig") -> Any:
         return build_provider(instance)

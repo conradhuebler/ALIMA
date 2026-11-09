@@ -12,7 +12,7 @@ mehrere Kataloge**. Struktur, Modi und Konventionen wie in
 | Eingabe | Suchbegriffe + Suchachse (`kw`/`title`/`author`/`subject`/`isbn`) |
 | Ausgabe | Titel-Datensätze je Begriff (Titel, Autor, Jahr, Katalog, Link, `ppn`/`idn`/`bvnumber`) |
 | MCP-Tool | `search_kvk` |
-| Konfiguration | `catalogs` (Katalog-Ids), `base_url`, `timeout`, `max_results` |
+| Konfiguration | `catalogs` (Katalog-Ids), `base_url`, `timeout` (1 bis 120 s), `max_results`, `cache_only` (Zustand „Nur Cache“: Titel aus dem Rohantwort-Cache, Schlüssel Suchachse; die Katalogauswahl gehört nicht dazu) |
 
 ## Grenzen — vor der Nutzung lesen
 
@@ -30,11 +30,18 @@ Weitere Eigenheiten des Formats:
   (`"Quintes, Florian. - Freiburg im Breisgau, 06.07.2026"`). `parse_item`
   liest deshalb notfalls aus `text`.
 - **Je Katalog nur die erste Seite.** `catalog_stats[].results` nennt die
-  Gesamttrefferzahl, `truncated` sagt, dass mehr existiert.
+  Gesamttrefferzahl, `truncated` sagt, dass mehr existiert. Das Werkzeug fasst
+  das in `notice` zusammen (eine Zeile Klartext), wenn ein Katalog weniger
+  lieferte, als er meldete, ein Katalog mit einer anderen Meldung als „Keine
+  Datensätze gefunden“ antwortete (zitiert) oder `max_results` die
+  zusammengeführte Liste kürzte; `search_k10plus` wird nur genannt, wenn ein
+  K10plus-Katalog gekürzt war und das Werkzeug in der laufenden Konfiguration
+  existiert (`KvkProvider.tool_notice`).
 - **K10plus-Links tragen eine Session-ID** und sind nicht dauerhaft zitierfähig.
-- **Kein Raw-Cache.** Das Ergebnis hängt von der Katalogauswahl ab, die der
-  Cache-Key (`raw_cache_params_for`: `search_type`/`max_pages`/`facets`) nicht
-  ausdrücken kann. Ein stiller Falschtreffer wäre schlimmer als kein Cache.
+- **Raw-Cache nur nach Suchachse.** Fabrikgebaute Instanzen legen jede
+  beantwortete Suche ab (Schlüssel: `search_type`), der Zustand „Nur Cache“
+  liest dort. Die Katalogauswahl gehört nicht zum Schlüssel: nach einer
+  Änderung der Kataloge liefert „Nur Cache“ die ältere Auswahl.
 
 ## Die Brücke zur Anreicherung
 

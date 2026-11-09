@@ -38,6 +38,8 @@ class BiblioSuggester(BaseSuggester):
         web_search_url: str = "",
         web_record_url: str = "",
         cache_only: bool = False,
+        timeout: Optional[int] = None,
+        source_id: Optional[str] = None,
     ):
         """
         Initialize the BiblioSuggester.
@@ -53,8 +55,13 @@ class BiblioSuggester(BaseSuggester):
                 title record's catalog ``web_url`` (…/Record/<rsn>)
             cache_only: forwarded to ``BiblioClient``: no SOAP/web request at
                 all, DK extraction from the DK cache only. - Claude Generated
+            timeout: SOAP search timeout in seconds, forwarded to
+                ``BiblioClient`` (its own default when ``None``).
+            source_id: instance id for ``source_health``, forwarded to
+                ``BiblioClient``. - Claude Generated
         """
         super().__init__(data_dir, debug)
+        client_kwargs = {} if timeout is None else {"timeout": int(timeout)}
 
         # Initialize BiblioExtractor with provided configuration. URLs are
         # passed through the constructor (not set post-hoc) so BiblioClient's
@@ -73,6 +80,8 @@ class BiblioSuggester(BaseSuggester):
             web_search_url=web_search_url or "",
             web_record_url=web_record_url or "",
             cache_only=cache_only,
+            source_id=source_id,
+            **client_kwargs,
         )
 
         self.logger = logging.getLogger("biblio_suggester")
@@ -113,9 +122,13 @@ class BiblioSuggester(BaseSuggester):
         # WP2 raw-first: verbatim parsed records per term for the raw cache. - Claude Generated
         self.last_raw = {}
         self.last_http_status = {}
+        self.last_errors = {}
         try:
             # Use BiblioExtractor's search_subjects method
             results = self.extractor.search_subjects(searches, search_type=search_type)
+            # Terms the catalog could not be asked about: "source failed", not
+            # "no match" (BaseSuggester contract). - Claude Generated
+            self.last_errors = dict(getattr(self.extractor, "last_errors", {}) or {})
             client_raw = getattr(self.extractor, "last_raw", None) or {}
             for _term, _records in client_raw.items():
                 try:
@@ -163,12 +176,15 @@ class BiblioSuggester(BaseSuggester):
         Thin passthrough to ``BiblioClient.search_titles``. Unlike
         :meth:`search`, results are book records (not aggregated subjects).
         """
+        self.last_errors = {}
         try:
-            return self.extractor.search_titles(
+            results = self.extractor.search_titles(
                 search_terms,
                 max_results=max_results,
                 search_type=search_type,
             )
+            self.last_errors = dict(getattr(self.extractor, "last_errors", {}) or {})
+            return results
         except Exception as e:
             error_msg = f"BiblioSuggester search_titles failed: {str(e)}"
             self.logger.error(error_msg)

@@ -114,6 +114,7 @@ class ComprehensiveSettingsDialog(QDialog):
             self
         )
         self.plugin_settings_tab = PluginSettingsTab(self)
+        self.plugin_settings_tab.preset_applied.connect(self._on_preset_applied)
         self.database_tab = self._create_database_tab()
 
         self.unified_provider_tab.config_changed.connect(self.config_changed)
@@ -137,7 +138,10 @@ class ComprehensiveSettingsDialog(QDialog):
         button_layout.addStretch()
 
         self.export_preset_button = QPushButton("📤 Als Preset exportieren")
-        self.export_preset_button.setToolTip("Aktuelle Einstellungen als alima_presets.json exportieren")
+        self.export_preset_button.setToolTip(
+            "Gespeicherte Einrichtung als Paket exportieren (Ordner mit alima_presets.json "
+            "und den Dateien); ohne Schlüssel und Tokens"
+        )
         self.export_preset_button.clicked.connect(self._export_as_preset)
 
         self.save_button = QPushButton("💾 Save && Close")
@@ -531,6 +535,44 @@ class ComprehensiveSettingsDialog(QDialog):
         paths_group.setLayout(paths_layout)
         return paths_group
 
+    def _build_institution_group(self) -> QGroupBox:
+        """ISIL and ELN of the library (``SystemConfig.institution_*``).
+
+        One place for the values that used to be fixed to the UB Freiberg; the
+        consumers read them through ``src/utils/institution.py``. - Claude Generated
+        """
+        group = QGroupBox("Einrichtung")
+        form = QFormLayout()
+
+        self.institution_isil = QLineEdit()
+        self.institution_isil.setPlaceholderText("z. B. DE-105")
+        self.institution_isil.setToolTip("ISIL der Bibliothek; leer = nicht gesetzt.")
+        form.addRow("ISIL:", self.institution_isil)
+
+        self.institution_eln = QLineEdit()
+        self.institution_eln.setPlaceholderText("z. B. 105")
+        self.institution_eln.setToolTip(
+            "ELN der Bibliothek im K10plus; wird nicht aus der ISIL abgeleitet. "
+            "Leer = nicht gesetzt."
+        )
+        form.addRow("ELN:", self.institution_eln)
+
+        hint = QLabel(
+            "Die ISIL bestimmt die Abschlusszeile $A<ISIL> der Schlagwortketten im "
+            "WinIBW-Eintrag, die DK-Facette der Bibliothek bei finc und in der "
+            "Libero-Webabfrage (udk_raw_<isil>) und den Bestandsfilter der "
+            "Libero-Websuche. Die ELN wählt im K10plus das Exemplar der Bibliothek: "
+            "lokale Signatur, Notationen und Ketten im Werkzeug search_k10plus und "
+            "die lokalen Notationen der DK-Suche über SRU (Preset k10plus). Ohne "
+            "ISIL fehlt die Abschlusszeile, und die DK-Auswertung meldet "
+            "„Einrichtung nicht gesetzt“."
+        )
+        hint.setWordWrap(True)
+        form.addRow(hint)
+
+        group.setLayout(form)
+        return group
+
     # ---- pages -------------------------------------------------------
     #
     # One method per sidebar entry. Each composes group builders and registers
@@ -590,10 +632,18 @@ class ComprehensiveSettingsDialog(QDialog):
         page = QWidget()
         box = QVBoxLayout(page)
         box.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self._build_institution_group())
         box.addWidget(self.plugin_settings_tab, 1)
         self.shell.add_page(self.PAGE_SOURCES, page)
         self.index.add(self.PAGE_SOURCES, "Datenquellen",
                        synonyms=["plugin", "lobid", "swb", "katalog", "doi"])
+        self.index.add(self.PAGE_SOURCES, "ISIL der Bibliothek",
+                       section="Einrichtung", widget=self.institution_isil,
+                       synonyms=["isil", "einrichtung", "bibliothek", "sigel",
+                                 "institution"])
+        self.index.add(self.PAGE_SOURCES, "ELN der Bibliothek",
+                       section="Einrichtung", widget=self.institution_eln,
+                       synonyms=["eln", "k10plus", "exemplar", "einrichtung"])
 
     def _add_storage_page(self) -> None:
         cache = CollapsibleSection("Zwischenspeicher", expanded=True)
@@ -771,6 +821,8 @@ class ComprehensiveSettingsDialog(QDialog):
         self._refresh_workflow_list(default_stem=default_workflow)
         self.cache_dir.setText(config.system_config.cache_dir)
         self.autosave_dir.setText(config.system_config.autosave_dir)
+        self.institution_isil.setText(getattr(config.system_config, "institution_isil", "") or "")
+        self.institution_eln.setText(getattr(config.system_config, "institution_eln", "") or "")
 
         # Chat-Agent settings - Claude Generated
         chat_cfg = getattr(config, "chat_config", None)
@@ -970,6 +1022,8 @@ class ComprehensiveSettingsDialog(QDialog):
         sys_cfg.default_workflow = self.workflow_list.default_stem()
         sys_cfg.enable_response_cache = self.enable_response_cache.isChecked()
         sys_cfg.aggregate_from_raw = self.aggregate_from_raw.isChecked()
+        sys_cfg.institution_isil = self.institution_isil.text().strip()
+        sys_cfg.institution_eln = self.institution_eln.text().strip()
 
         # Chat-Agent configuration — preserve all other ChatConfig fields (they
         # have no UI here; e.g. the persisted default provider/model combo,
@@ -1016,134 +1070,36 @@ class ComprehensiveSettingsDialog(QDialog):
         return config
     
     def _export_as_preset(self):
-        """Export current settings as alima_presets.json - Claude Generated"""
-        from PyQt6.QtWidgets import QFileDialog, QInputDialog
-        import json
+        """Export the saved setup as an institution package (folder with
+        ``alima_presets.json`` and its files) - Claude Generated
 
-        # Sync UnifiedProviderTab UI state → unified_config before reading - Claude Generated
-        # The visible preferred_provider_combo lives in unified_provider_tab, not in this dialog.
-        # _update_config_from_ui() writes that combo's value to unified_config.preferred_provider.
-        self.unified_provider_tab._update_config_from_ui()
+        Same export as the button in the preset group of the Plugins tab
+        (``preset_export.export_preset``): no API keys, tokens or passwords.
+        """
+        self.plugin_settings_tab.start_preset_export()
 
-        # Ask for institution name
-        institution_name, ok = QInputDialog.getText(
-            self, "Preset exportieren", "Institutions-Name:",
-            text=self.config_to_edit.unified_config.institution_name
-                 if hasattr(self.config_to_edit.unified_config, 'institution_name') else ""
-        )
-        if not ok:
-            return
+    def _on_preset_applied(self, steps, saved) -> None:
+        """A preset was applied or reverted in the Plugins tab and saved.
 
-        # Find the preferred/default provider - Claude Generated
-        providers = getattr(self.config_to_edit.unified_config, 'providers', [])
-        preferred_name = getattr(self.config_to_edit.unified_config, 'preferred_provider', '')
-        provider = next(
-            (p for p in providers if p.name == preferred_name and getattr(p, 'enabled', True)),
-            None
-        ) or next((p for p in providers if getattr(p, 'enabled', True)), None)
+        The tab has updated its instances already; here the system values it
+        set (ISIL, ELN, standard workflow) reach this dialog's copy and its
+        widgets, and the copy takes the saved ledger, so "Save" does not undo
+        the preset. - Claude Generated
+        """
+        from ..utils.preset_apply import replay_steps
 
-        llm_block: dict = {}
-        if provider:
-            llm_block["provider_type"] = provider.provider_type
-            if provider.base_url:
-                llm_block["base_url"] = provider.base_url
-            if provider.api_key:
-                llm_block["api_key"] = provider.api_key
-            if getattr(provider, 'preferred_model', ''):
-                llm_block["default_model"] = provider.preferred_model
-
-        # Build task_models from the resolved pipeline/vision defaults - Claude
-        # Generated. Used to read task_preferences, a field
-        # resolve_default_provider_model never consults and that stays empty on
-        # most configs now it is retired as a live write surface (Oct 2026).
-        # These two scopes are what actually runs; preset_loader.py's
-        # pipeline_model()/vision_model() read the same "pipeline"/"vision" keys
-        # back, and still fall back through any older per-task key a
-        # hand-written preset file may still carry.
-        from ..utils.config_models import ProviderScope
-
-        task_models: dict = {}
-        _, pipeline_model = self.config_to_edit.unified_config.resolve_default_provider_model(
-            scope=ProviderScope.PIPELINE
-        )
-        if pipeline_model:
-            task_models["pipeline"] = pipeline_model
-        _, vision_model = self.config_to_edit.unified_config.resolve_default_provider_model(
-            scope=ProviderScope.VISION
-        )
-        if vision_model:
-            task_models["vision"] = vision_model
-        if task_models:
-            llm_block["task_models"] = task_models
-
-        # Build catalog block from the catalog instance (WP P7: was the CatalogConfig
-        # mirror). Read regardless of the source's enable state — exporting a preset
-        # is about the endpoints, not about what is switched on right now. The
-        # preset's wire keys stay as they are: presets are read by other
-        # installations. - Claude Generated
-        from src.core.search.factory import plugin_settings
-        cat = plugin_settings(self.config_to_edit, "catalog", enabled_only=False)
-        catalog_block: dict = {}
-        for wire_key, setting_key in (
-            ("soap_search_url", "catalog_search_url"),
-            ("soap_details_url", "catalog_details"),
-            ("token", "token"),
-            ("web_search_url", "catalog_web_search_url"),
-            ("web_record_url", "catalog_web_record_url"),
-        ):
-            if cat.get(setting_key):
-                catalog_block[wire_key] = cat[setting_key]
-
-        # Build database block - Claude Generated
-        db_cfg = getattr(self.config_to_edit, 'database_config', None)
-        database_block: dict = {}
-        if db_cfg:
-            db_type = getattr(db_cfg, 'db_type', 'sqlite')
-            database_block["type"] = db_type
-            if db_type == 'sqlite':
-                if getattr(db_cfg, 'sqlite_path', ''):
-                    database_block["sqlite_path"] = db_cfg.sqlite_path
-            else:  # mariadb/mysql
-                if getattr(db_cfg, 'host', ''):
-                    database_block["host"] = db_cfg.host
-                if getattr(db_cfg, 'port', 3306) != 3306:
-                    database_block["port"] = db_cfg.port
-                if getattr(db_cfg, 'database', ''):
-                    database_block["database"] = db_cfg.database
-                if getattr(db_cfg, 'username', ''):
-                    database_block["username"] = db_cfg.username
-                if getattr(db_cfg, 'password', ''):
-                    database_block["password"] = db_cfg.password
-
-        preset_data: dict = {}
-        if institution_name:
-            preset_data["institution_name"] = institution_name
-        if llm_block:
-            preset_data["llm"] = llm_block
-        if catalog_block:
-            preset_data["catalog"] = catalog_block
-        if database_block:
-            preset_data["database"] = database_block
-
-        # File save dialog – default to project root
-        from ..utils.path_utils import get_project_root
-        default_path = str(get_project_root() / "alima_presets.json")
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Preset speichern", default_path,
-            "JSON-Dateien (*.json);;Alle Dateien (*)"
-        )
-        if not path:
-            return
-
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(preset_data, f, indent=2, ensure_ascii=False)
-            QMessageBox.information(
-                self, "Preset exportiert",
-                f"✅ Preset gespeichert:\n{path}"
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Fehler", f"Konnte Preset nicht speichern:\n{e}")
+        cfg = self.config_to_edit
+        system_steps = [s for s in steps if s["path"] and s["path"][0] == "system_config"]
+        replay_steps(cfg, system_steps)
+        cfg.applied_presets = deepcopy(getattr(saved, "applied_presets", []) or [])
+        keys = {s["path"][1] for s in system_steps}
+        if "institution_isil" in keys:
+            self.institution_isil.setText(cfg.system_config.institution_isil or "")
+        if "institution_eln" in keys:
+            self.institution_eln.setText(cfg.system_config.institution_eln or "")
+        if "default_workflow" in keys:
+            self._refresh_workflow_list(default_stem=cfg.system_config.default_workflow)
+        self.config_changed.emit()
 
     def reject(self):
         """Cancel: undo the provider edits that were written on the way.

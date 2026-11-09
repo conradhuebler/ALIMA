@@ -20,6 +20,7 @@ from src.core.agents.conditional_engine import ConditionalEngine
 from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import BaseStep, StepResult
 from src.core.agents.workflow_loader import WorkflowDef
+from src.core.search.source_health import run_scoped
 from src.utils.run_timing import timed
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ class WorkflowExecutor:
         # the live agentic-context display.
         self.context_callback = context_callback
 
+    # The outermost run resets source_health; a nested run (composite step,
+    # the MetaAgent's per-step calls) keeps what was learnt. - Claude Generated
+    @run_scoped
     def run(
         self,
         workflow: WorkflowDef,
@@ -236,6 +240,11 @@ class WorkflowExecutor:
                 if stop_on_error:
                     break
 
+        # The run's source overview travels with the context into the result
+        # state (SharedContext.to_keyword_analysis_state). - Claude Generated
+        from src.core.search import source_usage
+
+        source_usage.attach_to(context)
         return ExecutionReport(
             workflow_name=workflow.name,
             success=overall_success,

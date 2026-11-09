@@ -148,7 +148,8 @@ class MainWindowMenuMixin:
         wizard_action = edit_menu.addAction("🧭 Einrichtungs&assistent…")
         wizard_action.setToolTip(
             "Führt durch LLM-Anbieter, Modelle, Datenbank und Katalog. "
-            "Plugin-Einstellungen, Freigaben und Bundles bleiben erhalten."
+            "Plugin-Einstellungen und Freigaben bleiben erhalten; ein gefundenes "
+            "Preset wird beim Fertigstellen angewendet."
         )
         wizard_action.triggered.connect(self.show_setup_wizard)
 

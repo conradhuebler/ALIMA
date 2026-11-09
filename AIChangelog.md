@@ -6,6 +6,462 @@
 
 ## 2026
 
+### Einrichtungs-Presets statt Bundles (November 9, 2026)
+
+Ausgang (UB Freiberg): das Gesamtpaket einer Einrichtung (Plugin-Zustände und
+-Einstellungen, ISIL/ELN, Standard-Workflow, Geo-Datenbank, Aufstellungssystematik)
+sollte mit einem Schritt auf einen Arbeitsplatz kommen, das lokale Plugin samt
+Datenbank aktiviert. Entscheidung: `alima_presets.json` wird das
+Einrichtungsformat, die Bundles (`alima bundle`, `src/utils/bundle.py`,
+Bundle-Gruppe im Plugin-Tab, `docs/institutional_bundles.md`,
+`examples/bundles/`, `tests/test_bundle.py`) sind zurückgebaut. Keine
+Schlüssel und Tokens im Preset.
+
+**Auffinden.** `preset_apply.find_preset`: `ALIMA_PRESET` (Datei oder Ordner),
+dann `<config_dir>/alima_presets.json`, dann das Projektverzeichnis; das Log
+nennt Datei und Quelle. `PresetLoader.load` nutzt es; ohne die ersten beiden
+gilt das Projektverzeichnis wie vorher. `load_preset` verwirft `api_key`/`token`
+(auch `*_api_key`, `*_token`) überall in der Datei, eine Warnung je Datei und
+Änderungszeit. Damit entfällt die Vorbelegung `llm_api_key` und `catalog_token`
+in beiden Assistenten (die Felder sind aus `InstitutionPresets` entfernt).
+
+**Plan.** `build_plan` (Vorschau, schreibt nichts): `institution`, `workflow`
+(nur wenn vorhanden, sonst Hinweis), `plugins` (Instanz eingestellt oder mit
+`type` angelegt, nie daneben; Zustand über die Helfer aus Stufe 1, die dafür
+unverändert aus `src/ui/plugin_settings_tab.py` nach
+`src/core/search/cache_only.py` gezogen und im Tab wieder importiert sind;
+Einstellungen nur über das `ConfigField`-Schema, SECRET nie, `@file:<id>`;
+Reihenfolge der Liste innerhalb der Kategorie), `files` (Prüfsumme Pflicht,
+`geo_sachdb_db` mit `check_schema` nur lesend, `vocabulary` mit `entries`,
+Ziel relativ zu `<config_dir>/data/`), `secrets` (nur gelistet). Fehler
+blockieren das ganze Preset, Hinweise nicht. Jede Änderung trägt einen Pfad,
+vorher und nachher; Anwenden spielt sie vorwärts ab und prüft dabei die
+Vorher-Werte (sonst „Vorschau neu erstellen“), Rückgängig rückwärts und prüft
+die Nachher-Werte (seitdem Geändertes bleibt).
+
+**Anwenden, Verlauf.** `apply_plan`: Dateien zuerst (temporäre Datei,
+Prüfsumme der Kopie, `os.replace`, vorherige als `.bak`), dann
+`save_config`; scheitert eines, werden die Dateien zurückgenommen. Ledger
+`AlimaConfig.applied_presets` (statt `installed_bundles`, leer nicht
+geschrieben); eine alte Konfiguration mit `installed_bundles` lädt, der
+Schlüssel fällt beim nächsten Speichern weg. Leerer Plan = nichts gespeichert.
+`revert_last` nimmt den letzten Eintrag zurück.
+
+**Export.** `preset_export.export_preset`: ein Ordner mit Preset und Dateien
+(`files/<instanz>/`), Instanzen in Listenreihenfolge mit Zustand und
+gespeicherten, nicht geheimen Einstellungen; die Dateien von `geo_sachdb` und
+`local_scheme` (auch das Standardvokabular) mit Prüfsumme als `@file:`;
+ISIL/ELN, Workflow, LLM-Adresse/Modelle und Server-Datenbank ohne Passwort als
+Vorbelegung; lokale Pfade, Secrets und undeklarierte Einstellungen nicht
+(mit Hinweis). Der Knopf „Als Preset exportieren“ des Einstellungsdialogs nutzt
+denselben Export statt des alten Formats mit Schlüsseln und Passwort.
+
+**Vokabulare.** `local_scheme` sucht eine bloße ID zuerst in `vocabularies/`
+(Arbeitsverzeichnis) und im Programmordner; das Preset kopiert in den
+Datenordner und setzt den Pfad über `@file:`.
+
+**Oberfläche, CLI, erster Start.** Gruppe „Einrichtung (Preset)“ im Plugin-Tab
+(Quelle, Name, Version, zuletzt angewendet; Anwenden mit Vorschau-Dialog,
+Rückgängig, Export mit Checkliste; Jobs im Hintergrund; der Einstellungsdialog
+übernimmt die gesetzten Werte, ungespeicherte Plugin-Eingaben bleiben). Zeile
+„Datenbank“ (Quelle, Stand, Prüfsumme aus `meta`) im Formular einer verfügbaren
+`geo_sachdb`-Instanz über den neuen Haken `register_type_info`. CLI
+`alima preset {apply [--dry-run] [--yes],revert,export,show}`, setup-exempt.
+Beide Assistenten wenden nach dem Speichern `institution`, `workflow`,
+`plugins`, `files` an (`apply_after_setup`, wirft nie), die GUI-Zusammenfassung
+listet vorher, was gesetzt wird. `.gitignore` nimmt
+`examples/presets/*/alima_presets.json` vom Ausschluss aus.
+
+**Grenzen.** Nicht gegen eine echte Installation, die echte Geo-Datenbank oder
+das echte Freiberger Vokabular geprüft; alle Daten in Tests und Beispiel
+erfunden. Plugin-Verzeichnisse (Code und deklarative `plugin.toml`) reisen
+nicht mit. Eine Generation `.bak`. Das Datenbankpasswort im Block `database`
+liest der Assistent weiterhin. Das Registrieren der Lookup-Kategorie lädt
+PyQt6 (vorbestehend in `src/utils/lookups`); die neuen Module selbst
+importieren kein Qt.
+
+Tests: `tests/test_institution_presets.py` (64; temporäres HOME, erfundene Geo-Datenbank aus den Fixtures von `test_geo_sachdb_lookup`, echte Widgets offscreen); angepasst:
+`test_wizard_preserves_existing_config` (Verlauf statt Bundle-Ledger),
+`test_settings_dialog_state` (Stub mit Signal `preset_applied`); entfallen:
+`tests/test_bundle.py` (14 Tests der Bundles). 36 Mutationen: 35 rot, eine gleichwertig (die zweite Sperre gegen eine Geschwister-Instanz greift; mit beiden Sperren aus rot), Dateien per sha256 wiederhergestellt. Spec:
+[`docs/institutional_presets.md`](docs/institutional_presets.md).
+
+### publication_form: Hochschulschrift aus dem Eingabetext (November 9, 2026)
+
+Ausgang (UB Freiberg, Dissertation, Eingabetext beginnt mit „Zusammenfassung
+der Ergebnisse der Dissertation …“): im Ergebnis weder DK 378.245 noch ein
+Formschlagwort. Es gab nur die Prompt-Regel gegen eine Falschvergabe und die
+Markierung über `FORM_NOTATIONS`. Entscheidung: bei einer Dissertation muss
+6700 erscheinen, 1131 darf mit, die Form ergibt sich aus dem Eingabetext; nur
+`alima_v51_105`.
+
+**Erkennung.** `src/utils/publication_form.py`, `detect_publication_form`:
+Regeltabelle `RULES` (13 Regeln, deutsch und englisch: Titelei, Selbstbezeichnung
+am Textanfang, zitierter Titel mit Kandidat, „vorliegende …“/„this …“), Formen
+`dissertation` (DK 378.245) und `diplom_master` (DK 378.244), Formschlagwort
+„Hochschulschrift“; erste passende Regel gewinnt, Textstelle höchstens 120
+Zeichen. Das bloße Wort „Dissertation“ reicht nicht; Regeln mit fremdem Bezug
+fallen nach „basiert auf“, „based on“ u. ä. weg. Bachelorarbeit und
+Habilitation haben keine Formnotation in `FORM_NOTATIONS` und keine Regel.
+
+**Schritt.** `publication_form` (deterministisch) nach `dk_postprocess`,
+`geo_candidates` hängt von ihm ab. Treffer: Formschlagwort in
+`extra.form_keywords` (einmal), Formnotation an erster Stelle von
+`dk_classifications` (neu mit `origin: publication_form`, `rank: additional`;
+schon vergeben nur nach vorn), Erkennung in `extra.publication_form`. Ohne
+Treffer ändert der Schritt nichts. `geo_candidates` liefert für die
+Formnotation die lokale PPN (`6700 !PPN!`), sonst `6700 DK 378.245`.
+Planer- und Reflexionsregeln nennen den Schritt, `max_cycles` 22 → 23.
+
+**Aufstellung.** `shelf_candidates` lässt Formnotationen aus und gibt die
+übrige Liste als `classifications` weiter, `shelf_select` liest `dk_codes`
+daraus. Mit und ohne Treffer gleiche Kandidaten und gleicher Prompt (Test).
+Nebenwirkung: auch eine von der Klassifikation selbst vergebene Formnotation
+erreicht die Aufstellung nicht mehr.
+
+**Ergebnis, Anzeige.** `KeywordAnalysisState.publication_form` (Standard `{}`),
+gespeichert wie `geo_prior`, alte Dateien laden mit `{}`. DK-Karte: Kennzeichen
+„Form: Dissertation (aus dem Eingabetext)“, Textstelle als Tooltip und im
+Klartext; CLI `show-protocol` ebenso in der Zeile der Notation.
+
+**Grenzen.** Nur Regeln, keine Erkennung durch ein Sprachmodell; nur an
+erfundenen Texten geprüft. Ein Eingabesatz mit Hochschulschriftenvermerk
+(DOI/PPN) wird nicht ausgewertet. Nicht erkannt = wie vorher; ein Fehltreffer
+steht mit Textstelle im Ergebnis.
+
+Tests: `tests/test_publication_form.py` (35; 11 Positiv-, 15 Negativfälle,
+Lauf über den MetaAgent bis zum WinIBW-Eintrag). Angepasst: Verdrahtungstests
+in `test_geo_sachdb_prior`, `test_geo_sachdb_workflow`, `test_token_budget_override`.
+27 Mutationen, alle rot, Dateien per sha256 wiederhergestellt. WP:
+[`docs/wp_geo_sachdb_plugin.md`](docs/wp_geo_sachdb_plugin.md) §7.5.
+
+### geo_prior: lokale Zuordnungen als Eingabe der Klassifikation (November 9, 2026)
+
+Ausgang (UB Freiberg, Dissertation): Ohne DK-Daten aus dem Katalog (Libero/finc
+nicht erreichbar) war `extra.dk_prompt_text` leer, `classification` lief wegen
+`when` nicht, es gab keine DK. Die lokale Sachdatenbank fand über die finalen
+Schlagwörter 13 zugeordnete Notationen, die nur als „Weitere lokale
+DK-Vorschläge“ erschienen. Entscheidung: nur `alima_v51_105`, die lokale
+Zuordnung ist immer zusätzliche Evidenz, alle Kandidaten gehen in den Prompt.
+
+**Schritt.** `geo_prior` nach `dk_collect` (`depends_on: [dk_collect]`),
+Funktion `geo_sachdb_prior`: `geo_sachdb_candidates` mit den Schlagwörtern
+allein (ohne Kontext, also ohne vergebene Notationen), je Kandidat
+`via_core_keywords`, Reihenfolge Kernschlagwörter, Schlagwörter (absteigend),
+Notation; Block `extra.geo_prompt_text` mit Titel aus `config.title`,
+Hinweiszeile und je Notation Bezeichnung, Schlagwörter, „Kernschlagwörter k von
+n“, ohne PPN. Ohne Plugin, Eingabe oder Kandidat leer.
+
+**Klassifikation.** Eingabe `local_notations`, `depends_on` um `geo_prior`
+ergänzt, `when: "${extra.dk_prompt_text} != '' or bool(${extra.geo_prompt_text})"`
+(`or` gab es; `bool`, weil ein fehlender Wert mit `!= ''` wahr wäre). Absatz im
+System-Prompt (Evidenz neben dem Katalog, Vorschlagsliste, Kernschlagwörter
+höher gewichten, auch ohne Katalogdaten wählbar) und Block im User-Prompt, beide
+in bedingten Abschnitten `{?name}…{/name}`, neu in `prompt_resolver._render`
+(auf der Vorlage vor den Platzhaltern aufgelöst; Vorlagen ohne Abschnitt
+unverändert; in Repository-Prompts kam `{?` vorher nicht vor). Ohne lokale
+Daten sind System- und User-Prompt byte-gleich zum Stand davor (einmal gegen die
+alte Datei geprüft, der Test hält die Nahtstellen fest).
+
+**Reflexion, Planer.** Zeile „- Lokale Zuordnungen: n Notationen“ im Zustand
+beider, nur mit Kandidaten (`reflection_step.local_notations_line`). Regeln:
+Phasenkette mit `geo_prior`, bei lokalen Zuordnungen ist eine schwache oder
+leere Katalogdatenlage kein Grund für `rerun_dk_collect` bzw. ein erneutes
+`dk_collect`; leere Treffer in `geo_prior` sind kein Mangel. `max_cycles`
+21 → 22.
+
+**Herkunft.** `KeywordAnalysisState.geo_prior = {candidates}` mit
+`in_catalog` (gegen `extra.dk_entries`, nur gleiches System), gespeichert wie
+`geo_sachdb` (beide JSON-Formate, alte Dateien laden mit `{}`). DK-Karte:
+Kennzeichen „lokale Datenbank“ bzw. „Katalog und lokale Datenbank“ neben der
+Treffer-Anzeige, „über …“ darunter, im Klartext in der Klammer; CSS
+`classification-badge--local`. CLI `show-protocol`: `* DK … · lokale Datenbank
+· über …`. Quellenübersicht: je Schlagwort ein Aufruf unter `geo_sachdb`.
+
+**Geprüft, unverändert.** `geo_candidates` sieht die vergebenen Notationen,
+`assigned` nimmt sie aus den Vorschlägen, eine eindeutige lokale PPN erscheint
+als `6700 !PPN!`. `dk_postprocess` arbeitet mit leerer Katalogdatenlage (nur
+die vergebenen Notationen, ohne Titel). Kein Schutz gegen erfundene DK im
+agentischen Pfad (`rvk_guard` nur RVK, `build_dk_search_results` übernimmt
+alles); nicht Teil dieses Schritts.
+
+**Grenzen.** Nicht gegen die echte Datenbank, nicht mit einem echten Modell;
+Nutzen nicht gemessen. Block ohne Obergrenze, Länge nicht gemessen. Bei leerem
+Katalog bleibt die Überschrift des Bestandsauszugs leer im Prompt. Gezählt wird
+nur `geo_prior`, unter dem Typ `geo_sachdb`. Klassische Pipeline und
+`alima_v51` unverändert.
+
+Tests: `tests/test_geo_sachdb_prior.py` (39; synthetische Datenbank, Stub-Modell,
+Lauf über den MetaAgent von `geo_prior` bis `shelf_guard` mit leerem Katalog);
+angepasst: `test_token_budget_override` (die Menge der 105-eigenen Schritte
+enthält `geo_prior`). 32 Mutationen, alle rot (eine erst nach geschärftem
+Test), Dateien per sha256 wiederhergestellt. WP:
+[`docs/wp_geo_sachdb_plugin.md`](docs/wp_geo_sachdb_plugin.md) §7.2.
+
+### Plugin-Tab: Kästchen, Reihenfolge, Herkunft, DK-Position in der Liste (November 9, 2026)
+
+Ausgang: Die Listenreihenfolge wirkte im Code (erste aktive Instanz je Typ,
+DK-Kette, `search_titles`), war im Tab aber weder änderbar noch sichtbar; der
+Zustand stand nur im Formular, der catalog-DK-Schalter zeigte den
+gespeicherten statt des wirksamen Werts.
+
+**Kästchen.** Dreiwertig je Zeile (Haken An, halb Nur Cache, leer Aus); ein
+Klick schaltet weiter (`next_state`), Nur Cache entfällt, wo
+`cache_only_offer` es nicht anbietet. Einziger Speicherort ist die
+Instanzliste des Panels (`_set_state` → `apply_state`), Kästchen und
+„Zustand“ zeigen ihn sofort, `collect`/`apply_to` ohne Zeilenwechsel.
+Statuszeile unter der Liste („finc: nur Cache (keine Abfragen im Netz)“), bei
+Zeilenwechsel leer; Tooltip am Kästchen (Delegate `tooltip_at`). Typ nicht
+registriert: kein `ItemIsUserCheckable`, Zeile im Token `text_muted`, Grund im
+Tooltip und im Formular. Qt 6.10 schaltet ein fremdes Kästchen, ohne die Zeile
+auszuwählen. Das Kästchen zeichnet der Delegate aus den Tokens von
+`QCheckBox::indicator` (`indicator_colors`: Rand `border`, Füllung
+`background`, An `primary` mit Haken in `on_primary`, Nur Cache inneres
+`primary`-Quadrat, markierte Zeile Rand `on_primary`); Fusion nahm den Rand aus
+der Palettenrolle Dark und war im dunklen Thema auf der Liste kaum zu sehen.
+
+**Reihenfolge.** `_InstanceList` (InternalMove, Alt+↑/↓ über `moveRow`);
+`_on_rows_moved` liest die Zeilenschlüssel, ordnet die Instanzliste um und
+führt die Auswahl nach, das Formular bleibt (vorher in die Instanz
+geschrieben). Reihenfolge-Hinweis über jeder Liste.
+
+**Herkunft.** `PluginOrigins` (nicht gespeichert): Modul der Typklasse über
+die neue Lesehilfe `PluginCategory.type_class` (Suche, Eingabe, Lookup),
+Manifeste im Plugin-Verzeichnis, Freigaben samt `hash_dir`, Scan-Ergebnis des
+Dialogs. Kennzeichen: eingebaut, Verzeichnis, Code-Plugin
+freigegeben/gesperrt/nicht geladen, unbekannt; folgt dem Haken
+„Code-Plugins erlauben“. Das Verzeichnis kommt aus `load(config,
+plugins_dir=…)` oder dem laufenden ConfigManager.
+
+**DK.** `dk_source_info`: Zeile und „DK n“ aus einem `describe_dk_source`
+über den Dialogzustand. Ungespeichertes `dk_enabled` zeigt den wirksamen
+Zustand (`_sync_dk_switch`), unverändert ungeschrieben.
+
+**Nebenbefunde behoben.** (1) Das Formular schrieb beim Speichern die
+Standardwerte aller nicht gespeicherten Felder der gewählten Zeile in die
+config.json (nur `timeout_s`/`dk_enabled` waren ausgenommen); Zeile 0 jeder
+Kategorie traf es bei jedem Speichern. Jetzt bleibt jede nicht gespeicherte
+Einstellung weg, solange ihr Feld den Anfangswert zeigt (`_shown_absent`).
+(2) `load()` setzte die gewählte Zeile nicht zurück: der nächste
+Zeilenwechsel schrieb das Formular der alten Liste in die neue Instanz an
+derselben Stelle (Pfad: Bundle installieren/entfernen); am Originalcode
+reproduziert. Layout: linke Spalte 2:3 statt 1:2, Zeilen auf Listenbreite
+gekürzt statt seitlich zu scrollen, freie Höhe an die Kategorie-Reiter.
+
+**Grenzen.** Ziehen mit der Maus ist offscreen nicht getestet (nur der
+Modellweg `moveRow`/`rowsMoved`, den Qt beim Ablegen nimmt). Der Tooltip der
+Kennzeichen gilt je Zeile, nicht je Kennzeichen. DK-Positionen werden über die
+Instanz-ID zugeordnet. Ein deklaratives Plugin, dessen `plugin.toml` entfernt
+wurde, erscheint als „eingebaut“. Ein gespeichertes `dk_enabled` wird
+wörtlich gezeigt, auch wenn die Instanz nicht nutzbar ist. Kontrast des
+Kästchens für das Desktop-Schema nur an den synthetischen Paletten aus
+`test_design_tokens` geprüft, die Markierungsfarbe dort als `primary`
+angenommen.
+
+Tests: `tests/test_plugin_tab_list.py` (neu; echte Widgets, echte Klicks auf
+das Kästchen, echter Loader für das Code-Plugin, Round-Trip über
+`ConfigManager` mit einer config.json in der Form der Anwenderkonfiguration);
+angepasst: `test_dk_source_chain.py::TestPluginTab` (das Kästchen zeigt den
+wirksamen Zustand); Kästchenfarben: Kontrast ≥ 3:1 für Rand und Zeichen in
+ALIMA, Neutral (hell, dunkel) und den Desktop-Paletten, Pixel des Rahmens im
+hellen und dunklen Thema = Token. 29 Mutationen, alle rot, Datei per sha256
+wiederhergestellt.
+
+### DK-Quellen nach Listenreihenfolge, `search_titles`, Quellenübersicht (November 9, 2026)
+
+Ausgang: Die DK-Kette war fest (finc mit `dk_enabled`, eigenes Plugin, sru mit
+`dk_enabled`, sonst Libero) und nahm genau eine Quelle; fiel sie aus, blieb der
+DK-Schritt leer. Libero und finc sollen gleichwertig sein (UB Freiberg).
+
+**DK-Quellen.** `factory.dk_candidates`: aktive Instanzen (An oder Nur Cache)
+mit CLASSIFICATION und eingeschaltetem DK-Schalter in der Reihenfolge der
+Plugin-Liste. Neu: `dk_enabled` auch bei catalog (BOOL, Standard aus, bleibt
+ungeschrieben, solange das Formular den Standard zeigt). Eine catalog-Instanz
+ohne gespeicherten Schlüssel zählt nur, wenn keine andere Instanz in Frage
+kommt (nur die erste); eigene Plugins zählen, solange sie aktiv sind.
+`resolve_dk_extractor` lässt nicht verfügbare Quellen weg, gibt bei einer
+Quelle deren Extraktor unverändert zurück, ab zwei einen
+`dk_fallback.FallbackDkExtractor`; ohne nutzbare Quelle die catalog-Instanz
+ohne Schlüssel, ohne aktive catalog-Instanz die Registry-Vorgabe wie bisher,
+sonst `NoDkSourceError` („Keine DK-Quelle“). Rückfall je Schlagwort bei
+`source_down:`, Nur-Cache-Fehlgriff, fehlender Einrichtung ohne Ergebnis,
+nicht baubarem Extraktor, einem von `source_health` gezählten
+Verbindungsfehler während des Aufrufs, offenem Circuit Breaker von Libero und
+einer Ausnahme; „keine Treffer“ wird nicht weitergegeben. Statistik
+`dk_sources`, `dk_source_by_keyword`, `dk_fallbacks`, eine Zeile je Rückfall.
+`describe_dk_source` liefert `chain` und `text` („DK-Quellen: Katalog
+(Libero), dann finc (VuFind) (Rückfall)“), der Plugin-Tab zeigt die Kette.
+Texte „Wirkung“ und Reihenfolgeregel im Tab, Hilfetexte von finc/sru
+angepasst. `_SEARCH_ORDER` neuer Installationen: lobid, swb, finc, catalog,
+sru, gnd_local, kvk; eine neue Installation hat als DK-Kette Libero allein.
+Entfernt: `_dk_candidates`, `_custom_classification_*`, `_sru_selected_for_dk`.
+
+**`search_titles`.** `src/mcp/_title_search.py`, registriert bei mindestens
+einer aktiven TITLE_RECORDS-Instanz. Je Begriff die Quellen in
+Listenreihenfolge über `search(TITLE_RECORDS)` der fabrikgebauten Provider;
+die erste mit einem Datensatz liefert, sonst `empty`/`down`/`cache_miss`/
+`unsupported` (Achse oder nicht verfügbar)/`error` und weiter. Achsen je Typ:
+`title_search_axes` (catalog author `kb`, subject `sk`, isbn `i`; finc ohne
+isbn). `total`/`truncated`/`notice` der antwortenden Quelle werden
+durchgereicht, die finc-Weblink-Ergänzung ist als `_finc_record_base` aus dem
+finc-Handler herausgezogen (wörtlich).
+
+**Quellenübersicht.** `src/core/search/source_usage.py` (eigenes Modul: andere
+Lebensdauer und Schnittstelle als die Sperre, Reset aber an denselben Stellen
+über `source_health.begin_run`/äußerstes `run_scope`; `mark_down` aus
+`record_failure`; Bezeichnung aus `build_provider`). Gezählt in
+`SuggesterBackedProvider._gnd_search*`, `CachingProvider` (Mapping-Treffer),
+BiblioClient/FincCatalogClient/MarcXmlClient (neu `last_search_error`)/
+PicaDkExtractor, den Titel-Handlern, den GND-Werkzeugwegen am Suggester
+vorbei, `search_titles`, dem Lookup-Handler (als Aufruf, nicht als Netz).
+`KeywordAnalysisState.source_usage` (leer: nicht in die Datei geschrieben),
+Export `results.source_usage` (nur wenn nicht leer), Block „Quellen dieses
+Laufs“ in der Abschlusskarte (über fünf Zeilen eingeklappt),
+`show-protocol` detailliert, `WorkflowExecutor.run`/`MetaAgent.run` legen die
+Zeilen in `extra.source_usage` (→ Zustand), PipelineManager nach dem Lauf.
+Chat: GUI-Worker und `HeadlessAgentRunner` laufen je Zug in einem `run_scope`
+und schließen mit einer `state.notice`-Zeile.
+
+**Grenzen.** Nicht gegen echte Libero/finc-Server gelaufen, nur Attrappen.
+Mit zwei gesetzten DK-Schaltern gilt die Listenreihenfolge, nicht mehr finc vor
+sru. Das Formular zeigt den catalog-Schalter ohne gespeicherten Wert als „aus“,
+auch wenn Libero nach der Altregel DK-Quelle ist (die Zeile über der Liste sagt
+es richtig). finc und Libero teilen `catalog_dk_cache` ohne Quellenangabe. Der
+Rückfall bei Verbindungsfehlern unterhalb der Schwelle vergleicht den Zähler
+von `source_health` vor und nach dem Aufruf. Nicht gezählt: `gnd_local`,
+DOI-Quellen, direkte Lookup-Aufrufe der Pipeline (`lookups/cache.py`),
+Clients ohne Instanz. Eine Suche im Suchtab während eines Laufs zählt in den
+Lauf. Der Chat-Zug setzt jetzt die Sperre zurück wie ein Lauf.
+
+Tests: `tests/test_dk_source_chain.py` (Altkette als Orakel, 648
+Konfigurationen für `describe_dk_source` = `resolve_dk_extractor`),
+`tests/test_search_titles_tool.py`, `tests/test_source_usage.py` (81,
+Attrappen, Netz-Stolperdraht); angepasst: zwei Erwartungen in
+`test_dk_extractor_resolver.py` (zwei Schalter = Kette) und der
+Kettenvergleich sowie ein Wirkungstext in `test_source_states_and_health.py`.
+61 Mutationen, alle rot, Dateien per sha256 wiederhergestellt.
+
+### Einrichtung (ISIL/ELN), `search_k10plus`, Hinweis im KVK-Werkzeug (November 9, 2026)
+
+Ausgang: „DE-105“/„105“ stand fest im WinIBW-Eintrag, in der finc-DK-Facette,
+im Libero-Web-Rückfall und in Beispieltexten; dem Chat fehlte eine direkte
+K10plus-Suche; `search_kvk` meldete abgeschnittene Kataloge nur in Zahlen.
+
+**Einrichtung.** `SystemConfig.institution_isil`/`institution_eln` (leer = nicht
+gesetzt, ELN nicht aus der ISIL abgeleitet), Gruppe „Einrichtung“ oben auf der
+Seite Datenquellen. `src/utils/institution.py` leitet ab: `chain_end_marker`
+(`$A<ISIL>`), `finc_dk_facet` (`udk_raw_<isil>`), `institution_filter` (ISIL),
+`institution_eln`; `None` bei leerem Feld. Die Werte gelten prozessweit,
+gesetzt von `ConfigManager` bei Laden und Speichern. Ersetzt: Kettenabschluss
+in `winibw_record`, `FincCatalogClient.DK_FACET`, finc `search_type="dk"` und
+Auto-Facetten, `finc_subject_harvest`, Libero `_search_web` (Bestandsfilter) und
+die DK-Regexe in `_get_title_details_web`, Beispiele im finc-Formular, in der
+finc-Werkzeugbeschreibung (für DE-105 byte-gleich zu vorher) und im CLI-Wizard.
+Ohne ISIL: WinIBW ohne Abschlusszeile plus `notes`; finc-DK ohne Anfrage,
+Libero-Web ohne Suche und ohne DK-Auslesen, beide über `last_not_configured`,
+der DK-Schritt meldet einmal „Einrichtung nicht gesetzt“
+(`statistics.institution_not_set`); finc `dk` liefert den Marker
+`institution_not_set:`. Migration beim Laden: ohne beide Schlüssel und mit einer
+`tu-freiberg.de`-URL in catalog/finc/sru → `DE-105`/`105` (Logzeile). Beide
+Schlüssel bleiben aus der config.json, solange sie leer sind, die Datei sie
+nie hatte und die Migration nicht greifen würde.
+
+**`search_k10plus`.** sru mit Preset k10plus: Werkzeug `search_k10plus` gegen
+`https://sru.k10plus.de/k10plus`, immer `picaxml`; neuer Client/Parser
+`src/utils/clients/picaxml_client.py`. Indizes kw/title/author/subject/isbn/ppn
+→ `pica.all/tit/per/slw/isb/ppn`, Maskierung, Namensdrehung nur ohne Komma und
+bei genau zwei Wörtern, `max_results` 10 (höchstens 50), `meta.total` und
+`truncated`. `local` nur mit ELN und Exemplar `209A $B<ELN>` (245Z dieses
+Exemplars, 044K-Ketten mit `$A<ISIL>`), sonst `local_hint`. Exemplarfelder
+werden über `101@`-Block und `occurrence` dem Exemplar zugeordnet. Anderes
+Preset oder `base_url`: `search_sru` (MARC), ohne Endpunkt kein Werkzeug (neuer
+optionaler Haken `instance_tool_spec`). DK-Extraktor mit ELN: `PicaDkExtractor`
+(nur Notationen der Exemplare der Bibliothek, Filter im Client); ohne ELN der
+MARC-Weg wie bisher, `dk_enabled` bleibt aus. sru hat jetzt „Nur Cache“
+(Rohcache unter `sru`, Schlüssel Suchtyp + Endpunkt + Schema; der MARC-DK-Weg
+meldet dort jeden Begriff als nicht im Cache). `MarcXmlClient` liest
+`numberOfRecords` mit und kennt `cache_only`. Titel-Handler nehmen ihre
+Standardwerte aus `default_opts` (bisherige Werkzeuge unverändert „title“/25).
+
+**KVK.** `search_kvk` trägt `notice` (`KvkProvider.tool_notice`, gelesen in
+`_tool_generation._attach_notice`): Kataloge mit weniger gelieferten als
+gemeldeten Treffern, Katalogmeldungen außer „Keine Datensätze gefunden“
+(wörtlich), Kürzung durch `max_results`; Verweis auf `search_k10plus` nur bei
+gekürztem K10plus und vorhandenem Werkzeug. README: der veraltete Abschnitt
+„Kein Raw-Cache“ ist ersetzt.
+
+**Grenzen.** Die PICA-Feldzuordnung beruht auf einem echten Satz; 004A, 033A
+`$n`, 021A `$d`, 045F/G/H sind ungeprüft, ebenso die Zuordnung der 245Z über die
+`occurrence` bei mehreren Bibliotheken. Die DK-Zählung sieht nur die ersten
+`max_results` Treffer des ganzen K10plus. Nicht gegen den echten Dienst
+gelaufen. Ob „Die Auswertung der Katalog-Antwort erbrachte kein Ergebnis“ ein
+Ausfall ist, ist offen; der Hinweis zitiert die Meldung.
+
+Tests: `tests/test_institution_setting.py`, `tests/test_k10plus_sru_tool.py`,
+`tests/test_kvk_notice.py` (70, erfundene Sätze, Fake-Transport,
+Netz-Stolperdraht); `tests/conftest.py` setzt für jeden Test DE-105/105;
+angepasst: vier Stufe-1-Erwartungen zu sru (Werkzeug, „Nur Cache“). 45
+Mutationen, alle rot (eine erst nach geschärftem Test), Dateien per sha256
+wiederhergestellt.
+
+### Suchquellen: Zustand, Zeitlimit, Sperre für den Lauf, Regeln im Plugin-Tab (November 7, 2026)
+
+Ausgang: Libero und finc sind aus manchen Netzen nicht erreichbar, jedes
+Schlagwort wartete bis zum Zeitlimit. Auswahlregeln unverändert (Stufe 1).
+
+**Zustand.** Der Plugin-Tab zeigt je Instanz „Zustand“ (An / Nur Cache / Aus)
+statt „Aktiviert“; gespeichert wird wie bisher `enabled` +
+`settings["cache_only"]`, ohne Migration (`plugin_settings_tab.apply_state`:
+„Aus“ lässt `cache_only` stehen, „An“ schreibt `False` nur, wo der Schlüssel
+schon existiert). `cache_only` jetzt auch für lobid, swb (Rohcache vorhanden)
+und kvk (neu: Rohcache-Schreiben für fabrikgebaute Instanzen, Lesen im Modus);
+sru gesperrt mit Hinweis (keine Antwort wird gecacht, der DK-Schritt fragt
+immer den Server), gnd_local ohne. lobid lädt im Modus die GND-Sachbegriffsliste
+nicht herunter. Das Agent-Werkzeug für lobid/swb bleibt im Modus auch mit
+Nicht-Standard-Optionen (`search_type="title"`) offline.
+
+**Zeitlimit.** `src/core/search/timeouts.py`: `timeout_s` (1 bis 120 s, Standard
+= bisheriges Limit: lobid 30, swb 15, catalog 10 für die SOAP-Suche, sru 30);
+finc und kvk behalten ihren Schlüssel `timeout`. Fest bleiben Libero-Titeldetails
+(10 s), beide Libero-Web-Rückfälle (30 s), der lobid-Dump-Download (60 s) und
+Clients ohne Instanz (`alima test-catalog`, `bib_lookup`). `ConfigField` hat
+dafür optionale Grenzen `minimum`/`maximum`.
+
+**Sperre.** `src/core/search/source_health.py`: je Instanz-ID zählen
+aufeinanderfolgende Verbindungsfehler (DNS, abgewiesen, Connect-Timeout,
+TLS/Proxy); HTTP-Fehler, leere Treffer und Lese-Timeouts zählen nicht, jede
+Antwort des Servers setzt zurück. Nach 3 ist die Quelle gesperrt:
+`source_health.call` wirft `SourceDownError` ohne Anfrage, der Begriff trägt
+den Marker `source_down:` (unbekannt; Mapping-, Roh- und DK-Cache schreiben
+nichts), eine Meldung je Quelle und Episode (Log + `state.notice`). Libero zählt
+jeden seiner drei Versuche. Reset bei `start_pipeline`, äußerstem
+`WorkflowExecutor.run`/`MetaAgent.run` (`run_scope`) und 300 s nach der Sperre.
+Angehängt an `NetworkSourceMixin`/`SuggesterBackedProvider` und an die Clients
+(lobid, swb, BiblioClient alle vier Anfragearten, FincClient, MarcXmlClient,
+KvkClient), damit auch an die DK-Extraktoren aus `resolve_dk_extractor`.
+Berichte: GND-Schritt ohne Zeile je Begriff (Schlusszeile zählt mit), DK-Schritt
+`statistics.source_down_skipped`, `gnd_batch_search` ohne „Teilfehler“-Zeile,
+Suchtab eine Zahl je Quelle, Werkzeuge einen Block `source_down`. Der eigene
+Circuit Breaker von BiblioClient (3/60 s) bleibt daneben. Nebenbefund behoben:
+eine leere Libero-Suche nach Verbindungsfehler wurde im DK-Cache als
+`no_results` und im GND-Pfad als leerer Treffer gespeichert; jetzt Fehler ohne
+Cache-Eintrag.
+
+**Regeln im Tab.** Zeile „Wirkung“ je Typ (`PluginTypeMeta.effect` /
+`effect_multi`, aus Fähigkeiten und Agent-Werkzeugen), über der Suchliste
+„DK-Quelle im Moment“ aus `factory.describe_dk_source` (dieselbe Kandidatenfolge
+`_dk_candidates` wie `resolve_dk_extractor`, ohne Extraktor zu bauen) und
+„Reihenfolge der Liste: erste aktive Instanz je Typ gilt.“
+
+**Grenzen.** Nicht an echten unerreichbaren Servern gemessen, nur mit
+Attrappen. Die Katalog-Auswahl von kvk und die finc-Filter gehören nicht zum
+Cache-Schlüssel. Ein Lauf über 300 s kann eine gesperrte Quelle erneut
+versuchen. Stand für finc/kvk ein `timeout` über 120, gilt jetzt 120.
+
+Tests: `tests/test_source_states_and_health.py` (49, temporäres HOME und
+SQLite, Netz-Stolperdraht); `tests/conftest.py` setzt den Zustand je Test
+zurück. 44 Mutationen, alle rot, Dateien per sha256 wiederhergestellt.
+
 ### Ein WinIBW-Eintrag für alle Ausgaben, lokale PPN aus geo_sachdb (November 6, 2026)
 
 Bisher gab es drei getrennte Aufbauten: `exporters.generate_k10plus_lines`

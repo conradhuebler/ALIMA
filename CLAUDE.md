@@ -124,6 +124,12 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Einrichtungs-Presets ✅ ADDED (Nov 9):** `alima_presets.json` ist das
+  Einrichtungsformat (Plugin-Zustände/-Einstellungen, ISIL/ELN, Standard-Workflow,
+  Dateien mit Prüfsumme, Verlauf `applied_presets` + Rückgängig); ersetzt das
+  frühere Deployment-Format (Plugin-Verzeichnisse + Profil) samt CLI/GUI. Module `src/utils/preset_apply.py` und
+  `preset_export.py`, CLI `alima preset`. ⚠️ Keine Schlüssel/Tokens im Preset;
+  Plugin-Code reist nicht mit. Details: [`docs/institutional_presets.md`](docs/institutional_presets.md).
 - **Einstellungsdialog Phase 1 ✅ DONE (Sep 10, Suite 2290, Branch
   `settings-cleanup-phase1`):** Der Dialog war nicht nur zu voll, sondern in
   großen Teilen wirkungslos. Repariert bzw. entfernt: die Repetition-Gruppe (nie
@@ -262,8 +268,8 @@ When documenting implemented features, the AI must apply these rules:
   weggelassen). DOI-`SystemConfig`-Mirror bleibt (→ WP-K3). Doc:
   [`docs/wp_plugin_convergence.md`](docs/wp_plugin_convergence.md).
 - **Ältere ✅-WPs** (Lookup-Plugins Phase D `16ca53b`, webindex-RAG, GND-Suche/
-  MetaSuggester-Retire, Plugin-Blueprints+Härtung, Own-Plugins-POC, Institutional
-  Bundles, WP2 Raw-Cache, Counter-Bug `038738e`): Details in `AIChangelog.md` +
+  MetaSuggester-Retire, Plugin-Blueprints+Härtung, Own-Plugins-POC, WP2 Raw-Cache,
+  Counter-Bug `038738e`): Details in `AIChangelog.md` +
   jeweiligen Docs/Sub-CLAUDEs; verbliebene Code-Reste sind ins WP-Register überführt
   (Tool-Passthrough swb/catalog → K4; POC-Grenze: WP2-Raw-Cache noch auf lobid/swb
   verdrahtet). BibRecord-Analyse → **WP-D1** ([`docs/wp_records_as_first_class.md`](docs/wp_records_as_first_class.md)).

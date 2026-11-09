@@ -804,25 +804,45 @@ class NotationStepsMixin:
             # Cache-only mode travels with the instance settings into the
             # extractor (src/core/search/cache_only.py). - Claude Generated
             _cache_only = getattr(extractor, "cache_only", False) is True
+            from src.core.search.dk_fallback import FallbackDkExtractor
+
+            # Several DK sources: fallback per keyword in list order; the
+            # reasons of the keywords no source answered come from the last
+            # source of the chain. - Claude Generated
+            _fallback = isinstance(extractor, FallbackDkExtractor)
             _dk_src_id = {
                 "FincCatalogClient": "finc", "BiblioClient": "catalog",
+                "PicaDkExtractor": "sru",
             }.get(type(extractor).__name__, type(extractor).__name__)
+            if _fallback:
+                _dk_src_id = extractor.candidates[-1].label
             if _cache_only:
+                _co_name = "alle DK-Quellen" if _fallback else _dk_src_id
                 if self.logger:
-                    self.logger.info(f"DK search: {_dk_src_id} in cache-only mode (no network)")
+                    self.logger.info(f"DK search: {_co_name} in cache-only mode (no network)")
                 if stream_callback:
                     stream_callback(
-                        f"ℹ️ {_dk_src_id}: Modus „nur Cache“, keine Netzabfragen\n", "dk_search"
+                        f"ℹ️ {_co_name}: Modus „nur Cache“, keine Netzabfragen\n", "dk_search"
                     )
             # Operator hint: the Libero backend with no token falls back to web
             # scraping (finc/SRU backends need no token). - Claude Generated
-            if type(extractor).__name__ == "BiblioClient" and not _cache_only:
+            _libero_in_chain = (
+                any(c.provider_id == "catalog" and not c.cache_only for c in extractor.candidates)
+                if _fallback else
+                type(extractor).__name__ == "BiblioClient" and not _cache_only
+            )
+            if _libero_in_chain:
                 _cat_token = ""
                 try:
-                    for _i in (_full_config.enabled_instances_for("search_provider") if _full_config else []):
-                        if getattr(_i, "provider_id", "") == "catalog":
-                            _cat_token = (getattr(_i, "settings", None) or {}).get("token") or ""
-                            break
+                    if _fallback:
+                        _cat_token = next(
+                            (c.settings.get("token") or "" for c in extractor.candidates
+                             if c.provider_id == "catalog"), "")
+                    else:
+                        for _i in (_full_config.enabled_instances_for("search_provider") if _full_config else []):
+                            if getattr(_i, "provider_id", "") == "catalog":
+                                _cat_token = (getattr(_i, "settings", None) or {}).get("token") or ""
+                                break
                 except Exception:
                     pass
                 if not str(_cat_token).strip():
@@ -834,12 +854,16 @@ class NotationStepsMixin:
             _dk_src_label = {
                 "FincCatalogClient": "finc-Katalog (Titelliste + udk_raw pro Titel)",
                 "MarcXmlClient": "MARC XML SRU",
+                "PicaDkExtractor": "K10plus SRU (PICA, lokale Notationen)",
                 "BiblioClient": "Libero-Katalog",
             }.get(type(extractor).__name__, type(extractor).__name__)
             if self.logger:
                 self.logger.info(f"DK source resolved: {type(extractor).__name__}")
             if stream_callback:
-                stream_callback(f"Verwende {_dk_src_label} für DK-Suche\n", "dk_search")
+                if _fallback:
+                    stream_callback(f"{extractor.chain_text()}\n", "dk_search")
+                else:
+                    stream_callback(f"Verwende {_dk_src_label} für DK-Suche\n", "dk_search")
 
         except Exception as e:
             error_msg = f"Catalog client initialization failed: {e}"
@@ -1074,6 +1098,12 @@ class NotationStepsMixin:
             success_count = 0
             failed_keywords = []
             cache_misses = []  # cache-only: keywords without a DK-cache entry - Claude Generated
+            # Keywords the extractor skipped because source_health marks the
+            # source down; the skip is announced once there. - Claude Generated
+            source_down_skipped = []
+            # Keywords whose library DK could not be read because no ISIL/ELN is
+            # set (src/utils/institution.py); reported once. - Claude Generated
+            institution_not_set = []
 
             # Process EACH keyword individually for detailed feedback
             for idx, keyword in enumerate(final_search_keywords, 1):
@@ -1108,9 +1138,18 @@ class NotationStepsMixin:
 
                     # Cache-only miss: behaves like "no hits" and is reported once
                     # after the loop, not as a per-keyword failure. - Claude Generated
-                    if _cache_only and getattr(extractor, "last_cache_misses", None):
+                    if (_cache_only or _fallback) and getattr(extractor, "last_cache_misses", None):
                         cache_misses.append(keyword)
                         continue
+                    _skipped = getattr(extractor, "last_source_down", None)
+                    if isinstance(_skipped, list) and _skipped:
+                        source_down_skipped.append(keyword)
+                        continue
+                    _not_set = getattr(extractor, "last_not_configured", None)
+                    if isinstance(_not_set, list) and _not_set:
+                        institution_not_set.append(keyword)
+                        if not kw_results:
+                            continue
 
                     # Analyze result for THIS keyword
                     if kw_results and len(kw_results) > 0:
@@ -1120,9 +1159,16 @@ class NotationStepsMixin:
                         if classifications:
                             # SUCCESS: Keyword found with classifications
                             success_count += 1
+                            # Name the source when a later one of the chain
+                            # answered. - Claude Generated
+                            _by = ""
+                            if _fallback:
+                                _sid = extractor.answered_by.get(keyword)
+                                if _sid and _sid != extractor.source_id:
+                                    _by = f" ({extractor.label_of(_sid)})"
                             if stream_callback:
                                 stream_callback(
-                                    f"  ✅ {keyword}: {len(classifications)} Klassifikationen gefunden\n",
+                                    f"  ✅ {keyword}: {len(classifications)} Klassifikationen gefunden{_by}\n",
                                     "dk_search"
                                 )
                             dk_search_results.append(kw_result)
@@ -1172,6 +1218,25 @@ class NotationStepsMixin:
                         "dk_search"
                     )
 
+            if _fallback:
+                # One line per hand-over, not one per keyword. - Claude Generated
+                for _note in extractor.fallback_notes():
+                    if self.logger:
+                        self.logger.info(f"DK search: {_note}")
+                    if stream_callback:
+                        stream_callback(f"↪ {_note}\n", "dk_search")
+
+            if institution_not_set:
+                from src.utils.institution import not_set_summary as _not_set_summary
+
+                _not_set_line = _not_set_summary(
+                    _dk_src_id, len(institution_not_set), len(final_search_keywords)
+                )
+                if self.logger:
+                    self.logger.warning(f"DK search: {_not_set_line}")
+                if stream_callback:
+                    stream_callback(f"⚠️ {_not_set_line}\n", "dk_search")
+
             if cache_misses:
                 from src.core.search.cache_only import summary as _cache_only_summary
 
@@ -1213,6 +1278,19 @@ class NotationStepsMixin:
             if cache_misses:
                 # Reason for the empty keywords, kept with the result. - Claude Generated
                 dk_statistics["cache_only_misses"] = list(cache_misses)
+            if source_down_skipped:
+                dk_statistics["source_down_skipped"] = list(source_down_skipped)
+            if institution_not_set:
+                dk_statistics["institution_not_set"] = list(institution_not_set)
+            if _fallback:
+                # Which source answered which keyword, and the hand-overs.
+                # - Claude Generated
+                dk_statistics["dk_sources"] = list(extractor.source_ids)
+                dk_statistics["dk_source_by_keyword"] = {
+                    kw: extractor.answered_by[kw]
+                    for kw in final_search_keywords if kw in extractor.answered_by
+                }
+                dk_statistics["dk_fallbacks"] = extractor.handoffs()
 
             # Return results in new format with statistics and transparency
             return {

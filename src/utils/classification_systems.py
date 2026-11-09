@@ -427,6 +427,28 @@ def form_notation_label(system: str, code: str) -> Optional[str]:
     return FORM_NOTATIONS.get(sys_norm, {}).get(str(code or "").strip())
 
 
+def without_form_notations(entries: Any) -> List[Any]:
+    """The classification entries (dicts or strings) that are no form notation.
+
+    The system comes from the ``DK ``/``RVK `` prefix of the code, else from
+    ``system``/``type``, else DK (the only system with form notations). Order
+    and the entries themselves are kept. Used where the subject notation
+    decides something a form must not: the shelf place. - Claude Generated
+    """
+    out: List[Any] = []
+    for entry in list(entries or []):
+        if isinstance(entry, dict):
+            raw = str(entry.get("code") or entry.get("notation") or "").strip()
+            fallback = str(entry.get("system") or entry.get("type") or "").strip()
+        else:
+            raw, fallback = str(entry or "").strip(), ""
+        system, code = split_classification_code(raw)
+        if form_notation_label(system or fallback or "DK", code):
+            continue
+        out.append(entry)
+    return out
+
+
 # ── Core vs. additional notation ───────────────────────────────────────────
 # A classification either carries the work (the shelf-determining notation a
 # cataloguer files it under) or supplements it. The distinction is per system:

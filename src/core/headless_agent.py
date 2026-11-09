@@ -285,17 +285,23 @@ class HeadlessAgentRunner:
             user_message=user_message,
         )
 
-        result = loop.run(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            tools=[],  # all registered chat tools
-            provider=provider,
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            conversation_history=conversation_history,
-            think=think,
-        )
+        # One chat turn is one run for source_health and the source overview,
+        # which closes the turn as one notice line. - Claude Generated
+        from src.core.search import source_health, source_usage
+
+        with source_health.run_scope():
+            result = loop.run(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=[],  # all registered chat tools
+                provider=provider,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                conversation_history=conversation_history,
+                think=think,
+            )
+            source_usage.announce()
         return result
 
 

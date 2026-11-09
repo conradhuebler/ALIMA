@@ -11,10 +11,10 @@ Layout of the entry::
 
     5550 <term 1 of chain 1>
     5550 <term 2 of chain 1>
-    5550 $ADE-105
+    5550 $A<ISIL>
 
     5551 <term 1 of chain 2>
-    5551 $ADE-105
+    5551 $A<ISIL>
 
     5552 <single keyword>
     5553 <single keyword>
@@ -25,9 +25,11 @@ Layout of the entry::
     6700 <RVK notation>
 
 * Chains start at 5550, one field number per chain for all its terms, closed by
-  ``<nr> $ADE-105``; one blank line between chains and between the sections.
+  ``<nr> $A<ISIL>`` (``institution.chain_end_marker``; ``$ADE-105`` for the UB
+  Freiberg); one blank line between chains and between the sections. Without
+  an ISIL the closing line is left out and ``notes`` says so.
 * Single keywords (final keywords in no chain, not a form keyword, each once)
-  get the next field numbers, one each, without ``$ADE-105``.
+  get the next field numbers, one each, without the closing line.
 * Form keywords (``form_keywords``) go to 1131, never to 555x; a form keyword
   inside a chain is taken out of the chain.
 * DK as ``6700 DK <notation>``, RVK as ``6700 <notation>`` without prefix. Other
@@ -57,8 +59,12 @@ WINIBW_SUBJECT_FIRST_TAG = 5550
 #: is listed in ``overflow``. Read at call time, so this name is the one place
 #: to change it.
 WINIBW_SUBJECT_LAST_TAG = 5559
-#: Closing line of a keyword chain: ``<nr> $ADE-105``.
-WINIBW_CHAIN_END = "$ADE-105"
+#: The closing line of a keyword chain, ``<nr> $A<ISIL>``, comes from the
+#: institution setting (``institution.chain_end_marker``). - Claude Generated
+CHAIN_END_NOT_SET_NOTE = (
+    "Ketten ohne Abschlusszeile ($A<ISIL>): Einrichtung nicht gesetzt "
+    "(ISIL unter Einstellungen ▸ Datenquellen ▸ Einrichtung)"
+)
 #: Field of the form keywords (Lehrbuch, …). NOT VERIFIED IN WINIBW.
 WINIBW_FORM_TAG = "1131"
 #: Field of the notations (DK, RVK).
@@ -313,11 +319,16 @@ def build_winibw_record(source: Any) -> Dict[str, Any]:
       because the numbers passed ``WINIBW_SUBJECT_LAST_TAG``; ``{origin, term,
       chain?}``. Nothing is put on the last number instead.
     * ``skipped``: notations of a system without a WinIBW field rule.
+    * ``notes`` (only when there is one): what the entry lacks for a reason
+      outside the result, i.e. the chain closing line without an ISIL.
 
     - Claude Generated
     """
+    from .institution import chain_end_marker
+
     data = record_inputs(source)
     last_tag = int(WINIBW_SUBJECT_LAST_TAG)
+    chain_end = chain_end_marker()
     geo_terms, geo_notations = _geo_maps(data["geo"] or {})
 
     form_keys: Dict[str, str] = {}
@@ -339,7 +350,7 @@ def build_winibw_record(source: Any) -> Dict[str, Any]:
             entry["chain"] = chain
         return entry
 
-    # Chains: one field number each, closed by $ADE-105.
+    # Chains: one field number each, closed by $A<ISIL> when an ISIL is set.
     chain_groups: List[List[Dict[str, Any]]] = []
     chain_terms: set = set()
     chain_no = 0
@@ -359,10 +370,11 @@ def build_winibw_record(source: Any) -> Dict[str, Any]:
             overflow.append({"origin": ORIGIN_CHAIN, "term": " → ".join(terms), "chain": chain_no})
             continue
         group = [subject_entry(term, ORIGIN_CHAIN, tag, chain_no) for term in terms]
-        group.append({"line": f"{tag} {WINIBW_CHAIN_END}", "tag": str(tag), "origin": ORIGIN_CHAIN_END,
-                      "term": "", "chain": chain_no, "local": None, "note": ""})
-        for entry in group[:-1]:
+        for entry in group:
             by_value.setdefault(entry["line"].split(" ", 1)[1], entry)
+        if chain_end:
+            group.append({"line": f"{tag} {chain_end}", "tag": str(tag), "origin": ORIGIN_CHAIN_END,
+                          "term": "", "chain": chain_no, "local": None, "note": ""})
         chain_groups.append(group)
         tag += 1
     if chain_groups:
@@ -431,7 +443,7 @@ def build_winibw_record(source: Any) -> Dict[str, Any]:
             for entry in group:
                 lines.append(entry["line"])
                 entries.append(entry)
-    return {
+    record = {
         "lines": lines,
         "text": "\n".join(lines),
         "entries": entries,
@@ -439,6 +451,9 @@ def build_winibw_record(source: Any) -> Dict[str, Any]:
         "skipped": skipped,
         "last_tag": last_tag,
     }
+    if chain_groups and not chain_end:
+        record["notes"] = [CHAIN_END_NOT_SET_NOTE]
+    return record
 
 
 # ── description for the displays ──────────────────────────────────────────
@@ -493,8 +508,11 @@ def winibw_entry_text(entry: Dict[str, Any]) -> str:
 
 def winibw_notes(record: Dict[str, Any]) -> List[Tuple[str, str]]:
     """``(label, text)`` rows for what the entry left out: subjects past the
-    last field number and notations without a field rule. - Claude Generated"""
+    last field number, notations without a field rule and the ``notes`` of the
+    record (chain closing line without ISIL). - Claude Generated"""
     rows: List[Tuple[str, str]] = []
+    for note in record.get("notes") or []:
+        rows.append(("Hinweis", str(note)))
     overflow = [item for item in (record.get("overflow") or []) if isinstance(item, dict)]
     if overflow:
         def _item(item: Dict[str, Any]) -> str:

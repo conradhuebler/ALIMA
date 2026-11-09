@@ -19,6 +19,28 @@ if TYPE_CHECKING:  # pragma: no cover
 CATEGORY = "lookup"
 
 
+def lookup_effect(cls: Any) -> "tuple[str, str]":
+    """``(effect, effect_multi)`` of a lookup type for the settings form.
+
+    Agent tools come from the type's ``mcp_tool_specs`` (one set per enabled
+    instance); every other caller goes through ``build_lookup``, which takes the
+    first enabled instance. - Claude Generated
+    """
+    try:
+        has_tools = bool(cls.mcp_tool_specs()) if hasattr(cls, "mcp_tool_specs") else False
+    except Exception:
+        has_tools = False
+    if has_tools:
+        effect = ("Nachschlagen: Werkzeug für den Agenten; Programmteile, die es direkt "
+                  "aufrufen, nutzen die erste aktive Instanz.")
+        multi = ("Mehrere Instanzen dieses Typs: der Agent erhält für jede aktive Instanz "
+                 "eigene Werkzeuge; direkte Aufrufe nutzen die erste aktive in der Liste.")
+    else:
+        effect = "Nachschlagen: Programmteile, die es direkt aufrufen, nutzen die erste aktive Instanz."
+        multi = "Mehrere Instanzen dieses Typs: die erste aktive Instanz in der Liste gilt."
+    return effect, multi
+
+
 class LookupCategory(PluginCategory):
     name = CATEGORY
 
@@ -31,6 +53,7 @@ class LookupCategory(PluginCategory):
         cls = get_lookup(type_id)
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
         doc = cls.doc() if hasattr(cls, "doc") else PluginDoc()
+        effect, effect_multi = lookup_effect(cls)
         return PluginTypeMeta(
             type_id=type_id,
             label=getattr(cls, "label", type_id),
@@ -39,7 +62,13 @@ class LookupCategory(PluginCategory):
             capabilities=[],
             builtin=True,
             doc=doc,
+            effect=effect,
+            effect_multi=effect_multi,
         )
+
+    def type_class(self, type_id: str) -> Any:
+        """The registered lookup class (read only) - Claude Generated"""
+        return get_lookup(type_id)
 
     def build(self, instance: "PluginInstanceConfig") -> Any:
         cls = get_lookup(instance.provider_id)

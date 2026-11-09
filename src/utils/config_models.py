@@ -958,6 +958,13 @@ class SystemConfig:
     # Default workflow for agentic pipeline runs - Claude Generated
     default_workflow: str = "alima_v51"  # YAML workflow stem used when agentic mode is enabled
 
+    # The library ALIMA works for (src/utils/institution.py): ISIL (e.g.
+    # "DE-105") and K10plus ELN (e.g. "105"), entered separately; empty = not
+    # set. Left out of config.json while both are empty and the file never had
+    # them. - Claude Generated
+    institution_isil: str = ""
+    institution_eln: str = ""
+
 
 #: Colour schemes the GUI knows (mirrors src/ui/styles.COLOR_SCHEMES; kept
 #: here so the config layer stays free of Qt imports). - Claude Generated
@@ -1096,10 +1103,13 @@ class AlimaConfig:
     plugins: List["PluginInstanceConfig"] = field(default_factory=list)
     # Security ledger for Tier-2 code plugins: plugin id -> approved SHA-256 hash. - Claude Generated
     approved_plugins: Dict[str, str] = field(default_factory=dict)
-    # Institutional bundle ledger: bundle id -> provenance record ({version,
-    # plugin_ids, instance_ids, profile_keys, installed_at}) so an installed
-    # bundle can be listed and removed precisely (advisory install). - Claude Generated
-    installed_bundles: Dict[str, Any] = field(default_factory=dict)
+    # Ledger of applied institution presets (src/utils/preset_apply.py), oldest
+    # first: {id, version, label, source, applied_at, changes: [{what, path,
+    # before, after, before_absent}], files: [...]}. ``revert_last`` undoes the
+    # last entry from it. Left out of config.json while empty. The ledger of the
+    # former deployment format is not read; a config that still carries it loads
+    # and drops it on the next save. - Claude Generated
+    applied_presets: List[Dict[str, Any]] = field(default_factory=list)
 
     # Legacy compatibility attributes - will be removed
     @property

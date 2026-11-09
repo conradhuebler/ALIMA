@@ -1,0 +1,30 @@
+# Erfundene Aufstellungssystematik für das Beispielpaket (Form: local_scheme).
+# Nicht die Systematik einer realen Bibliothek.
+version: 1
+scheme:
+  id: demo_systematik
+  label: "Demo-Freihandsystematik"
+  base_system: DK
+  source: "erfunden (Beispiel)"
+  retrieved: 2026-11-01
+entries:
+  - notation: "55"
+    label: "Geowissenschaften (Allgemeines)"
+    location: "EG"
+    group: "5 - Naturwissenschaften"
+  - notation: "552"
+    label: "Gesteinskunde"
+    location: "EG"
+    group: "5 - Naturwissenschaften"
+  - notation: "553"
+    label: "Lagerstättenkunde"
+    location: "1. OG"
+    group: "5 - Naturwissenschaften"
+  - notation: "622"
+    label: "Bergbau"
+    location: "1. OG"
+    group: "6 - Angewandte Wissenschaften"
+  - notation: "622.012/.03"
+    label: "Bergbau: Planung, Betrieb"
+    location: "1. OG"
+    group: "6 - Angewandte Wissenschaften"

@@ -30,7 +30,7 @@ from src.cli.commands import (
     setup_cmd,
     workflow_cmd,
     agent_cmd,
-    bundle_cmd,
+    preset_cmd,
     webindex_cmd,
     rules_cmd,
 )
@@ -40,7 +40,7 @@ from src.cli.commands import (
 _SETUP_EXEMPT_COMMANDS = {
     "setup", "list-models", "list-providers", "test-providers",
     "list-models-detailed", "dnb-import", "clear-cache", "migrate-db",
-    "db-config", "workflows", "bundle", "webindex", "rules",
+    "db-config", "workflows", "preset", "webindex", "rules",
 }
 
 
@@ -341,28 +341,31 @@ def create_argument_parser():
     migrate_import_parser.add_argument("--clear", action="store_true", help="Clear destination before import")
     migrate_import_parser.add_argument("--dry-run", action="store_true", help="Validate without importing")
 
-    # Institutional bundle commands (plugins + advisory config profile) - Claude Generated
-    bundle_parser = subparsers.add_parser(
-        "bundle",
-        help="Deploy institutional bundles (plugins + advisory config profile).",
+    # Institution presets (plugin states/settings, ISIL/ELN, workflow, files) - Claude Generated
+    preset_parser = subparsers.add_parser(
+        "preset",
+        help="Apply, revert, export or show the institution preset (alima_presets.json).",
     )
-    bundle_sub = bundle_parser.add_subparsers(dest="bundle_action", help="Bundle actions")
-    bundle_build = bundle_sub.add_parser("build", help="Validate a bundle dir + write approvals.json (admin).")
-    bundle_build.add_argument("source", help="Path to the bundle directory")
-    bundle_build.add_argument("-o", "--output", help="Write a .zip artifact instead of building in place")
-    bundle_install = bundle_sub.add_parser("install", help="Install a bundle (directory or .zip) into this config.")
-    bundle_install.add_argument("path", help="Path to the bundle directory or .zip")
-    bundle_sub.add_parser("list", help="List installed bundles.")
-    bundle_remove = bundle_sub.add_parser("remove", help="Remove an installed bundle by id.")
-    bundle_remove.add_argument("id", help="Installed bundle id")
-    bundle_export = bundle_sub.add_parser("export", help="Export the current setup as a bundle (admin).")
-    bundle_export.add_argument("id", help="Bundle id for the export (e.g. ub-freiberg)")
-    bundle_export.add_argument("-o", "--output", required=True, help="Output directory or .zip path")
-    bundle_export.add_argument("--version", default="1.0", help="Bundle version (default 1.0)")
-    bundle_export.add_argument("--label", default="", help="Human-readable label")
-    bundle_export.add_argument("--institution", default="", help="Institution name")
-    bundle_export.add_argument("--plugin", action="append", dest="plugins", metavar="INSTANCE_ID",
-                               help="Only export this instance id (repeatable). Default: all enabled.")
+    preset_sub = preset_parser.add_subparsers(dest="preset_action", help="Preset actions")
+    preset_apply = preset_sub.add_parser(
+        "apply", help="Apply a preset (folder or file); without a path the preset found "
+                      "via ALIMA_PRESET / config directory / project directory.")
+    preset_apply.add_argument("path", nargs="?", default="",
+                              help="Preset folder (with alima_presets.json) or file")
+    preset_apply.add_argument("--dry-run", action="store_true",
+                              help="Show the plan only, change nothing")
+    preset_apply.add_argument("--yes", action="store_true", help="Apply without asking")
+    preset_revert = preset_sub.add_parser("revert", help="Undo the last applied preset.")
+    preset_revert.add_argument("--yes", action="store_true", help="Revert without asking")
+    preset_export = preset_sub.add_parser(
+        "export", help="Write the saved setup as a package folder (no secrets).")
+    preset_export.add_argument("folder", help="New or empty folder for the package")
+    preset_export.add_argument("--plugin", action="append", dest="plugins", metavar="INSTANCE_ID",
+                               help="Only this instance id (repeatable). Default: all instances.")
+    preset_export.add_argument("--id", default="", help="Preset id (default: folder name)")
+    preset_export.add_argument("--version", default="", help="Preset version (default 1)")
+    preset_export.add_argument("--label", default="", help="Human-readable name")
+    preset_sub.add_parser("show", help="Show the preset found and the last applied one.")
 
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated
     workflow_parser = subparsers.add_parser(
@@ -616,8 +619,8 @@ def main():
             sys.exit(workflow_cmd.handle_workflows_list(args, logger))
         else:
             parser.print_help()
-    elif args.command == "bundle":
-        sys.exit(bundle_cmd.handle_bundle(args, logger))
+    elif args.command == "preset":
+        sys.exit(preset_cmd.handle_preset(args, logger))
     elif args.command == "webindex":
         sys.exit(webindex_cmd.handle_webindex(args, logger))
     else:

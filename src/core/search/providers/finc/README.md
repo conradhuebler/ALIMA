@@ -13,7 +13,7 @@ Struktur, Modi und Konventionen wie in [`../lobid/README.md`](../lobid/README.md
 | Eingabe | Suchanfrage (Subject/Titel/Autor/Freitext), optional `facets` (z. B. `udk_raw_de105`, `rvk_facet`) |
 | Ausgabe | Titel-Records (id, Titel, Autoren, Verlag, Auflage, Jahr, ISBN, Subjects, web_url, resource_url …) bzw. Facetten-Verteilungen |
 | MCP-Tool | `search_finc` |
-| Konfiguration | `base_url` (URL, gated — ohne URL inaktiv), `web_record_url`, Limits/Timeout |
+| Konfiguration | `base_url` (URL, gated — ohne URL inaktiv), `web_record_url`, Limits/Timeout, `dk_enabled` (DK-Quelle) |
 
 ## Spezifisch für diese Blaupause
 
@@ -27,9 +27,10 @@ Struktur, Modi und Konventionen wie in [`../lobid/README.md`](../lobid/README.md
   `FincCatalogClient` (im Plugin-Dir: `finc_catalog_client.py`), der die geteilte
   `extract_dk_classifications_for_keywords`-Schnittstelle des klassischen
   DK-Schritts implementiert (Titelliste per finc-Subject-Suche, dann `udk_raw`/
-  `rvk_facet` pro Titel). `execute_dk_search` wählt die DK-Quelle über die
-  `CLASSIFICATION`-Capability aus den aktiven Plugins — ein anderes Katalog-Plugin
-  mit dieser Capability + `dk_extractor()` wird ohne Core-Änderung zur DK-Quelle.
+  `rvk_facet` pro Titel). Der DK-Schritt (`execute_notation_search`) fragt die
+  aktiven Instanzen mit `CLASSIFICATION`-Capability und eingeschaltetem
+  DK-Schalter (`factory.dk_candidates`). Ein anderes Katalog-Plugin mit dieser
+  Capability + `dk_extractor()` wird ohne Core-Änderung zur DK-Quelle.
 - **Vendored Transport-Client**: `finc_client.py` liegt **im Plugin-Verzeichnis**
   (Rate-Limit, Timeout, Fehler-Dicts) und wird von `suggester.py` relativ
   importiert (`from .finc_client import FincClient`) — dadurch ist das
@@ -63,3 +64,13 @@ haben. `filters` und `availability` gehören nicht zum Cache-Schlüssel, im Modu
 kommt der gespeicherte Eintrag für Suchart und Facetten unabhängig davon zurück
 (`limit` kürzt die Records). Ein gespeicherter Fehlschlag zählt als fehlender
 Eintrag.
+
+## DK-Schalter (`dk_enabled`)
+
+„finc für DK-Suche nutzen“: an = finc ist DK-Quelle (Titel per Subject-Suche,
+DK/RVK je Titel aus der DK-Facette der Einrichtung und `rvk_facet`); ohne
+Schlüssel aus, ohne `base_url` nicht verfügbar. Mehrere DK-Quellen fragt der
+DK-Schritt in der Reihenfolge der Plugin-Liste mit Rückfall je Schlagwort
+(Regel: [`../catalog/README.md`](../catalog/README.md)). Eine catalog-Instanz,
+deren eigener Schalter nie gespeichert wurde, ist keine DK-Quelle mehr, sobald
+finc an ist; Libero als zweite (oder erste) Quelle braucht den eigenen Haken.

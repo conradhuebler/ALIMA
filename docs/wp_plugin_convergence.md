@@ -308,7 +308,7 @@ Reihenfolge: `C0 Docs → C1 → C2 → C3 → P2.1 → P2.2 → P4 → P3 → P
 ## Was ausdrücklich GUT ist (nicht anfassen)
 
 - Trust-Modell (AST-Scan, Hash-Pinning, Approval-Ledger) existiert genau **einmal**
-  (`src/core/plugins/security.py` + `loader.py`), alle drei Familien + Bundles nutzen es.
+  (`src/core/plugins/security.py` + `loader.py`), alle drei Familien nutzen es.
 - `raw_cache_params_for` als Single-Source für WP2-Cache-Keys (Writer + alle Reader).
 - Secrets nur runtime-only via Env-Override in den Build-Pfaden.
 - `CachingProvider` behandelt die F-4-count-Landmine an genau einer Stelle.

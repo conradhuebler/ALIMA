@@ -140,9 +140,14 @@ class PipelineJsonManager:
     def save_analysis_state(analysis_state: KeywordAnalysisState, file_path: str):
         """Save KeywordAnalysisState to JSON file - Claude Generated"""
         try:
+            data = asdict(analysis_state)
+            # An empty source overview is left out, so a file saved before the
+            # field existed is written back unchanged. - Claude Generated
+            if not data.get("source_usage"):
+                data.pop("source_usage", None)
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(
-                    PipelineJsonManager.convert_sets_to_lists(asdict(analysis_state)),
+                    PipelineJsonManager.convert_sets_to_lists(data),
                     f,
                     ensure_ascii=False,
                     indent=4,

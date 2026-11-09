@@ -73,7 +73,8 @@ class MainWindowSettingsMixin:
 
         Same wizard as the first start. It merges onto the existing config rather
         than replacing it (``FirstStartWizard._apply_onto_existing``), so plugin
-        settings, Tier-2 approvals, bundles and the chat/UI sections survive.
+        settings, Tier-2 approvals, the preset ledger and the chat/UI sections
+        survive; a found preset is applied at the end (``preset_result_lines``).
         """
         try:
             from .first_start_wizard import FirstStartWizard
@@ -85,9 +86,11 @@ class MainWindowSettingsMixin:
             self._on_config_changed()
             self._refresh_plugin_tools()
             if hasattr(self, "global_status_bar"):
-                self.global_status_bar.show_temporary_message(
-                    "✅ Einrichtung übernommen", 5000
-                )
+                preset_lines = getattr(wizard, "preset_result_lines", None) or []
+                message = "✅ Einrichtung übernommen"
+                if preset_lines:
+                    message += f" · {preset_lines[0]}"
+                self.global_status_bar.show_temporary_message(message, 8000)
         except Exception as e:
             self.logger.error(f"Fehler im Einrichtungsassistenten: {e}", exc_info=True)
             QMessageBox.critical(

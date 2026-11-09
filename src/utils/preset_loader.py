@@ -2,12 +2,15 @@
 """
 ALIMA Institution Presets Loader - Claude Generated
 
-Loads institution-specific configuration defaults from alima_presets.json
-placed in the project root directory. Enables institutions to pre-fill
-wizard fields without hardcoding values in source code.
+Reads the wizard pre-fill values (LLM address and models, database, Libero
+addresses) from the institution preset ``alima_presets.json``. The file is
+found by ``preset_apply.find_preset`` (environment variable ``ALIMA_PRESET``,
+then the configuration directory, then the project directory). API keys and
+tokens in the file are not used (``preset_apply.load_preset`` drops them).
+The other parts of a preset (institution, workflow, plugins, files) are
+applied by ``preset_apply.build_plan``/``apply_plan``.
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 
@@ -18,18 +21,20 @@ logger = logging.getLogger(__name__)
 class InstitutionPresets:
     """Institution-specific default configuration values - Claude Generated"""
     institution_name: str = ""
+    # Where the preset came from (empty without one) - Claude Generated
+    path: str = ""
+    source: str = ""
+    label: str = ""
     # LLM provider
     llm_provider_type: str = ""     # 'ollama', 'openai_compatible', 'gemini', 'anthropic'
     llm_provider_name: str = ""
     llm_base_url: str = ""
-    llm_api_key: str = ""
     # LLM model defaults - Claude Generated
     llm_default_model: str = ""
     llm_task_models: dict = field(default_factory=dict)  # {task_type_value: model_name}
     # Catalog SOAP
     catalog_soap_search_url: str = ""
     catalog_soap_details_url: str = ""
-    catalog_token: str = ""
     # Catalog web fallback (BiblioClient scraping)
     catalog_web_search_url: str = ""
     catalog_web_record_url: str = ""
@@ -77,6 +82,10 @@ class InstitutionPresets:
         """True if preset contains database configuration - Claude Generated"""
         return bool(self.db_type)
 
+    def display_name(self) -> str:
+        """Name for the wizard banner - Claude Generated"""
+        return self.institution_name or self.label
+
 
 class PresetLoader:
     """Loads institution presets from alima_presets.json - Claude Generated"""
@@ -85,44 +94,61 @@ class PresetLoader:
 
     @classmethod
     def load(cls) -> InstitutionPresets:
-        """Load presets from the project directory.
+        """Load the preset found by ``preset_apply.find_preset``.
 
-        Returns empty InstitutionPresets if file is missing or unreadable.
-        Never raises an exception.
+        Without a preset in the environment variable or the configuration
+        directory the project directory is used, as before. Returns empty
+        InstitutionPresets if no file is found or it is unreadable. Never
+        raises an exception.
         """
         try:
-            from .path_utils import get_project_root
-            path = get_project_root() / cls.PRESET_FILENAME
-            if not path.exists():
+            from .preset_apply import find_preset, load_preset
+
+            path, source = find_preset()
+            if path is None:
                 return InstitutionPresets()
-            data = json.loads(path.read_text(encoding='utf-8'))
-            if not isinstance(data, dict):
-                logger.warning("alima_presets.json: unexpected format (not a JSON object)")
-                return InstitutionPresets()
-            presets = cls._parse(data)
-            if presets.institution_name:
-                logger.info(f"Institution presets loaded: {presets.institution_name}")
+            preset = load_preset(path, source)
+            presets = cls._parse(preset.data)
+            presets.path = str(preset.path)
+            presets.source = source
+            presets.label = preset.label
+            if presets.display_name():
+                logger.info(f"Institution presets loaded: {presets.display_name()}")
             return presets
         except Exception as e:
             logger.warning(f"Could not load alima_presets.json: {e}")
             return InstitutionPresets()
 
+    @staticmethod
+    def _catalog_from_plugins(data: dict) -> dict:
+        """Libero addresses from the ``catalog`` entry under ``plugins`` when
+        the preset has no ``catalog`` block, so the wizard's catalog page shows
+        what the preset sets afterwards. - Claude Generated"""
+        for entry in data.get('plugins') or []:
+            if isinstance(entry, dict) and entry.get('instance') == 'catalog':
+                s = entry.get('settings') if isinstance(entry.get('settings'), dict) else {}
+                return {
+                    'soap_search_url': s.get('catalog_search_url', ''),
+                    'soap_details_url': s.get('catalog_details', ''),
+                    'web_search_url': s.get('catalog_web_search_url', ''),
+                    'web_record_url': s.get('catalog_web_record_url', ''),
+                }
+        return {}
+
     @classmethod
     def _parse(cls, data: dict) -> InstitutionPresets:
         llm = data.get('llm') or {}
-        catalog = data.get('catalog') or {}
+        catalog = data.get('catalog') or cls._catalog_from_plugins(data)
         database = data.get('database') or {}  # Claude Generated
         return InstitutionPresets(
             institution_name=data.get('institution_name', ''),
             llm_provider_type=llm.get('provider_type', ''),
             llm_provider_name=llm.get('provider_name', ''),
             llm_base_url=llm.get('base_url', ''),
-            llm_api_key=llm.get('api_key', ''),
             llm_default_model=llm.get('default_model', ''),
             llm_task_models=llm.get('task_models', {}),
             catalog_soap_search_url=catalog.get('soap_search_url', ''),
             catalog_soap_details_url=catalog.get('soap_details_url', ''),
-            catalog_token=catalog.get('token', ''),
             catalog_web_search_url=catalog.get('web_search_url', ''),
             catalog_web_record_url=catalog.get('web_record_url', ''),
             # Database configuration - Claude Generated

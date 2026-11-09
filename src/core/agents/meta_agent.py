@@ -18,6 +18,7 @@ from src.core.agents.registry import get_step_class
 from src.core.agents.steps.base_step import StepResult
 from src.core.agents.workflow_executor import ExecutionReport, WorkflowExecutor
 from src.core.agents.workflow_loader import WorkflowDef
+from src.core.search.source_health import run_scoped
 from src.core.user_rules import STEP_PLANNER
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,9 @@ class MetaAgent:
             should_stop=should_stop,
         )
 
+    # One run scope around all planner cycles: the per-step executor.run calls
+    # are nested and keep source_health's state. - Claude Generated
+    @run_scoped
     def run(
         self,
         workflow: WorkflowDef,
@@ -277,6 +281,10 @@ class MetaAgent:
                 self.stream_callback(f"⚠️ MetaAgent hit max_cycles ({max_cycles})\n")
 
         # Build final report
+        # The source overview of all cycles. - Claude Generated
+        from src.core.search import source_usage
+
+        source_usage.attach_to(context)
         return last_report or ExecutionReport(
             workflow_name=workflow.name,
             success=True,
@@ -377,6 +385,10 @@ class MetaAgent:
             )
         else:
             missing_line = "- Fehlende Konzepte: keine\n"
+        # Local notations of geo_prior; no line at all without them.
+        # - Claude Generated
+        from src.core.agents.steps.reflection_step import local_notations_line
+
         state_text = (
             f"- Abstract: {(getattr(context, 'abstract', '') or '')[:80]}...\n"
             f"- Extrahierte Keywords: {len(getattr(context, 'extracted_keywords', []))}\n"
@@ -385,6 +397,7 @@ class MetaAgent:
             f"- DK-Klassifikationen: {len(dk_list)}\n"
             f"- DK-Codes (Ist): {dk_codes or 'keine'}\n"
             f"{catalog_summary}"
+            f"{local_notations_line(context)}"
             f"{missing_line}"
         )
 

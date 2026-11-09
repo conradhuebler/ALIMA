@@ -586,6 +586,7 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
         source_failures: Dict[str, str] = {}  # "<suggester>:<term>" → message - Claude Generated
         # Cache-only misses per source, reported once after the loop. - Claude Generated
         from src.core.search.cache_only import split_cache_misses, summary as cache_only_summary
+        from src.core.search.source_health import split_source_down
         cache_misses: Dict[str, List[str]] = {}
         with SearchCLI(
             self.cache_manager,
@@ -615,6 +616,12 @@ class PipelineStepExecutor(NotationStepsMixin, RvkScoringMixin):
                 term_failures, term_misses = split_cache_misses(search_cli.last_errors)
                 for _src, _terms in term_misses.items():
                     cache_misses.setdefault(_src, []).extend(_terms)
+                # A skipped source (source_health) is announced once there; it
+                # still counts as a failure in the closing line. - Claude Generated
+                term_failures, term_skipped = split_source_down(term_failures)
+                for _src, _terms in term_skipped.items():
+                    for _term in _terms:
+                        source_failures[f"{_src}:{_term}"] = "source_down"
                 if term_failures:
                     source_failures.update(term_failures)
                     failed_sources = sorted(

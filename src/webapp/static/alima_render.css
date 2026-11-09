@@ -339,6 +339,10 @@
 #log .classification-badge--standard { background: color-mix(in srgb, var(--alima-green) 14%, transparent); color: var(--alima-green); }
 #log .classification-badge--non-standard { background: color-mix(in srgb, var(--alima-yellow) 14%, transparent); color: var(--alima-yellow); }
 #log .classification-badge--unknown { background: color-mix(in srgb, var(--alima-error) 14%, transparent); color: var(--alima-error); }
+/* Origin of a notation (local subject database, step geo_prior; form from the
+ * input text, step publication_form): an outline chip in body text, apart
+ * from the coloured system and status chips. - Claude Generated */
+#log .classification-badge--local { border: 1px solid var(--alima-border); color: var(--alima-body); }
 
 /* RVK-Analytik / Auswertung tables — shared GUI ↔ webapp render of the
  * classic-pipeline frequency statistics and RVK provenance (WP12). */
@@ -443,12 +447,14 @@
    below its copy block; the local hits per keyword. - Claude Generated */
 #log .alima-result__winibw-entries,
 #log .alima-result__geo-proposal-entries,
+#log .alima-result__sources,
 #log .alima-result__geo-hits {
   margin: 0; padding: 4px 10px 6px 28px; color: var(--alima-body); font-size: 9pt;
   border-bottom: 1px dashed var(--alima-border-soft);
 }
 #log .alima-result__winibw-entries li,
 #log .alima-result__geo-proposal-entries li,
+#log .alima-result__sources li,
 #log .alima-result__geo-hits li { margin-bottom: 2px; word-break: break-word; }
 #log .alima-result__winibw-entries code,
 #log .alima-result__geo-proposal-entries code {

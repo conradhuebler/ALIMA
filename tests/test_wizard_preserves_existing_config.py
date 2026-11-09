@@ -10,8 +10,8 @@ machine that destroyed:
   webindex fields, k10plus, dnb) — ``save_config`` re-seeds an empty
   ``config.plugins`` with defaults;
 * ``chat_config`` (institution context), ``ui_config``, ``repetition_config``;
-* ``approved_plugins`` (the Tier-2 code-plugin approvals) and
-  ``installed_bundles``;
+* ``approved_plugins`` (the Tier-2 code-plugin approvals) and the
+  deployment ledger (today ``applied_presets``);
 * every LLM provider except the one the wizard asks about.
 
 There is no backup: ``_atomic_write_json`` does ``os.replace``.
@@ -42,7 +42,7 @@ def _configured_installation():
     cfg.ui_config.ui_language = "en"
     cfg.repetition_config.ngram_threshold = 4
     cfg.approved_plugins = {"mein_plugin": "abc123"}
-    cfg.installed_bundles = {"ub-freiberg": {"version": "2"}}
+    cfg.applied_presets = [{"id": "ub-freiberg", "version": "2", "changes": [], "files": []}]
     cfg.plugins = [
         PluginInstanceConfig(
             "finc", "search_provider", "finc",
@@ -82,10 +82,10 @@ class WizardMergesOntoAnExistingConfigTest(unittest.TestCase):
         self.assertEqual(finc.settings["base_url"], "https://finc.example")
         self.assertIs(finc.settings["dk_enabled"], True)
 
-    def test_approvals_and_bundles_survive(self):
+    def test_approvals_and_preset_ledger_survive(self):
         out = self._merged(_configured_installation())
         self.assertEqual(out.approved_plugins, {"mein_plugin": "abc123"})
-        self.assertIn("ub-freiberg", out.installed_bundles)
+        self.assertEqual([e["id"] for e in out.applied_presets], ["ub-freiberg"])
 
     def test_chat_ui_and_repetition_settings_survive(self):
         out = self._merged(_configured_installation())

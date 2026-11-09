@@ -1,21 +1,104 @@
 {
-  "_comment": "ALIMA Institutions-Presets — Diese Datei als 'alima_presets.json' im Programmverzeichnis ablegen.",
-  "_comment2": "Felder können leer gelassen werden. Alle Werte sind optional und vom Nutzer überschreibbar.",
-  "institution_name": "Meine Universität",
+  "_comment": "ALIMA-Einrichtungs-Preset (Format 2). Als 'alima_presets.json' in einen Paket-Ordner, ins Konfigurationsverzeichnis oder ins Programmverzeichnis legen, oder den Ordner per Umgebungsvariable ALIMA_PRESET angeben. Alle Werte hier sind erfunden.",
+  "_comment2": "Alle Schlüssel sind optional. API-Schlüssel und Tokens gehören nicht hinein: Felder 'api_key'/'token' werden beim Lesen verworfen. Beschreibung: docs/institutional_presets.md",
+  "format": 2,
+  "preset": {
+    "_comment": "Kennung, Version und Name; erscheinen in der Vorschau und im Verlauf (Rückgängig).",
+    "id": "meine-ub",
+    "version": "2026.1",
+    "label": "UB Musterstadt"
+  },
+  "institution_name": "Universitätsbibliothek Musterstadt",
+  "institution": {
+    "_comment": "ISIL und ELN der Bibliothek (Einstellungen > Datenquellen > Einrichtung).",
+    "isil": "ZZ-MUSTER",
+    "eln": "9998"
+  },
+  "workflow": "alima_v51",
   "llm": {
-    "_comment": "provider_type: 'ollama', 'openai_compatible', 'gemini', 'anthropic'",
+    "_comment": "Vorbelegung des Einrichtungsassistenten. provider_type: 'ollama', 'openai_compatible', 'gemini', 'anthropic'. Kein Schlüssel.",
     "provider_type": "ollama",
     "provider_name": "Uni-LLM-Server",
     "base_url": "http://llm.uni-example.de:11434",
-    "api_key": ""
+    "task_models": {
+      "pipeline": "modell-fuer-die-pipeline",
+      "vision": "modell-fuer-bilder"
+    }
+  },
+  "database": {
+    "_comment": "Vorbelegung des Assistenten: 'sqlite' oder 'mariadb' mit host/port/database/username.",
+    "type": "sqlite"
   },
   "catalog": {
-    "_comment": "Libero SOAP-Endpunkte für UB-Katalog und DK-Analyse",
+    "_comment": "Vorbelegung der Katalogseite des Assistenten (Libero SOAP und Web-Rückfall). Ohne diesen Block nimmt der Assistent die Adressen aus dem Eintrag 'catalog' unter 'plugins'.",
     "soap_search_url": "https://libero.ub.uni-example.de/libero/LiberoWebServices.CatalogueSearcher.cls",
     "soap_details_url": "https://libero.ub.uni-example.de/libero/LiberoWebServices.LibraryAPI.cls",
-    "token": "",
-    "_comment2": "Web-Frontend-URLs für Web-Scraping-Fallback (optional, leer lassen = kein Fallback)",
     "web_search_url": "https://katalog.ub.uni-example.de/Search/Results",
     "web_record_url": "https://katalog.ub.uni-example.de/Record/"
-  }
+  },
+  "plugins": [
+    {
+      "_comment": "Reihenfolge = Reihenfolge innerhalb der Kategorie. state: 'on', 'cache_only', 'off'. settings: nur Felder des Plugin-Typs, keine geheimen. '@file:<id>' wird zum Zielpfad der Datei mit dieser id.",
+      "instance": "catalog",
+      "state": "on",
+      "settings": {
+        "catalog_search_url": "https://libero.ub.uni-example.de/libero/LiberoWebServices.CatalogueSearcher.cls",
+        "catalog_details": "https://libero.ub.uni-example.de/libero/LiberoWebServices.LibraryAPI.cls"
+      }
+    },
+    {
+      "instance": "swb",
+      "state": "off"
+    },
+    {
+      "_comment": "Eine Instanz, die es noch nicht gibt, wird mit 'type' angelegt.",
+      "instance": "k10plus_sru",
+      "type": "sru",
+      "category": "search_provider",
+      "label": "K10plus (SRU)",
+      "state": "on",
+      "settings": {
+        "preset": "k10plus"
+      }
+    },
+    {
+      "instance": "geo_sachdb",
+      "state": "on",
+      "settings": {
+        "db_path": "@file:geo_db"
+      }
+    },
+    {
+      "instance": "local_scheme",
+      "state": "on",
+      "settings": {
+        "vocabulary": "@file:systematik"
+      }
+    }
+  ],
+  "files": [
+    {
+      "_comment": "source: relativ zum Ordner dieser Datei. target: relativ zu <Konfigurationsverzeichnis>/data/. sha256 ist Pflicht; stimmt sie nicht, wird nichts installiert. kind: 'geo_sachdb_db' (Schema wird geprüft), 'vocabulary' (local_scheme), 'file'.",
+      "id": "geo_db",
+      "kind": "geo_sachdb_db",
+      "source": "files/geo_sachdb_v1.db",
+      "target": "geo_sachdb/geo_sachdb_v1.db",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "systematik",
+      "kind": "vocabulary",
+      "source": "files/systematik.yaml",
+      "target": "local_scheme/systematik.yaml",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "secrets": [
+    {
+      "_comment": "Nur Deklaration: wird angezeigt, nie geschrieben. Eintragen im Plugin-Reiter oder als ALIMA_PLUGIN_<INSTANZ>_<SCHLÜSSEL>.",
+      "plugin": "catalog",
+      "key": "token",
+      "hint": "persönlicher Libero-SOAP-Token"
+    }
+  ]
 }

@@ -5,9 +5,11 @@ FincCatalogClient/MarcXmlClient/BiblioClient if-elif in the classic DK step
 (``execute_notation_search``). Since WP P4 every backend is built through the factory
 from its own instance settings (no more CatalogConfig kwargs). These tests pin:
 
-1. **Built-in parity** — each config selects the same backend the old if-elif did
-   (finc opt-in via its ``dk_enabled`` → SRU opt-in via its ``dk_enabled`` /
-   legacy ``catalog_type`` → Libero default), and finc/SRU stay opt-in.
+1. **Built-in parity** — a config with one DK switch on selects the same
+   backend the old if-elif did (finc opt-in via its ``dk_enabled``, SRU opt-in
+   via its ``dk_enabled`` / legacy ``catalog_type``, Libero default), and
+   finc/SRU stay opt-in. Two switches on form a fallback chain in list order
+   (Nov 2026, ``factory.dk_candidates``).
 2. **Extensibility** — a NEW, non-built-in provider declaring the CLASSIFICATION
    capability + a ``dk_extractor()`` is picked up as a DK source with no core
    change, taking precedence over the Libero default.
@@ -88,14 +90,19 @@ class BuiltinParityTest(unittest.TestCase):
         ex = resolve_dk_extractor(config=_cfg())
         self.assertEqual(type(ex).__name__, "BiblioClient")
 
-    def test_precedence_finc_over_sru(self):
+    def test_two_dk_sources_form_a_chain_in_list_order(self):
+        # Since Nov 2026 both switches count: a fallback chain in list order
+        # (it used to be finc alone). - Claude Generated
         cfg = _cfg(
             _StubInstance("finc", settings={
                 "dk_enabled": True, "base_url": "https://ex.org/proxy.php"}),
             _StubInstance("sru", settings={"dk_enabled": True, "preset": "dnb"}),
         )
         ex = resolve_dk_extractor(config=cfg)
-        self.assertEqual(type(ex).__name__, "FincCatalogClient")
+        self.assertEqual(type(ex).__name__, "FallbackDkExtractor")
+        self.assertEqual(ex.source_ids, ["finc", "sru"])
+        self.assertEqual([type(c.extractor).__name__ for c in ex.candidates],
+                         ["FincCatalogClient", "MarcXmlClient"])
 
 
 class ExtensibilityTest(unittest.TestCase):
@@ -137,15 +144,19 @@ class ExtensibilityTest(unittest.TestCase):
         got = resolve_dk_extractor(config=cfg)
         self.assertIs(got, ext)
 
-    def test_custom_plugin_yields_to_finc_opt_in(self):
-        self._register("mylib_catalog", capabilities={SearchCapability.CLASSIFICATION})
+    def test_custom_plugin_and_finc_opt_in_chain_in_list_order(self):
+        # A custom plugin and finc with its switch on are both DK sources,
+        # asked in the order of the list (it used to be finc alone).
+        # - Claude Generated
+        ext = self._register("mylib_catalog", capabilities={SearchCapability.CLASSIFICATION})
         cfg = _cfg(
             _StubInstance("mylib_catalog"),
             _StubInstance("finc", settings={
                 "dk_enabled": True, "base_url": "https://ex.org/proxy.php"}),
         )
         got = resolve_dk_extractor(config=cfg)
-        self.assertEqual(type(got).__name__, "FincCatalogClient")
+        self.assertEqual(got.source_ids, ["mylib_catalog", "finc"])
+        self.assertIs(got.candidates[0].extractor, ext)
 
     def test_non_classification_custom_plugin_ignored(self):
         # A custom provider WITHOUT the CLASSIFICATION capability is not a DK source.

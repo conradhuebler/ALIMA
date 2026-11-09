@@ -62,6 +62,62 @@ def is_cache_only(settings: Optional[Mapping[str, Any]]) -> bool:
     return bool(cache_only_field().coerce(settings.get(CACHE_ONLY_KEY)))
 
 
+# Instance state ("Zustand"): An / Nur Cache / Aus. Stored as ``enabled`` plus,
+# for search sources with a cache path, the ``cache_only`` setting. The settings
+# tab and the institution presets (``src/utils/preset_apply.py``) share these
+# helpers; they lived in ``src/ui/plugin_settings_tab.py`` until the preset code
+# needed them without Qt. - Claude Generated
+STATE_ON = "on"
+STATE_CACHE_ONLY = "cache_only"
+STATE_OFF = "off"
+STATES = (STATE_ON, STATE_CACHE_ONLY, STATE_OFF)
+
+# "Nur Cache" for a type: offered, shown disabled with a note, or not shown.
+OFFER_CACHE_ONLY = "offered"
+OFFER_BLOCKED = "blocked"
+OFFER_NONE = "none"
+
+
+def cache_only_offer(meta) -> str:
+    """Whether the state "Nur Cache" is offered for a plugin type - Claude Generated.
+
+    Offered when the type declares the ``cache_only`` field; shown disabled when
+    the type carries a ``cache_only_note`` (a network source without a cache
+    path); otherwise not shown (local sources, input sources, lookups).
+    """
+    if any(f.key == CACHE_ONLY_KEY for f in (getattr(meta, "config_fields", None) or [])):
+        return OFFER_CACHE_ONLY
+    if getattr(meta, "cache_only_note", ""):
+        return OFFER_BLOCKED
+    return OFFER_NONE
+
+
+def instance_state(inst, offer: str) -> str:
+    """The state an instance's stored values stand for - Claude Generated"""
+    if not inst.enabled:
+        return STATE_OFF
+    if offer == OFFER_CACHE_ONLY and is_cache_only(inst.settings):
+        return STATE_CACHE_ONLY
+    return STATE_ON
+
+
+def apply_state(inst, state: str, offer: str) -> None:
+    """Write a chosen state back into ``enabled`` / ``settings["cache_only"]``.
+
+    Only what the state decides is touched: "Aus" keeps a stored ``cache_only``
+    value, and "An" writes ``cache_only = False`` only where the key already
+    exists, so an untouched instance is saved unchanged. Types without the
+    offer never get the key. - Claude Generated
+    """
+    inst.enabled = state != STATE_OFF
+    if offer != OFFER_CACHE_ONLY or state == STATE_OFF:
+        return
+    if state == STATE_CACHE_ONLY:
+        inst.settings[CACHE_ONLY_KEY] = True
+    elif CACHE_ONLY_KEY in inst.settings:
+        inst.settings[CACHE_ONLY_KEY] = False
+
+
 def is_cache_miss(message: Any) -> bool:
     """Whether an error message is the cache-only miss marker - Claude Generated."""
     return isinstance(message, str) and message.startswith(CACHE_MISS_PREFIX)

@@ -23,19 +23,56 @@ import requests
 logger = logging.getLogger("biblio_extractor")
 
 
+def _health():
+    """``src.core.search.source_health``, imported on use - Claude Generated
+
+    A module-level import would cycle: ``src.core.search`` loads the catalog
+    plugin, which imports ``biblio_client``, which imports this module.
+    """
+    from src.core.search import source_health
+
+    return source_health
+
+
 class BiblioRequestMixin:
     """SOAP search/details requests + web-scraping fallbacks. Mixed into :class:`BiblioClient`."""
 
+    def _institution_missing(self, what: str) -> bool:
+        """True when the web fallback needs the institution's ISIL and none is set.
+
+        Notes ``what`` in ``last_not_configured`` (read by the DK step, which
+        reports "Einrichtung nicht gesetzt" once per run) and logs the first
+        hit per client. - Claude Generated
+        """
+        from src.utils.institution import institution_filter
+
+        if institution_filter():
+            return False
+        notes = getattr(self, "last_not_configured", None)
+        if isinstance(notes, list):
+            notes.append(what)
+        if not getattr(self, "_institution_missing_logged", False):
+            self._institution_missing_logged = True
+            logger.warning(
+                f"catalog: {what} braucht die ISIL der Bibliothek; Einrichtung nicht gesetzt "
+                "(Einstellungen ▸ Datenquellen ▸ Einrichtung)"
+            )
+        return True
+
     def _network_blocked(self, what: str) -> bool:
-        """True when cache-only mode forbids this network request - Claude Generated
+        """True when cache-only mode or a down source forbids this request - Claude Generated
 
         The guard on every request method of this axis (SOAP search/details, both
         web fallbacks), so no caller reaches the network while ``cache_only`` is
-        set. The cache-only paths never get here; a hit means some caller still
-        asked for a live request, which is logged once per client.
+        set or ``source_health`` skips the instance. The cache-only paths never
+        get here; a hit means some caller still asked for a live request, which
+        is logged once per client.
         """
         if getattr(self, "cache_only", False) is not True:
-            return False
+            # A source source_health has marked down is skipped silently: the
+            # skip is announced once there, not per request. - Claude Generated
+            source = getattr(self, "source_id", None)
+            return bool(source) and _health().is_down(source)
         if not getattr(self, "_cache_only_block_logged", False):
             self._cache_only_block_logged = True
             logger.warning(f"catalog: {what} im Modus „nur Cache“ unterdrückt (keine Netzabfrage)")
@@ -59,6 +96,8 @@ class BiblioRequestMixin:
         backoff_base = 1  # Start at 1 second
 
         for attempt in range(max_retries):
+            if attempt and self._network_blocked("SOAP-Suche"):
+                return []  # marked down by the previous attempt - Claude Generated
             try:
                 return self._search_attempt(term, search_type)
 
@@ -129,8 +168,11 @@ class BiblioRequestMixin:
         logger.debug(f"Sending search request to {self.SEARCH_URL}")
         logger.debug(f"Search envelope: {search_envelope}")
 
-        response = self.session.post(
-            self.SEARCH_URL, headers=self.headers, data=search_envelope, timeout=self.timeout
+        # Every request of this axis goes through source_health.call, which
+        # counts connection failures (each retry attempt is one). - Claude Generated
+        response = _health().call(
+            getattr(self, "source_id", None), self.session.post,
+            self.SEARCH_URL, headers=self.headers, data=search_envelope, timeout=self.timeout,
         )
 
         logger.debug(f"Search response status: {response.status_code}")
@@ -317,7 +359,8 @@ class BiblioRequestMixin:
             self._soap_calls += 1
             logger.debug(f"SOAP REQUEST for RSN {rsn} (call #{self._soap_calls})")
 
-            response = self.session.post(
+            response = _health().call(
+                getattr(self, "source_id", None), self.session.post,
                 self.DETAILS_URL,
                 headers=self.headers,
                 data=details_envelope,
@@ -568,6 +611,12 @@ class BiblioRequestMixin:
         """
         if self._network_blocked("Web-Suche"):
             return []
+        # The web OPAC search is restricted to the library's holdings; without
+        # an ISIL it is not sent (reported, not an empty hit). - Claude Generated
+        if self._institution_missing("Web-Suche"):
+            return []
+        from src.utils.institution import institution_filter
+
         try:
             from bs4 import BeautifulSoup
 
@@ -576,7 +625,7 @@ class BiblioRequestMixin:
             # Build search parameters - Claude Generated
             params = {
                 "hiddenFilters[]": [
-                    'institution:"DE-105"',
+                    f'institution:"{institution_filter()}"',
                     '-format:"Article"',
                     '-format:"ElectronicArticle"',
                 ],
@@ -589,7 +638,10 @@ class BiblioRequestMixin:
             }
 
             # Make request - Claude Generated
-            response = self.session.get(self.WEB_SEARCH_URL, params=params, timeout=30)
+            response = _health().call(
+                getattr(self, "source_id", None), self.session.get,
+                self.WEB_SEARCH_URL, params=params, timeout=30,
+            )
             if response.status_code != 200:
                 logger.warning(f"Web search: HTTP {response.status_code} for '{term}'")
                 return []
@@ -636,7 +688,9 @@ class BiblioRequestMixin:
             url = f"{self.WEB_RECORD_BASE_URL}{rsn}"
             logger.debug(f"Web fallback: Fetching {url}")
 
-            response = self.session.get(url, timeout=30)
+            response = _health().call(
+                getattr(self, "source_id", None), self.session.get, url, timeout=30
+            )
             if response.status_code != 200:
                 logger.warning(f"Web fallback: HTTP {response.status_code} for RSN {rsn}")
                 return None
@@ -657,8 +711,21 @@ class BiblioRequestMixin:
             details["author"] = authors
 
             # Extract DK classifications - Claude Generated
+            # The DK links point at the library's facet (udk_raw_de105 for
+            # DE-105); without an ISIL nothing is read and the step is noted.
+            # - Claude Generated
+            from src.utils.institution import finc_dk_facet
+
             classifications = []
-            dk_links = soup.find_all("a", href=re.compile(r"lookfor=DK.*?&type=udk_raw_de105"))
+            dk_facet = finc_dk_facet()
+            if dk_facet is None:
+                self._institution_missing("Web-Titeldetails (DK)")
+                dk_links, q_links = [], []
+            else:
+                facet = re.escape(dk_facet)
+                dk_links = soup.find_all("a", href=re.compile(rf"lookfor=DK.*?&type={facet}"))
+                q_links = soup.find_all(
+                    "a", href=re.compile(rf"lookfor=Q[A-Z]?\s*\d+.*?&type={facet}"))
             for dk_link in dk_links:
                 dk_match = re.search(r"DK\s+([\d\.:]+)", dk_link.text)
                 if dk_match:
@@ -668,7 +735,6 @@ class BiblioRequestMixin:
                         classifications.append(classification_str)
 
             # Extract Q/RVK classifications - Claude Generated
-            q_links = soup.find_all("a", href=re.compile(r"lookfor=Q[A-Z]?\s*\d+.*?&type=udk_raw_de105"))
             for q_link in q_links:
                 q_match = re.search(r"Q[A-Z]?\s*[\d\s]+", q_link.text)
                 if q_match:

@@ -329,7 +329,7 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
     if not keyword_chains:
         keyword_chains = getattr(analysis_state, "keyword_chains", []) or []
 
-    return {
+    results = {
         "original_abstract": original_abstract,
         "working_title": working_title,
         "initial_keywords": ensure_json_serializable(initial_keywords),
@@ -359,6 +359,16 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
         # subject database (geo_sachdb), also beside the classifications. Empty
         # {} without the step or without a lookup result. - Claude Generated
         "geo_sachdb": ensure_json_serializable(getattr(analysis_state, "geo_sachdb", {}) or {}),
+        # The local notations the step geo_prior gave the classification, with
+        # the keywords that reach them and whether the catalogue had them too.
+        # Empty {} without the step or without a local notation. - Claude Generated
+        "geo_prior": ensure_json_serializable(getattr(analysis_state, "geo_prior", {}) or {}),
+        # The publication form read off the input text (step publication_form)
+        # with the passage it rests on. Empty {} without the step or without a
+        # hit. - Claude Generated
+        "publication_form": ensure_json_serializable(
+            getattr(analysis_state, "publication_form", {}) or {}
+        ),
         # The WinIBW entry (lines, text, what each line stands for), from the
         # same builder as the result card, the CLI and the ``marc`` export.
         # Derived data: loading the file rebuilds it from the fields above.
@@ -391,3 +401,10 @@ def extract_results_from_analysis_state(analysis_state) -> dict:
             "has_dk_llm_analysis": bool(dk_llm_details),
         },
     }
+    # Which search sources the run asked and what came of it
+    # (src/core/search/source_usage.py). Left out when empty, so an export of a
+    # state without the field stays as it was. - Claude Generated
+    source_usage = ensure_list(getattr(analysis_state, "source_usage", None))
+    if source_usage:
+        results["source_usage"] = ensure_json_serializable(source_usage)
+    return results

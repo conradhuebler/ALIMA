@@ -19,6 +19,28 @@ if TYPE_CHECKING:  # pragma: no cover
 CATEGORY = "input_source"
 
 
+def input_effect(cls: Any) -> "tuple[str, str]":
+    """``(effect, effect_multi)`` of an input-source type for the settings form.
+
+    The pipeline reads the settings of the first enabled instance of a type
+    (``pipeline_input._input_settings_for``); a source with an ``InputToolSpec``
+    is also an agent tool, one per enabled instance. - Claude Generated
+    """
+    try:
+        spec = cls.mcp_tool_spec() if hasattr(cls, "mcp_tool_spec") else None
+    except Exception:
+        spec = None
+    effect = "Eingabequelle: macht aus einer Eingabe den Text für die Analyse."
+    if spec is not None:
+        effect += " Außerdem Werkzeug für den Agenten."
+    multi = (
+        "Mehrere Instanzen dieses Typs: die Pipeline nutzt die Einstellungen der "
+        "ersten aktiven Instanz in der Liste"
+        + ("; der Agent erhält für jede aktive Instanz ein eigenes Werkzeug." if spec else ".")
+    )
+    return effect, multi
+
+
 class InputSourceCategory(PluginCategory):
     name = CATEGORY
 
@@ -31,6 +53,7 @@ class InputSourceCategory(PluginCategory):
         cls = get_input_source(type_id)
         fields = cls.config_fields() if hasattr(cls, "config_fields") else []
         doc = cls.doc() if hasattr(cls, "doc") else PluginDoc()
+        effect, effect_multi = input_effect(cls)
         return PluginTypeMeta(
             type_id=type_id,
             label=getattr(cls, "label", type_id),
@@ -40,7 +63,13 @@ class InputSourceCategory(PluginCategory):
             capabilities=[],
             builtin=True,
             doc=doc,
+            effect=effect,
+            effect_multi=effect_multi,
         )
+
+    def type_class(self, type_id: str) -> Any:
+        """The registered input-source class (read only) - Claude Generated"""
+        return get_input_source(type_id)
 
     def build(self, instance: "PluginInstanceConfig") -> Any:
         cls = get_input_source(instance.provider_id)

@@ -651,6 +651,10 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
         # WP10 P-δ.1: invalidate retained SharedContext + broadcast start.
         self.last_shared_context = None
         run_timing.begin_run()
+        # A new run asks every source again (source_health). - Claude Generated
+        from src.core.search import source_health
+
+        source_health.begin_run()
         self.logger.info("🔵 [DEBUG] start_pipeline: before AlimaStateBus")
         try:
             from src.core.state_bus import AlimaStateBus
@@ -956,6 +960,21 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
         except Exception:
             self.logger.warning("run timing summary failed", exc_info=True)
 
+    def _finish_source_usage(self) -> None:
+        """Store the run's source overview (``source_usage``) in the result and
+        log it - Claude Generated"""
+        try:
+            from src.core.search import source_usage
+
+            rows = source_usage.rows()
+            if self.current_analysis_state is not None:
+                self.current_analysis_state.source_usage = rows
+            line = source_usage.summary_line(rows)
+            if line:
+                self.logger.info(line)
+        except Exception:
+            self.logger.warning("source overview failed", exc_info=True)
+
     def _execute_next_step(self):
         """Execute the next step in the pipeline - Claude Generated"""
         try:
@@ -1063,6 +1082,7 @@ class PipelineManager(ClassicStepExecutorMixin, AgenticPipelineMixin, SingleStep
                         self.logger.exception("from_keyword_analysis_state failed")
                         self.last_shared_context = None
                 self._finish_run_timing()
+                self._finish_source_usage()
                 try:
                     from src.core.state_bus import AlimaStateBus
                     AlimaStateBus().emit_event("state.pipeline_completed", {})

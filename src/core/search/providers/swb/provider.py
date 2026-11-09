@@ -19,6 +19,19 @@ class SwbProvider(SuggesterBackedProvider):
     raw_cache_param_keys = ("search_type", "max_pages")  # pages on max_pages
 
     @classmethod
+    def config_fields(cls):
+        """Request timeout and cache-only switch - Claude Generated"""
+        from src.core.search.cache_only import cache_only_field
+        from src.core.search.timeouts import timeout_field
+
+        from .suggester import REQUEST_TIMEOUT_S
+
+        return [
+            timeout_field(REQUEST_TIMEOUT_S, help="Wartezeit je Seitenabruf beim SWB."),
+            cache_only_field(),
+        ]
+
+    @classmethod
     def doc(cls):
         from src.core.plugins.schema import PluginDoc
 
@@ -58,9 +71,15 @@ class SwbProvider(SuggesterBackedProvider):
         )]
 
     def _build_suggester(self):
-        from .suggester import SWBSuggester
+        from src.core.search.timeouts import timeout_from
 
-        return SWBSuggester(debug=self._config.get("debug", False))
+        from .suggester import REQUEST_TIMEOUT_S, SWBSuggester
+
+        return SWBSuggester(
+            debug=self._config.get("debug", False),
+            timeout=timeout_from(self._config, REQUEST_TIMEOUT_S),
+            source_id=self.source_id,
+        )
 
     def search(
         self,

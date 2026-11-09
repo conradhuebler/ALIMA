@@ -155,19 +155,26 @@ class ChatAgentWorker(QThread):
                 on_thinking=self._on_thinking,
                 should_stop=self._stop_event.is_set,
             )
-            result = loop.run(
-                system_prompt=self._system_prompt,
-                user_prompt=self._user_prompt,
-                tools=self._tools,
-                provider=self._provider,
-                model=self._model,
-                temperature=self._temperature,
-                top_p=self._top_p,
-                max_tokens=self._max_tokens,
-                seed=self._seed,
-                conversation_history=self._history,
-                think=self._think,
-            )
+            # One chat turn is one run for source_health and the source
+            # overview, which closes the turn as one notice line.
+            # - Claude Generated
+            from src.core.search import source_health, source_usage
+
+            with source_health.run_scope():
+                result = loop.run(
+                    system_prompt=self._system_prompt,
+                    user_prompt=self._user_prompt,
+                    tools=self._tools,
+                    provider=self._provider,
+                    model=self._model,
+                    temperature=self._temperature,
+                    top_p=self._top_p,
+                    max_tokens=self._max_tokens,
+                    seed=self._seed,
+                    conversation_history=self._history,
+                    think=self._think,
+                )
+                source_usage.announce()
             self.generation_finished.emit(result)
         except Exception as exc:
             logger.exception("ChatAgentWorker error")

@@ -30,6 +30,13 @@ _GEO_SOURCE_KEYS = ("source", "source_date", "source_sha256", "schema_version")
 #: of this kind makes the hit unique (operator rule, Nov 6 2026).
 _GEO_PREFERRED_KIND = "Sachschlagwort"
 
+#: ``extra`` key the step ``geo_prior`` writes its payload to (output mapping
+#: in ``alima_v51_105.yaml``). - Claude Generated
+GEO_PRIOR_EXTRA_KEY = "geo_sachdb_prior"
+
+#: Fields of a ``geo_prior`` candidate a saved result keeps.
+_GEO_PRIOR_KEYS = ("notation", "system", "code", "label", "via_keywords", "via_core_keywords")
+
 
 def _geo_pick(records: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The local heading a term stands for: the only one, or the only
@@ -145,6 +152,72 @@ def _geo_sachdb_for_state(payload: Any) -> Dict[str, Any]:
         "candidates": candidates,
         "source": {key: source[key] for key in _GEO_SOURCE_KEYS if source.get(key)},
     }
+
+
+def _catalog_codes(dk_entries: Any, scheme: str) -> set:
+    """Comparison forms of the catalogue notations of ``scheme`` in the DK
+    step's ``dk_entries`` (``{dk, classification_type, …}``). - Claude Generated"""
+    from src.utils.lookups.geo_sachdb.schema import compact, normalize_notation
+
+    out = set()
+    for entry in dk_entries or []:
+        if not isinstance(entry, dict):
+            continue
+        system = str(entry.get("classification_type") or entry.get("type") or scheme).strip().upper()
+        code = str(entry.get("dk") or entry.get("code") or "").strip()
+        if not code or system != scheme:
+            continue
+        out.add(compact(normalize_notation(code, scheme)[1]))
+    return out
+
+
+def _geo_prior_for_state(payload: Any, dk_entries: Any) -> Dict[str, Any]:
+    """The part of ``extra.geo_sachdb_prior`` a saved result keeps, or ``{}``.
+
+    ``candidates``: every local notation the classification saw, with the
+    keywords and core keywords that reach it and ``in_catalog``, decided here
+    against the catalogue entries of the DK step. A step without plugin or
+    without a local notation gives ``{}``. - Claude Generated
+    """
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        return {}
+    from src.utils.lookups.geo_sachdb.schema import compact
+
+    candidates = []
+    catalog: Dict[str, set] = {}
+    for cand in payload.get("candidates") or []:
+        if not isinstance(cand, dict) or not cand.get("code"):
+            continue
+        system = str(cand.get("system") or "DK").upper()
+        if system not in catalog:
+            catalog[system] = _catalog_codes(dk_entries, system)
+        entry = {key: cand.get(key) for key in _GEO_PRIOR_KEYS}
+        entry["system"] = system
+        entry["via_keywords"] = [str(t) for t in (cand.get("via_keywords") or []) if t]
+        entry["via_core_keywords"] = [str(t) for t in (cand.get("via_core_keywords") or []) if t]
+        entry["in_catalog"] = compact(str(cand["code"])) in catalog[system]
+        candidates.append(entry)
+    return {"candidates": candidates} if candidates else {}
+
+
+#: ``extra`` key the step ``publication_form`` writes its detection to.
+#: - Claude Generated
+PUBLICATION_FORM_EXTRA_KEY = "publication_form"
+_PUBLICATION_FORM_KEYS = ("form", "label", "form_keyword", "evidence", "rule")
+
+
+def _publication_form_for_state(payload: Any) -> Dict[str, Any]:
+    """The detection of ``extra.publication_form`` as a saved result keeps it:
+    ``{form, label, system, code, form_keyword, evidence, rule}`` (the
+    notation split into ``system`` and ``code``), or ``{}`` without a hit.
+    - Claude Generated
+    """
+    if not isinstance(payload, dict) or not payload.get("form"):
+        return {}
+    system, code = (list(payload.get("notation") or []) + ["", ""])[:2]
+    out = {key: str(payload.get(key) or "") for key in _PUBLICATION_FORM_KEYS}
+    out["system"], out["code"] = str(system or ""), str(code or "")
+    return out
 
 
 @dataclass
@@ -649,6 +722,17 @@ class SharedContext(BaseSharedContext):
             }
         state.keyword_chains = list(self.keyword_chains or [])
         state.geo_sachdb = _geo_sachdb_for_state((self.extra or {}).get("geo_sachdb"))
+        state.geo_prior = _geo_prior_for_state(
+            (self.extra or {}).get(GEO_PRIOR_EXTRA_KEY), (self.extra or {}).get("dk_entries")
+        )
+        state.publication_form = _publication_form_for_state(
+            (self.extra or {}).get(PUBLICATION_FORM_EXTRA_KEY)
+        )
+        # Source overview of the run (source_usage.attach_to). - Claude Generated
+        state.source_usage = [
+            dict(row) for row in ((self.extra or {}).get("source_usage") or [])
+            if isinstance(row, dict)
+        ]
         state.core_keywords = _as_titles("core_keywords")
         state.form_keywords = _as_titles("form_keywords")
 

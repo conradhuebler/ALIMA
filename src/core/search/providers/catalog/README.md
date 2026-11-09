@@ -12,7 +12,7 @@ Modi und Konventionen wie in [`../lobid/README.md`](../lobid/README.md).
 | Eingabe | Suchbegriffe / Titelanfragen (je nach Capability) |
 | Ausgabe | GND-Schlagworte, Titel-Records (rsn, web_url, …) oder DK-Notationen |
 | MCP-Tools | `search_catalog`, `search_catalog_titles` |
-| Konfiguration | `token` (SECRET, gated), SOAP-/OPAC-URLs, DK-Backend-Wahl |
+| Konfiguration | `token` (SECRET, gated), SOAP-/OPAC-URLs, `dk_enabled` (DK-Quelle), `timeout_s`, `cache_only` |
 
 ## Spezifisch für diese Blaupause
 
@@ -41,3 +41,18 @@ ab (Pipeline, Suchtab), nicht die Agent-Werkzeuge; Titel-Rohantworten entstehen
 nur über das Werkzeug einer zweiten catalog-Instanz. Ein gespeicherter
 Fehlschlag (`error`/`timeout`) zählt als fehlender Eintrag. `alima test-catalog`
 baut seinen Client selbst und fragt weiter live ab.
+
+## DK-Schalter (`dk_enabled`)
+
+„Libero für DK-Suche nutzen“: an = Libero ist DK-Quelle. Der DK-Schritt fragt
+alle Instanzen mit eingeschaltetem DK-Schalter in der Reihenfolge der
+Plugin-Liste; ein Schlagwort, das eine Quelle nicht beantwortet (gesperrt, im
+Zustand „Nur Cache“ ohne Eintrag, Einrichtung nicht gesetzt, Verbindungsfehler,
+Extraktor nicht startbar), geht an die nächste. „Keine Treffer“ ist eine Antwort.
+Ist der Schlüssel nicht gespeichert (Konfigurationen von vor dem Schalter, neue
+Installationen), ist Libero DK-Quelle, solange keine andere Instanz den
+DK-Schalter an hat, und nur die erste solche catalog-Instanz; das Formular zeigt
+dann „aus“ und schreibt den Schlüssel erst, wenn er geändert wird. Ein
+gespeicherter Wert gilt wörtlich: aus bei allen Quellen heißt „Keine DK-Quelle“.
+Welche Quellen gelten, steht im Plugin-Tab über der Liste. Details:
+[`docs/plugin_system.md`](../../../../../docs/plugin_system.md).

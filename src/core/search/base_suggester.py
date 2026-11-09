@@ -117,6 +117,13 @@ class BaseSuggester(QObject, ABC, metaclass=QObjectABCMeta):
         can distinguish 'source failed' from 'no results' - Claude Generated"""
         message = str(error)
         self.last_errors[term] = message
+        from src.core.search.source_health import is_source_down
+
+        if is_source_down(message):
+            # Skipped source: announced once by source_health, not per term.
+            # - Claude Generated
+            self.logger.debug(f"{self.__class__.__name__}: '{term}' skipped: {message}")
+            return
         self.logger.warning(
             f"{self.__class__.__name__}: search for '{term}' failed: {message}"
         )

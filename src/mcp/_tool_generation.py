@@ -263,16 +263,32 @@ class ToolGenerationMixin:
                         global_enabled=self._response_cache_enabled(),
                     )
                 )
+                from src.core.search import source_usage
+
+                source_usage.set_label(inst.instance_id, getattr(inst, "label", "") or inst.provider_id)
                 if cacheable:
                     hit = self._get_knowledge_manager().get_raw_response(
                         spec.name, str(key), cache_params
                     )
                     if hit:
+                        source_usage.record(inst.instance_id, source_usage.CACHE,
+                                            kind=source_usage.KIND_LOOKUP)
                         return hit["raw_json"]
 
                 plugin = self._lookup_for(inst)
-                result = getattr(plugin, spec.method)(**args)
+                try:
+                    result = getattr(plugin, spec.method)(**args)
+                except Exception:
+                    source_usage.record(inst.instance_id, source_usage.CALL,
+                                        kind=source_usage.KIND_LOOKUP, error=True)
+                    raise
                 out = json.dumps(result, ensure_ascii=False, default=str)
+                # Per-run source overview: one entry per lookup call. Whether
+                # the plugin asked a server or read a local file is not known
+                # here, so it is counted as a call, not as Netz. - Claude Generated
+                source_usage.record(inst.instance_id, source_usage.CALL,
+                                    kind=source_usage.KIND_LOOKUP,
+                                    error='"error"' in out)
                 if cacheable and '"error"' not in out:
                     try:
                         self._get_knowledge_manager().store_raw_response(
@@ -324,6 +340,33 @@ class ToolGenerationMixin:
             "note": "Nur Cache: keine Netzabfrage. Begriffe ohne Cache-Eintrag "
                     "liefern keine Treffer; das belegt nicht, dass der Katalog sie nicht hat.",
         }
+
+    @staticmethod
+    def _source_down_block(term_errors):
+        """The ``source_down`` block of a search-tool result, ``None`` when no
+        term was skipped by ``source_health``. ``term_errors`` is keyed by term.
+        - Claude Generated
+        """
+        from src.core.search.source_health import FAILURE_THRESHOLD, is_source_down
+
+        skipped = [t for t, m in (term_errors or {}).items() if is_source_down(m)]
+        if not skipped:
+            return None
+        return {
+            "skipped_terms": skipped,
+            "note": f"Quelle nach {FAILURE_THRESHOLD} Verbindungsfehlern für diesen Lauf "
+                    "übersprungen, keine Netzabfrage. Leere Treffer für diese Begriffe "
+                    "sind unbekannt, nicht „kein Treffer“.",
+        }
+
+    def _attach_status_blocks(self, out, provider, term_errors):
+        """Add the ``cache_only`` and ``source_down`` blocks when they apply - Claude Generated"""
+        block = self._cache_only_block(provider, term_errors)
+        if block:
+            out["cache_only"] = block
+        down = self._source_down_block(term_errors)
+        if down:
+            out["source_down"] = down
 
     def _make_search_handler(self, spec, inst):
         """Handler for a canonical instance: the nuanced, factory-backed path.
@@ -377,37 +420,44 @@ class ToolGenerationMixin:
                 logger.error(f"search_finc failed: {e}")
                 return json.dumps({"source": "finc", "error": str(e)})
             results = res.to_finc_records()
-            cat_base = ""
-            try:
-                cat_base = provider.catalog_web_record_base()
-            except Exception:
-                pass
-            if not cat_base:
-                # Pre-P2.2 finc instances carry no own base — fall back to the
-                # catalog instance's OPAC base (WP P7: was the CatalogConfig
-                # mirror). - Claude Generated
-                try:
-                    from src.core.search.factory import catalog_web_bases
-
-                    # Only via the injected config manager — never let a failed
-                    # load reach for the global one behind the caller's back.
-                    _cfg = self._alima_config()
-                    if _cfg is not None:
-                        cat_base = (catalog_web_bases(_cfg)[0] or "").rstrip("/")
-                except Exception:
-                    pass
+            self._count_terms(provider, terms, res.errors, records={
+                t: len(d.get("records") or []) for t, d in results.items()})
+            cat_base = self._finc_record_base(provider)
             if cat_base:
                 for term_data in results.values():
                     for rec in term_data.get("records", []):
                         if not rec.get("web_url") and rec.get("id"):
                             rec["web_url"] = f"{cat_base}/{rec['id']}"
             out = {"source": "finc", "results": results, "errors": dict(res.errors or {})}
-            block = self._cache_only_block(provider, res.errors)
-            if block:
-                out["cache_only"] = block
+            self._attach_status_blocks(out, provider, res.errors)
             return json.dumps(out, ensure_ascii=False)
 
         return handler
+
+    def _finc_record_base(self, provider):
+        """Base of the catalog link for finc records without ``web_url``: the
+        instance's own ``catalog_web_record_url``, else the catalog instance's
+        OPAC base. - Claude Generated"""
+        cat_base = ""
+        try:
+            cat_base = provider.catalog_web_record_base()
+        except Exception:
+            pass
+        if not cat_base:
+            # Pre-P2.2 finc instances carry no own base — fall back to the
+            # catalog instance's OPAC base (WP P7: was the CatalogConfig
+            # mirror). - Claude Generated
+            try:
+                from src.core.search.factory import catalog_web_bases
+
+                # Only via the injected config manager — never let a failed
+                # load reach for the global one behind the caller's back.
+                _cfg = self._alima_config()
+                if _cfg is not None:
+                    cat_base = (catalog_web_bases(_cfg)[0] or "").rstrip("/")
+            except Exception:
+                pass
+        return cat_base
 
     def _make_gnd_keywords_handler(self, spec, inst):
         """GND-keyword tool handler built on the search factory (no MetaSuggester).
@@ -423,22 +473,33 @@ class ToolGenerationMixin:
             from src.core.search.service import underlying_suggester
 
             raw_id = spec.provider_id if spec.cached else None
+            cache_only = False
             try:
                 base_provider = self._provider_for(inst, cache=False)
                 if hasattr(base_provider, "is_available") and not base_provider.is_available():
                     return json.dumps(
                         {"error": spec.unavailable_message or f"{spec.source_label} not available"}
                     )
+                cache_only = getattr(base_provider, "cache_only", False) is True
                 if spec.cached:
                     opts = {"search_type": search_type, "max_pages": max_pages}
                     is_default = all(opts.get(k) == v for k, v in spec.default_opts.items())
-                    if is_default:
+                    if is_default or cache_only:
+                        # Cache-only: the provider answers from the raw cache for
+                        # any option; the bare suggester would go to the network.
+                        # - Claude Generated
+                        kw = {}
+                        if not is_default:
+                            kw = {"search_type": search_type}
+                            if "max_pages" in spec.default_opts:
+                                kw["max_pages"] = max_pages
                         res = self._provider_for(inst, cache=True).search(
-                            SearchCapability.GND_KEYWORDS, list(terms)
+                            SearchCapability.GND_KEYWORDS, list(terms), **kw
                         )
                         results = res.to_gnd_keywords()
+                        term_errors = dict(res.errors or {})
                         errors = {
-                            f"{spec.provider_id}:{t}": m for t, m in (res.errors or {}).items()
+                            f"{spec.provider_id}:{t}": m for t, m in term_errors.items()
                         }
                     else:
                         kw = {"search_type": search_type}
@@ -450,7 +511,9 @@ class ToolGenerationMixin:
                         # non-default searches also populate the raw cache. - Claude Generated
                         self._store_suggester_raw(spec.provider_id, terms, kw, sugg, inst=inst)
                         errors = {}
-                elif getattr(base_provider, "cache_only", False) is True:
+                        term_errors = dict(getattr(sugg, "last_errors", {}) or {})
+                        self._count_terms(base_provider, terms, term_errors, hits=results)
+                elif cache_only:
                     # Cache-only: the provider answers from the raw cache; the
                     # bare suggester would go to the network. - Claude Generated
                     res = base_provider.search(
@@ -458,10 +521,13 @@ class ToolGenerationMixin:
                     )
                     results = res.to_gnd_keywords()
                     errors = dict(res.errors or {})
+                    term_errors = errors
                 else:
                     sugg = underlying_suggester(base_provider)
                     results = sugg.search(list(terms), search_type=search_type)
                     errors = dict(getattr(sugg, "last_errors", {}) or {})
+                    term_errors = errors
+                    self._count_terms(base_provider, terms, term_errors, hits=results)
             except Exception as exc:
                 logger.error("search tool '%s' failed: %s", spec.name, exc)
                 return json.dumps({"error": str(exc)})
@@ -477,10 +543,9 @@ class ToolGenerationMixin:
             out = {"source": spec.source_label, "results": serialized}
             if spec.include_errors:
                 out["errors"] = errors
-            block = None if spec.cached else self._cache_only_block(base_provider, errors)
-            if block:
-                out["cache_only"] = block
-            self._attach_agent_view(out, raw_id, terms, search_type, max_pages=max_pages)
+            self._attach_status_blocks(out, base_provider, term_errors)
+            self._attach_agent_view(out, raw_id, terms, search_type, max_pages=max_pages,
+                                    any_age=cache_only)
             return json.dumps(out, ensure_ascii=False)
 
         return handler
@@ -508,7 +573,7 @@ class ToolGenerationMixin:
             logger.debug(f"agent_view deriver for '{source}' unavailable: {e}")
         return None
 
-    def _attach_agent_view(self, out, source, terms, search_type, max_pages=5):
+    def _attach_agent_view(self, out, source, terms, search_type, max_pages=5, any_age=False):
         """Surface the full source view (member/totalItems) from the raw cache.
 
         Transform-on-read consumer of the WP2 raw cache: best-effort and additive
@@ -529,9 +594,11 @@ class ToolGenerationMixin:
         # Same key the write seam used — a source keying on max_pages/facets would
         # silently miss against a hand-built {"search_type": …}. - Claude Generated
         params = raw_cache_params_for(source, search_type=search_type, max_pages=max_pages)
+        # Cache-only instances read the raw cache at any age. - Claude Generated
+        age = {"max_age_hours": None} if any_age else {}
         view = {}
         for term in terms:
-            cached = km.get_raw_response(source, term, params)
+            cached = km.get_raw_response(source, term, params, **age)
             if not cached:
                 continue
             try:
@@ -589,9 +656,14 @@ class ToolGenerationMixin:
         missing suggester was reported as "not available" — which is what the
         contract-only providers look like, even though they work. - Claude Generated
         """
-        def handler(terms, search_type="title", max_results=25, **_ignore):
+        def handler(terms, search_type=None, max_results=None, **_ignore):
             from src.core.search.service import underlying_suggester
 
+            # Defaults of the spec (sru: kw/10), else the former "title"/25.
+            # - Claude Generated
+            search_type = search_type or spec.default_opts.get("search_type") or "title"
+            if max_results is None:
+                max_results = spec.default_opts.get("max_results", 25)
             try:
                 provider = self._provider_for(inst, cache=False)
                 if hasattr(provider, "is_available") and not provider.is_available():
@@ -607,6 +679,12 @@ class ToolGenerationMixin:
                         list(terms), search_type=search_type, max_results=max_results
                     )
                     out = {"source": spec.source_label, "results": results}
+                    errs = getattr(sugg, "last_errors", None)
+                    self._count_terms(provider, terms, errs if isinstance(errs, dict) else None,
+                                      records={t: len(r or []) for t, r in (results or {}).items()})
+                    down = self._source_down_block(errs if isinstance(errs, dict) else None)
+                    if down:
+                        out["source_down"] = down
                 else:
                     from src.core.search.provider import SearchCapability
 
@@ -623,20 +701,68 @@ class ToolGenerationMixin:
                             for term, items in res.per_term.items()
                         },
                     }
+                    self._count_terms(provider, terms, res.errors, records={
+                        t: len(r) for t, r in out["results"].items()})
                     meta = {t: m for t, m in (res.per_term_meta or {}).items() if m}
                     if meta:
                         out["meta"] = meta
                     if spec.include_errors:
                         out["errors"] = dict(res.errors or {})
-                    block = self._cache_only_block(provider, res.errors)
-                    if block:
-                        out["cache_only"] = block
+                    self._attach_status_blocks(out, provider, res.errors)
+                    self._attach_notice(out, provider, res)
             except Exception as exc:
                 logger.error("search tool '%s' failed: %s", spec.name, exc)
                 return json.dumps({"error": str(exc)})
             return json.dumps(out, ensure_ascii=False)
 
         return handler
+
+    @staticmethod
+    def _count_terms(provider, terms, term_errors, *, hits=None, records=None):
+        """Per-run source overview (``source_usage``) for a tool call that does
+        not go through the provider base: one entry per term. Title searches
+        pass ``records`` (count per term), GND searches ``hits``. Best-effort.
+        - Claude Generated"""
+        try:
+            from src.core.search import source_usage
+
+            inner = getattr(provider, "inner", provider)  # unwrap CachingProvider
+            source_usage.record_terms(
+                getattr(inner, "source_id", None), list(terms or []),
+                errors=term_errors if isinstance(term_errors, dict) else None,
+                hits=hits if isinstance(hits, dict) else None, records=records,
+                cache_only=getattr(inner, "cache_only", False) is True,
+                kind=source_usage.KIND_RECORDS if records is not None else source_usage.KIND_KEYWORDS,
+            )
+        except Exception as exc:  # noqa: BLE001 - the overview must not break a tool
+            log = logging.getLogger(__name__)
+            from src.utils.error_visibility import log_caught
+
+            log_caught(log, exc, "source overview")
+
+    def _known_tool_names(self):
+        """Names of the tools this registry offers (registered or generated)."""
+        names = set(getattr(self, "_tools", None) or {})
+        names.update(getattr(self, "_generated_search_tool_names", None) or [])
+        return names
+
+    def _attach_notice(self, out, provider, res):
+        """Add the provider's plain-text ``notice`` when it has one (kvk: cut or
+        failed union catalogues). ``tool_notice(result, tools=…)`` is optional on
+        a provider; ``tools`` are the names in this registry, so the text names
+        only a tool that exists. - Claude Generated"""
+        fn = getattr(provider, "tool_notice", None)
+        if not callable(fn):
+            return
+        try:
+            notice = fn(res, tools=self._known_tool_names())
+        except Exception as exc:  # noqa: BLE001 - a notice must not break the result
+            from src.utils.error_visibility import log_caught
+
+            log_caught(logger, exc, "tool notice", detail=getattr(provider, "id", "?"))
+            return
+        if notice:
+            out["notice"] = notice
 
     def _make_instance_handler(self, spec, inst):
         """Handler for a *non-canonical* search instance: build the provider from its
@@ -649,12 +775,14 @@ class ToolGenerationMixin:
             terms,
             search_type=None,
             max_pages=5,
-            max_results=25,
+            max_results=None,
             filters=None,
             limit=None,
             facets=None,
             **_ignore,
         ):
+            if max_results is None:
+                max_results = spec.default_opts.get("max_results", 25)  # - Claude Generated
             try:
                 from src.core.search import build_provider
                 from src.core.search.provider import SearchCapability
@@ -674,12 +802,11 @@ class ToolGenerationMixin:
                     }
                     if spec.include_errors:
                         out["errors"] = dict(res.errors or {})
-                    block = self._cache_only_block(provider, res.errors)
-                    if block:
-                        out["cache_only"] = block
+                    self._attach_status_blocks(out, provider, res.errors)
                     return json.dumps(out, ensure_ascii=False)
                 # title_records / finc → TITLE_RECORDS
-                st = search_type or ("title" if spec.result_shape == "title_records" else "kw")
+                st = search_type or spec.default_opts.get("search_type") or (
+                    "title" if spec.result_shape == "title_records" else "kw")
                 res = provider.search(
                     SearchCapability.TITLE_RECORDS,
                     terms,
@@ -691,17 +818,23 @@ class ToolGenerationMixin:
                 )
                 if spec.result_shape == "finc":
                     results = res.to_finc_records()
+                    counts = {t: len(d.get("records") or []) for t, d in results.items()}
                 else:
                     results = {
                         term: [it.record for it in items if it.record is not None]
                         for term, items in res.per_term.items()
                     }
+                    counts = {t: len(r) for t, r in results.items()}
+                self._count_terms(provider, terms, res.errors, records=counts)
                 out = {"source": spec.source_label, "results": results}
+                if spec.result_shape == "title_records":
+                    meta = {t: m for t, m in (res.per_term_meta or {}).items() if m}
+                    if meta:
+                        out["meta"] = meta  # total/truncated per term - Claude Generated
                 if spec.include_errors:
                     out["errors"] = dict(res.errors or {})
-                block = self._cache_only_block(provider, res.errors)
-                if block:
-                    out["cache_only"] = block
+                self._attach_status_blocks(out, provider, res.errors)
+                self._attach_notice(out, provider, res)
                 return json.dumps(out, ensure_ascii=False)
             except Exception as exc:  # never break the agent on an extra instance
                 return json.dumps({"error": f"{inst.instance_id}: {exc}"})

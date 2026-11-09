@@ -33,7 +33,11 @@ class SWBSuggester(BaseSuggester):
     """
 
     def __init__(
-        self, data_dir: Optional[Union[str, Path]] = None, debug: bool = False
+        self,
+        data_dir: Optional[Union[str, Path]] = None,
+        debug: bool = False,
+        timeout: Optional[int] = None,
+        source_id: Optional[str] = None,
     ):
         """
         Initialize the SWB Suggester.
@@ -41,8 +45,17 @@ class SWBSuggester(BaseSuggester):
         Args:
             data_dir: Directory to store cached data (default: script_dir/data/swbsuggester)
             debug: Whether to enable debug output
+            timeout: seconds per SWB page request (default ``REQUEST_TIMEOUT_S``)
+            source_id: instance id under which ``source_health`` counts
+                connection failures; ``None`` leaves requests untracked.
+                - Claude Generated
         """
         super().__init__(data_dir, debug)
+        try:
+            self.timeout = int(timeout) if timeout else REQUEST_TIMEOUT_S
+        except (TypeError, ValueError):
+            self.timeout = REQUEST_TIMEOUT_S
+        self.source_id = source_id
         self.cache_filename = "swb_gnd_cache_v2.json"  # v2: canonical gnd_ids/classifications keys
         self.cache = self._load_cache()
 
@@ -475,6 +488,13 @@ class SWBSuggester(BaseSuggester):
             self.logger.debug(f"Searching SWB for subject term: {search_term}")
             self.logger.debug(f"URL: {url}")
 
+        from src.core.search import source_health
+
+        if source_health.is_down(self.source_id):
+            # Skipped for this run: unknown, not cached. - Claude Generated
+            self._record_search_error(search_term, source_health.down_message(self.source_id))
+            return {}
+
         all_subjects = {}
         self._last_swb_status = None
         current_url = url
@@ -487,7 +507,9 @@ class SWBSuggester(BaseSuggester):
                 self.logger.debug(f"\nProcessing page {page_count}: {current_url}")
 
             try:
-                response = requests.get(current_url, timeout=REQUEST_TIMEOUT_S)
+                response = source_health.call(
+                    self.source_id, requests.get, current_url, timeout=self.timeout
+                )
                 response.raise_for_status()
 
                 # Decode HTML
@@ -528,9 +550,13 @@ class SWBSuggester(BaseSuggester):
 
             except Exception as e:
                 had_error = True
-                self._record_search_error(
-                    search_term, f"page {page_count} of SWB request failed: {e}"
-                )
+                if isinstance(e, source_health.SourceDownError):
+                    # Keep the marker intact for the reporters. - Claude Generated
+                    self._record_search_error(search_term, e)
+                else:
+                    self._record_search_error(
+                        search_term, f"page {page_count} of SWB request failed: {e}"
+                    )
                 break
 
         # Prepare results in the desired format

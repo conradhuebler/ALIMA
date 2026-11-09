@@ -248,6 +248,8 @@ tags
 # ALIMA institution-specific presets (may contain tokens/API keys)
 alima_presets.json
 alima_presets_*.json
+# ... except the invented example package
+!examples/presets/*/alima_presets.json
 
 # ALIMA temporary / output / backup files
 *.db

@@ -54,6 +54,10 @@ class ConfigField:
     gates_availability: bool = False
     choices: Optional[List[str]] = None
     help: str = ""
+    # Optional bounds for INT fields, applied by coerce() and the settings form.
+    # None = unbounded (every field declared before them). - Claude Generated
+    minimum: Optional[int] = None
+    maximum: Optional[int] = None
 
     def __post_init__(self) -> None:
         if not self.key or not isinstance(self.key, str):
@@ -90,7 +94,12 @@ class ConfigField:
             return self.default
         try:
             if self.kind == INT:
-                return int(value)
+                number = int(value)
+                if self.minimum is not None:
+                    number = max(self.minimum, number)
+                if self.maximum is not None:
+                    number = min(self.maximum, number)
+                return number
             if self.kind == BOOL:
                 if isinstance(value, str):
                     return value.strip().lower() in ("1", "true", "yes", "on")

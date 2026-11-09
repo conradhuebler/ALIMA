@@ -14,10 +14,17 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, INT, TEXT, URL, ConfigField
 
+from src.core.search import source_health
 from src.core.search.cache_only import CACHE_MISS_MESSAGE, cache_only_field
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from src.core.search.provider_base import SuggesterBackedProvider
 from src.core.search.registry import register_provider
+from src.core.search.timeouts import timeout_field, timeout_from
+
+# finc keeps the key it has always had (``timeout``), with the shared bounds.
+# - Claude Generated
+_TIMEOUT_KEY = "timeout"
+_DEFAULT_TIMEOUT_S = 30
 
 
 @register_provider
@@ -37,6 +44,9 @@ class FincProvider(SuggesterBackedProvider):
         SearchCapability.CLASSIFICATION,
     }
     raw_cache_param_keys = ("search_type", "facets")  # results depend on the facet set
+    # Axes of the joint title search (search_titles); finc has no ISBN index
+    # of its own here. - Claude Generated
+    title_search_axes = {"kw": "kw", "title": "title", "author": "author", "subject": "subject"}
     # availability enum (lowercase, LLM-facing) → VuFind facet_avail value.
     _AVAIL_TO_FACET = {"local": "Local", "online": "Online", "free": "Free"}
 
@@ -58,13 +68,16 @@ class FincProvider(SuggesterBackedProvider):
             ),
             ConfigField(
                 key="institution_filter", label="Institutions-Filter", kind=TEXT,
-                help="Optionaler VuFind-Facet-Filter, z.B. institution:DE-105.",
+                help="Optional: ISIL der besitzenden Bibliothek (z. B. die ISIL Ihrer "
+                "Bibliothek); gesendet als Filter institution:\"<Wert>\".",
             ),
             ConfigField(key="default_limit", label="Max. Datensätze", kind=INT, default=20),
-            ConfigField(key="timeout", label="Timeout (s)", kind=INT, default=30),
+            timeout_field(_DEFAULT_TIMEOUT_S, key=_TIMEOUT_KEY),
             ConfigField(
                 key="dk_enabled", label="finc für DK-Suche nutzen", kind=BOOL, default=False,
-                help="Per-Titel udk_raw für die DK-Klassifikationssuche statt Libero/SRU.",
+                help="finc ist DK-Quelle (DK/RVK je Titel aus der DK-Facette der Einrichtung). "
+                "Mehrere DK-Quellen fragt der DK-Schritt in der Reihenfolge der Liste "
+                "(Rückfall je Schlagwort).",
             ),
             ConfigField(
                 key="harvest_enabled", label="finc-Subject-Harvest", kind=BOOL, default=False,
@@ -89,6 +102,46 @@ class FincProvider(SuggesterBackedProvider):
 
     @classmethod
     def mcp_tool_specs(cls):
+        # The library's DK facet and ISIL come from the institution setting
+        # (src/utils/institution.py), read when the tools are generated.
+        # - Claude Generated
+        from src.utils.institution import finc_dk_facet, institution_filter
+
+        dk_facet = finc_dk_facet()
+        isil = institution_filter()
+        if dk_facet:
+            facets_hint = (
+                f"Use `facets` (e.g. [\"{dk_facet}\",\"rvk_facet\"]) to also "
+                "get the DK/RVK classification distribution, "
+            )
+            dk_type_hint = (
+                f"dk = search directly in the DK/UDK notation field ({dk_facet}, e.g. "
+                "lookfor='DK 57' or 'qt 000'); "
+            )
+            auto_facets_hint = (
+                f"For dk and rvk types, {dk_facet} and rvk_facet facets are added "
+                "automatically so the classification distribution is always returned."
+            )
+            dk_facet_hint = f"Use {dk_facet} for numeric DK notations (e.g. 'dk 530.145'), "
+            coarse_hint = f"udk_facet_{dk_facet[len('udk_raw_'):]} (coarse DK group), "
+        else:
+            facets_hint = (
+                "Use `facets` (e.g. [\"rvk_facet\"]) to also get the RVK "
+                "classification distribution (the library's DK facet needs the "
+                "institution ISIL, which is not set), "
+            )
+            dk_type_hint = (
+                "dk = the library's DK/UDK notation field; needs the institution "
+                "ISIL, which is not set, so it returns an institution_not_set error; "
+            )
+            auto_facets_hint = (
+                "For the rvk type the rvk_facet facet is added automatically."
+            )
+            dk_facet_hint = ""
+            coarse_hint = ""
+        isil_example = f"e.g. {{\"institution\": \"{isil}\"}}" if isil else \
+            "e.g. {\"institution\": \"<ISIL of the library>\"}"
+        holding_example = f"holding library, e.g. {isil}" if isil else "holding library ISIL"
         return [ProviderToolSpec(
             name="search_finc",
             capability=SearchCapability.TITLE_RECORDS,
@@ -113,9 +166,9 @@ class FincProvider(SuggesterBackedProvider):
                 "if a title genuinely isn't found here, try search_catalog_titles (direct "
                 "Libero/SOAP catalog search) as a fallback before concluding it's absent "
                 "from the collection. "
-                "Use `facets` (e.g. [\"udk_raw_de105\",\"rvk_facet\"]) to also "
-                "get the DK/RVK classification distribution, and `filters` to scope by "
-                "facet (VuFind syntax, e.g. {\"institution\": \"DE-105\"} or "
+                + facets_hint +
+                "and `filters` to scope by "
+                f"facet (VuFind syntax, {isil_example} or "
                 "{\"id\": \"<record-id>\"} for one record). Use `availability` to "
                 "restrict to physical holdings ('local'), licensed e-resources "
                 "('online'), or open access ('free'). "
@@ -138,11 +191,9 @@ class FincProvider(SuggesterBackedProvider):
                             "Which field to search: subject = controlled subject/keyword "
                             "headings; title = words in the title (use for one or many "
                             "titles); author = author/contributor names; kw/freetext = "
-                            "all fields; dk = search directly in the DK/UDK notation field "
-                            "(udk_raw_de105, e.g. lookfor='DK 57' or 'qt 000'); rvk = search "
-                            "directly in the RVK notation field (rvk_facet). For dk and rvk "
-                            "types, udk_raw_de105 and rvk_facet facets are added automatically "
-                            "so the classification distribution is always returned."
+                            "all fields; " + dk_type_hint + "rvk = search "
+                            "directly in the RVK notation field (rvk_facet). "
+                            + auto_facets_hint
                         ),
                     },
                     "filters": {
@@ -150,8 +201,8 @@ class FincProvider(SuggesterBackedProvider):
                         "description": (
                             "Optional facet filters as key→value. Each entry is sent "
                             "as one filter[]=key:\"value\" parameter. Common keys: "
-                            "institution (holding library, e.g. DE-105), udk_facet_de105 "
-                            "(coarse DK group), rvk_facet, id (single record), format, "
+                            f"institution ({holding_example}), " + coarse_hint +
+                            "rvk_facet, id (single record), format, "
                             "language."
                         ),
                     },
@@ -160,9 +211,8 @@ class FincProvider(SuggesterBackedProvider):
                         "items": {"type": "string"},
                         "description": (
                             "Optional facet fields to compute per term; buckets are "
-                            "returned under each term's 'facets'. Use udk_raw_de105 for "
-                            "numeric DK notations (e.g. 'dk 530.145'), rvk_facet for RVK, "
-                            "dewey-hundreds for DDC."
+                            "returned under each term's 'facets'. " + dk_facet_hint +
+                            "rvk_facet for RVK, dewey-hundreds for DDC."
                         ),
                     },
                     "limit": {
@@ -209,6 +259,8 @@ class FincProvider(SuggesterBackedProvider):
             entry = (raw or {}).get(term)
             if entry is None:
                 continue
+            if any(source_health.is_source_down(e) for e in (entry.get("errors") or [])):
+                continue  # skipped, not answered: keep any earlier entry - Claude Generated
             try:
                 blob = json.dumps(entry, ensure_ascii=False, default=str)
             except (TypeError, ValueError):
@@ -226,10 +278,11 @@ class FincProvider(SuggesterBackedProvider):
             base_url=self._config.get("base_url", "") or "",
             web_record_url=self._config.get("web_record_url", "") or "",
             default_limit=int(self._config.get("default_limit", 20) or 20),
-            timeout=int(self._config.get("timeout", 30) or 30),
+            timeout=timeout_from(self._config, _DEFAULT_TIMEOUT_S, key=_TIMEOUT_KEY),
             institution_filter=self._config.get("institution_filter", "") or "",
             debug=self._config.get("debug", False),
             cache_only=self.cache_only,
+            source_id=self.source_id,
         )
 
     def catalog_web_record_base(self) -> str:
@@ -262,7 +315,10 @@ class FincProvider(SuggesterBackedProvider):
         # always get the notation distribution; explicit facets win. - Claude Generated
         effective_facets = facets
         if (search_type or "kw") in ("dk", "rvk") and not facets:
-            effective_facets = ["udk_raw_de105", "rvk_facet"]
+            from src.utils.institution import finc_dk_facet
+
+            dk_facet = finc_dk_facet()
+            effective_facets = [dk_facet, "rvk_facet"] if dk_facet else ["rvk_facet"]
         # Availability enum → facet_avail filter; caller-supplied filters win.
         effective_filters = dict(filters or {})
         if availability:
@@ -273,6 +329,14 @@ class FincProvider(SuggesterBackedProvider):
             raw, errors = self._search_cache_only(
                 list(query), search_type, effective_facets, limit
             )
+            if capability is SearchCapability.TITLE_RECORDS:
+                return ProviderResult.from_finc_records(raw, errors=errors)
+            return _facets_from_finc_dict(raw, errors=errors)
+        if source_health.is_down(self.source_id):
+            # Skipped for this run: unknown per term, nothing written. - Claude Generated
+            errors = self._source_down_errors(list(query))
+            raw = {term: {"records": [], "result_count": 0, "facets": {},
+                          "errors": [errors[term]]} for term in query}
             if capability is SearchCapability.TITLE_RECORDS:
                 return ProviderResult.from_finc_records(raw, errors=errors)
             return _facets_from_finc_dict(raw, errors=errors)
@@ -354,12 +418,13 @@ class FincProvider(SuggesterBackedProvider):
             base_url=self._config.get("base_url", "") or "",
             web_record_url=self._config.get("web_record_url", "") or "",
             institution_filter=self._config.get("institution_filter", "") or "",
-            timeout=int(self._config.get("timeout", 30) or 30),
+            timeout=timeout_from(self._config, _DEFAULT_TIMEOUT_S, key=_TIMEOUT_KEY),
             max_titles_per_keyword=int(self._config.get("default_limit", 50) or 50),
             logger_=logger_,
             stream_callback=stream_callback,
             knowledge_manager=knowledge_manager,
             cache_only=self.cache_only,
+            source_id=self.source_id,
         )
 
     def _classification_search(

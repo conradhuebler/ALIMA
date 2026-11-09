@@ -77,6 +77,8 @@ class FirstStartWizard(QWizard):
 
         # Store configuration results
         self.config = None
+        # Lines on what the preset set after "Fertig stellen" - Claude Generated
+        self.preset_result_lines: List[str] = []
 
     #: Sections the wizard actually asks about. Everything else on an existing
     #: config is left alone. - Claude Generated
@@ -180,7 +182,7 @@ class FirstStartWizard(QWizard):
             # re-running the wizard used to wipe every plugin instance's settings
             # (finc endpoint, sru preset, the webindex fields, k10plus, dnb),
             # chat_config, ui_config, repetition_config, the Tier-2 plugin
-            # approvals, the installed bundles and every additional LLM provider.
+            # approvals, the deployment ledger and every additional LLM provider.
             # That was tolerable while --wizard was the only way in; it is not
             # once the wizard is reachable from the menu. - Claude Generated
             self.config = self._apply_onto_existing(wizard_config)
@@ -226,6 +228,17 @@ class FirstStartWizard(QWizard):
             # Save configuration (after database config is applied!)
             config_manager = ConfigManager()
             config_manager.save_config(self.config)
+
+            # Institution, workflow, plugins and files of the preset, with the
+            # same plan as "Preset anwenden" (no extra dialog; the summary page
+            # listed them). Never raises: a broken preset does not stop the
+            # wizard. - Claude Generated
+            if self._presets.path:
+                from ..utils.preset_apply import apply_after_setup
+
+                self.preset_result_lines = apply_after_setup(
+                    self._presets.path, config_manager, self._presets.source or "given"
+                )
 
             # Handle GND actions - Claude Generated
             gnd_action = self.database_page.get_gnd_action() if hasattr(self, 'database_page') else 'skip'
@@ -405,9 +418,9 @@ class WelcomePage(QWizardPage):
         layout.addWidget(description)
 
         # Institution preset banner - Claude Generated
-        if presets and presets.institution_name:
+        if presets and presets.display_name():
             preset_banner = QLabel(
-                f"🏛️ Konfiguriert für: {presets.institution_name}\n"
+                f"🏛️ Konfiguriert für: {presets.display_name()}\n"
                 "Vorausgefüllte Einstellungen können überschrieben werden."
             )
             c = get_colors()
@@ -612,9 +625,6 @@ class LLMSetupPage(QWizardPage):
                     self.ollama_host_input.setText(presets.llm_base_url)
             elif provider == 'openai_compatible':
                 self.base_url_input.setText(presets.llm_base_url)
-
-        if presets.llm_api_key:
-            self.api_key_input.setText(presets.llm_api_key)
 
         if presets.llm_provider_name:
             self.provider_name = presets.llm_provider_name
@@ -1549,8 +1559,6 @@ class CatalogSetupPage(QWizardPage):
             self.soap_search_url.setText(presets.catalog_soap_search_url)
         if presets.catalog_soap_details_url:
             self.soap_details_url.setText(presets.catalog_soap_details_url)
-        if presets.catalog_token:
-            self.catalog_token.setText(presets.catalog_token)
         if presets.catalog_web_search_url:
             self.web_search_url.setText(presets.catalog_web_search_url)
         if presets.catalog_web_record_url:
@@ -1680,6 +1688,21 @@ class SummaryPage(QWizardPage):
         else:
             catalog_summary = "Übersprungen (kein SOAP konfiguriert)"
 
+        # What the preset sets after "Fertig stellen" (without hashing its
+        # files; the plan is built then) - Claude Generated
+        preset_summary = ""
+        presets = getattr(wizard, "_presets", None)
+        if presets is not None and presets.path:
+            try:
+                from ..utils.preset_apply import describe_preset, load_preset
+
+                lines = describe_preset(load_preset(presets.path, presets.source or "given"))
+            except Exception as exc:  # the wizard goes on without the preset part
+                lines = [f"Preset nicht lesbar: {exc}"]
+            if lines:
+                preset_summary = (f"\n🏛️ Preset {presets.display_name()} (wird beim Fertigstellen "
+                                  "angewendet):\n" + "\n".join(f"   {line}" for line in lines) + "\n")
+
         summary = f"""
 ALIMA Konfiguration - Zusammenfassung
 ══════════════════════════════════════
@@ -1699,7 +1722,7 @@ ALIMA Konfiguration - Zusammenfassung
 
 🏛️ Katalog-SOAP:
    {catalog_summary}
-
+{preset_summary}
 ✅ Setup abgeschlossen!
    Klicken Sie auf "Fertig stellen" um ALIMA zu starten.
         """

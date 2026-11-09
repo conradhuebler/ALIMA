@@ -189,18 +189,20 @@ class TestTripwireIsArmed(unittest.TestCase):
 
 
 class TestSetting(unittest.TestCase):
-    def test_field_is_declared_for_catalog_and_finc_only(self):
+    def test_field_is_declared_for_the_sources_with_a_cache_path(self):
+        """Since Nov 6 also lobid, swb and kvk, since Nov 9 sru (raw cache of
+        its title and PICA DK answers); gnd_local is local. - Claude Generated"""
         from src.core.plugins.schema import BOOL
         from src.core.search.factory import SearchProviderCategory
 
         cat = SearchProviderCategory()
-        for pid in ("catalog", "finc"):
+        for pid in ("catalog", "finc", "lobid", "swb", "kvk", "sru"):
             fields = {f.key: f for f in cat.type_meta(pid).config_fields}
             self.assertIn("cache_only", fields, pid)
             self.assertEqual(fields["cache_only"].kind, BOOL)
             self.assertIs(fields["cache_only"].default, False)
             self.assertTrue(fields["cache_only"].help)
-        for pid in ("lobid", "swb", "sru"):
+        for pid in ("gnd_local",):
             keys = {f.key for f in cat.type_meta(pid).config_fields}
             self.assertNotIn("cache_only", keys, pid)
 

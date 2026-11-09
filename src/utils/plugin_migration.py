@@ -58,7 +58,10 @@ SEARCH_FIELD_MAP: Dict[str, Dict[str, str]] = {
 
 # Stable presentation order + built-in labels (avoids importing the Qt-free
 # provider classes just for a label during config parsing).
-_SEARCH_ORDER = ["lobid", "swb", "catalog", "finc", "sru", "gnd_local", "kvk"]
+# Order of the search instances of a new installation; an existing config keeps
+# its stored order. finc before catalog: the DK step and search_titles ask
+# their sources in list order. - Claude Generated
+_SEARCH_ORDER = ["lobid", "swb", "finc", "catalog", "sru", "gnd_local", "kvk"]
 _SEARCH_LABELS = {
     "lobid": "Lobid (GND/DNB)",
     "swb": "SWB (BSZ)",
@@ -218,8 +221,8 @@ def migrate_catalog_type(plugins: List) -> bool:
     DK backend was chosen by a ``catalog_type`` field on the *catalog* instance:
     ``marcxml_sru`` meant SRU, ``auto`` meant SRU-if-configured. The field was
     declared vestigial in July 2026 but stayed in the settings form, labelled
-    "DK-Backend", suggesting it still decided something. It did not — finc's and
-    sru's ``dk_enabled`` plus the precedence chain in ``resolve_dk_extractor`` do.
+    "DK-Backend", suggesting it still decided something. It did not — the
+    instances' ``dk_enabled`` switches (``factory.dk_candidates``) do.
 
     This carries the operator's old choice over exactly once and drops the key,
     so the removed form field cannot silently change which backend a library uses.

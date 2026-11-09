@@ -104,6 +104,82 @@ def geo_sachdb_proposal_text(item: Dict[str, str]) -> str:
     return f"{text} · {item['note']}" if item["note"] else text
 
 
+#: Where an assigned notation came from when the local subject database had it
+#: among the notations the step ``geo_prior`` gave the classification.
+GEO_ORIGIN_LOCAL = "lokale Datenbank"
+GEO_ORIGIN_BOTH = "Katalog und lokale Datenbank"
+
+
+def geo_prior_origins(geo_prior: Any) -> Dict[Tuple[str, str], Dict[str, Any]]:
+    """Per local notation of ``state.geo_prior`` (key: system and comparison
+    form of the notation) its origin text and the keywords that reach it.
+    Empty without data. - Claude Generated
+    """
+    from src.utils.lookups.geo_sachdb.schema import compact
+
+    out: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    if not isinstance(geo_prior, dict):
+        return out
+    for cand in geo_prior.get("candidates") or []:
+        if not isinstance(cand, dict) or not cand.get("code"):
+            continue
+        system = str(cand.get("system") or "DK").upper()
+        out[(system, compact(str(cand["code"])))] = {
+            "origin": GEO_ORIGIN_BOTH if cand.get("in_catalog") else GEO_ORIGIN_LOCAL,
+            "via": [str(term) for term in (cand.get("via_keywords") or []) if term],
+        }
+    return out
+
+
+def geo_prior_origin(
+    origins: Dict[Tuple[str, str], Dict[str, Any]], display: str, system: str = ""
+) -> Optional[Dict[str, Any]]:
+    """The origin of one assigned notation (``DK 999.5``), or ``None`` when the
+    local notations did not have it. - Claude Generated"""
+    if not origins or not display:
+        return None
+    from src.utils.lookups.geo_sachdb.schema import compact, normalize_notation
+
+    default = str(system or "").upper()
+    found_system, code = normalize_notation(display, default if default in ("DK", "RVK") else "DK")
+    return origins.get((found_system, compact(code)))
+
+
+def geo_prior_origin_text(origin: Dict[str, Any]) -> str:
+    """``lokale Datenbank · über A, B`` - Claude Generated"""
+    via = ", ".join(origin.get("via") or [])
+    return f"{origin['origin']} · über {via}" if via else str(origin["origin"])
+
+
+def publication_form_origin(
+    publication_form: Any, display: str, system: str = ""
+) -> Optional[Dict[str, str]]:
+    """``{text, evidence}`` when the assigned notation ``display`` (``DK
+    378.245``) is the one the step ``publication_form`` put in from the input
+    text (``state.publication_form``), else ``None``. ``text``: ``Form:
+    Dissertation (aus dem Eingabetext)``. - Claude Generated
+    """
+    if not isinstance(publication_form, dict) or not publication_form.get("code") or not display:
+        return None
+    from src.utils.classification_systems import split_classification_code
+    from src.utils.publication_form import origin_text
+
+    found_system, code = split_classification_code(display)
+    found_system = found_system or str(system or "").upper() or "DK"
+    wanted = (str(publication_form.get("system") or "DK").upper(),
+              "".join(str(publication_form["code"]).split()))
+    if (found_system, "".join(code.split())) != wanted:
+        return None
+    return {"text": origin_text(str(publication_form.get("label") or "")),
+            "evidence": str(publication_form.get("evidence") or "")}
+
+
+def publication_form_origin_text(origin: Dict[str, str]) -> str:
+    """``Form: Dissertation (aus dem Eingabetext), Textstelle „…“`` - Claude Generated"""
+    evidence = origin.get("evidence") or ""
+    return f"{origin['text']}, Textstelle „{evidence}“" if evidence else origin["text"]
+
+
 class PipelineResultFormatter:
     """Format pipeline results for display - Claude Generated"""
 
@@ -822,12 +898,32 @@ class PipelineResultFormatter:
                     f'<span class="classification-badge classification-badge--standard">'
                     f'{bar} {total} Treffer</span>'
                 )
+            # Beside the hit bar (catalogue titles only): the notation was
+            # among the local notations of geo_prior. - Claude Generated
+            geo_origin = e.get("geo_origin")
+            if geo_origin:
+                head.append(
+                    '<span class="classification-badge classification-badge--local">'
+                    f'{esc(str(geo_origin["origin"]))}</span>'
+                )
+            # Put in by the step publication_form; the passage it rests on in
+            # the tooltip, so the cataloguer can check it. - Claude Generated
+            form_origin = e.get("form_origin")
+            if form_origin:
+                evidence = str(form_origin.get("evidence") or "")
+                tip = f' title="{esc("Textstelle: „" + evidence + "“")}"' if evidence else ""
+                head.append(
+                    f'<span class="classification-badge classification-badge--local"{tip}>'
+                    f'{esc(str(form_origin["text"]))}</span>'
+                )
 
             meta_parts: List[str] = []
             if e.get("label"):
                 meta_parts.append(esc(str(e["label"])))
             if e.get("validation_message") and vs != "standard":
                 meta_parts.append(esc(str(e["validation_message"])))
+            if geo_origin and geo_origin.get("via"):
+                meta_parts.append(esc("über " + ", ".join(geo_origin["via"])))
             meta = (
                 f'<div class="classification-entry__meta">{" · ".join(meta_parts)}</div>'
                 if meta_parts else ""
@@ -901,6 +997,23 @@ class PipelineResultFormatter:
             getattr(analysis_state, "dk_search_results_flattened", None),
         )
         entries = PipelineResultFormatter.normalize_classifications(dk_classifications, flat)
+        # Notations the local subject database had among the ones geo_prior
+        # gave the classification. Nothing changes without that data.
+        # - Claude Generated
+        origins = geo_prior_origins(getattr(analysis_state, "geo_prior", None))
+        if origins:
+            for e in entries:
+                origin = geo_prior_origin(origins, e["display"], e.get("system", ""))
+                if origin:
+                    e["geo_origin"] = origin
+        # The notation the step publication_form took from the input text.
+        # Nothing changes without a hit. - Claude Generated
+        publication = getattr(analysis_state, "publication_form", None)
+        if publication:
+            for e in entries:
+                form_origin = publication_form_origin(publication, e["display"], e.get("system", ""))
+                if form_origin:
+                    e["form_origin"] = form_origin
         html = PipelineResultFormatter.format_classification_badge_card_html(entries)
 
         # Plain-text twin of the card: same order, core marked, so the CLI and
@@ -913,10 +1026,14 @@ class PipelineResultFormatter:
         ordered = sorted(
             entries, key=lambda e: (system_order[e["system"]], rank_sort_key(e))
         )
-        plain = ", ".join(
-            f"{e['display']} (Kern)" if e.get("rank") == "core" else e["display"]
-            for e in ordered
-        )
+
+        def _plain(e: Dict[str, Any]) -> str:
+            marks = (["Kern"] if e.get("rank") == "core" else []) + (
+                [e["geo_origin"]["origin"]] if e.get("geo_origin") else []
+            ) + ([publication_form_origin_text(e["form_origin"])] if e.get("form_origin") else [])
+            return f"{e['display']} ({'; '.join(marks)})" if marks else e["display"]
+
+        plain = ", ".join(_plain(e) for e in ordered)
         return html, plain
 
     @staticmethod
@@ -997,8 +1114,12 @@ class PipelineResultFormatter:
                     if "→" in line or "->" in line
                 ][:10]
 
+        from src.core.search import source_usage as _source_usage
+
+        source_lines = _source_usage.row_lines(_get("source_usage", []) or [])
         if not any((core, form, chains, shelf, geo_hits, geo_proposals, geo_missing,
-                    record["lines"], record_notes, rule_output, entries, codes, keywords)):
+                    record["lines"], record_notes, rule_output, entries, codes, keywords,
+                    source_lines)):
             return "", ""
 
         rows: List[str] = []
@@ -1239,6 +1360,24 @@ class PipelineResultFormatter:
             )
             text.append("")
             text.append(rule_output)
+
+        if source_lines:
+            # Which search sources the run asked (source_usage); collapsed above
+            # five rows. - Claude Generated
+            title_s = _source_usage.TITLE
+            items = "".join(f"<li>{esc(line)}</li>" for line in source_lines)
+            listing = f'<ul class="alima-result__sources">{items}</ul>'
+            if len(source_lines) > _source_usage.COLLAPSE_ABOVE:
+                block = (
+                    '<details class="alima-result__more alima-result__sources-more">'
+                    f"<summary>{esc(title_s)} ({len(source_lines)})</summary>{listing}</details>"
+                )
+            else:
+                block = _copy_head(title_s, "") + listing
+            body += '<div class="alima-result__snippet">' + block + "</div>"
+            text.append("")
+            text.append(f"{title_s}:")
+            text.extend(f"  {line}" for line in source_lines)
 
         header = "Ergebnis" + (f" · {esc(title)}" if title else "")
         html = (

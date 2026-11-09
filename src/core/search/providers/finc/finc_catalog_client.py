@@ -9,7 +9,8 @@ Two-step model (operator decision, June 2026 — "Titelliste per finc, dann jede
 Titel mit udk_raw analysieren"):
 
   1. finc Subject search per keyword  → title records (id, title).
-  2. per title: isolate by id (``lookfor=id:"<id>"``) + facet ``udk_raw_de105`` /
+  2. per title: isolate by id (``lookfor=id:"<id>"``) + facet ``udk_raw_<isil>``
+     (``institution.finc_dk_facet``, ``udk_raw_de105`` for the UB Freiberg) /
      ``rvk_facet`` → that title's exact DK/RVK notations. finc exposes no
      per-record classification field, so the single-record facet is the only
      way to read it (verified against the live endpoint).
@@ -37,7 +38,8 @@ logger = logging.getLogger(__name__)
 class FincCatalogClient:
     """finc DK/RVK extractor exposing the BiblioClient extractor interface."""
 
-    DK_FACET = "udk_raw_de105"
+    # DK facet of the library: ``institution.finc_dk_facet()`` (``udk_raw_de105``
+    # for DE-105), read per call; ``None`` without ISIL. - Claude Generated
     DDC_FACET = "dewey-raw"   # numeric per-title DDC (e.g. "530"), DDC analog of udk_raw
     RVK_FACET = "rvk_facet"
     # rvk_facet buckets that are not real classifications. - Claude Generated
@@ -56,14 +58,15 @@ class FincCatalogClient:
         logger_: Optional[logging.Logger] = None,
         stream_callback: Optional[Callable[[str], None]] = None,
         cache_only: bool = False,
+        source_id: Optional[str] = None,
     ):
         """Initialize the finc catalog extractor.
 
         Args:
             base_url: finc solrproxy base URL (no trailing slash).
             web_record_url: optional record base URL (passed to FincClient).
-            institution_filter: optional holding-library facet value (e.g.
-                "DE-105"); applied as ``filter[]=institution:"<value>"`` on the
+            institution_filter: optional holding-library facet value (the
+                ISIL of the library); applied as ``filter[]=institution:"<value>"`` on the
                 keyword Subject search (NOT on the per-title id lookup).
             timeout: HTTP timeout (seconds) for each finc call.
             max_workers: thread-pool size for the parallel per-title DK fetch.
@@ -77,9 +80,20 @@ class FincCatalogClient:
             cache_only: no finc request at all; titles come from the shared
                 DK cache at any age, keywords without an entry are listed in
                 ``last_cache_misses`` (reset per call). - Claude Generated
+            source_id: plugin instance id for ``source_health``; while the
+                source is down a keyword without a cache hit is skipped without
+                a request and listed in ``last_source_down`` (reset per call),
+                nothing is cached for it. - Claude Generated
         """
         self.cache_only = bool(cache_only)
         self.last_cache_misses: List[str] = []
+        self.source_id = source_id
+        self.last_source_down: List[str] = []
+        # Keywords whose titles could not be read for DK because no ISIL is
+        # set (no DK facet); reset per call. - Claude Generated
+        self.last_not_configured: List[str] = []
+        # Origin of the keyword being processed, for source_usage. - Claude Generated
+        self._usage_origin: Optional[tuple] = None
         self.base_url = base_url
         self.web_record_url = web_record_url or ""
         self.institution_filter = institution_filter or ""
@@ -104,6 +118,7 @@ class FincCatalogClient:
             web_record_url=self.web_record_url,
             timeout=self.timeout,
             cache_only=self.cache_only,
+            source_id=self.source_id,
         )
 
     def _thread_client(self) -> FincClient:
@@ -117,6 +132,13 @@ class FincCatalogClient:
             client = self._new_client()
             self._local.client = client
         return client
+
+    @property
+    def dk_facet(self) -> Optional[str]:
+        """The library's DK facet (``institution.finc_dk_facet``) - Claude Generated"""
+        from src.utils.institution import finc_dk_facet
+
+        return finc_dk_facet()
 
     def _km_or_init(self):
         if self._km is None:
@@ -143,17 +165,32 @@ class FincCatalogClient:
         """
         results: List[Dict[str, Any]] = []
         self.last_cache_misses = []
+        self.last_source_down = []
+        self.last_not_configured = []
+        from src.core.search import source_usage as _usage
+
         for kw in keywords or []:
             clean = (kw or "").split("(")[0].strip()
             if not clean:
                 continue
             t0 = time.time()
+            if self.dk_facet is None and not self.cache_only:
+                # Without an ISIL there is no DK facet to read: reported as
+                # "institution not set", nothing requested, nothing cached.
+                # - Claude Generated
+                self.last_not_configured.append(clean)
+                _usage.record(self.source_id, _usage.NOT_CONFIGURED)
+                continue
+            self._usage_origin = None
             title_list, source = self._titles_for_keyword(clean, max_results, force_update)
+            origin, failed = self._usage_origin or (_usage.NETWORK, False)
             if not title_list:
+                _usage.record(self.source_id, origin, error=failed)
                 continue
             classifications = self._km_or_init().extract_classifications_from_titles(
                 title_list, matched_keywords=[clean]
             )
+            _usage.record(self.source_id, origin, hit=bool(classifications), error=failed)
             if classifications:
                 results.append({
                     "keyword": kw,
@@ -176,6 +213,8 @@ class FincCatalogClient:
         ``title_list`` items: ``{"rsn", "title", "classifications": ["DK ...",
         "RVK ..."]}``.
         """
+        from src.core.search import source_usage as _usage
+
         if self.cache_only:
             return self._titles_cache_only(clean_kw)
         if self.use_cache and not force_update:
@@ -183,7 +222,17 @@ class FincCatalogClient:
             if cached:
                 titles, status, _ = cached
                 if status == "success" and titles:
+                    self._usage_origin = (_usage.CACHE, False)
                     return titles, "cache"
+
+        from src.core.search import source_health
+
+        if self.source_id and source_health.is_down(self.source_id):
+            # Skipped for this run: no request, nothing cached. - Claude Generated
+            self.last_source_down.append(clean_kw)
+            self._usage_origin = (_usage.SKIPPED, False)
+            return [], "finc"
+        self._usage_origin = (_usage.NETWORK, False)
 
         # finc Subject search -> title records (id, title)
         filters = {"institution": self.institution_filter} if self.institution_filter else None
@@ -193,11 +242,13 @@ class FincCatalogClient:
         )
         if payload.get("status") != "OK":
             err = payload.get("error") or "unknown finc error"
+            self._usage_origin = (
+                (_usage.SKIPPED, False) if source_health.is_source_down(err) else (_usage.NETWORK, True))
             if self.logger:
                 self.logger.warning(f"finc DK search for '{clean_kw}' failed: {err}")
             if self.stream_callback:
                 self.stream_callback(f"  ❌ finc '{clean_kw}': {err}\n")
-            if self.use_cache:
+            if self.use_cache and not source_health.is_source_down(err):
                 self._km_or_init().store_catalog_dk_cache(
                     clean_kw, [], status="error", error_message=str(err), ttl_minutes=60
                 )
@@ -232,11 +283,17 @@ class FincCatalogClient:
             self._km_or_init().get_catalog_dk_cache(clean_kw, ignore_ttl=True)
             if self.use_cache else None
         )
+        from src.core.search import source_usage as _usage
+
         status = cached[1] if cached else None
         if status == "success" and cached[0]:
+            self._usage_origin = (_usage.CACHE, False)
             return cached[0], "cache"
         if status != "no_results":
             self.last_cache_misses.append(clean_kw)
+            self._usage_origin = (_usage.CACHE_MISS, False)
+        else:
+            self._usage_origin = (_usage.CACHE, False)
         return [], "cache"
 
     # ------------------------------------------------------------------
@@ -273,19 +330,22 @@ class FincCatalogClient:
         if not record_id:
             return []
         client = self._thread_client()
+        dk_facet = self.dk_facet
+        if dk_facet is None:
+            return []
         payload = client.search(
             lookfor=f'id:"{record_id}"',
             type="AllFields",
-            facets=[self.DK_FACET, self.DDC_FACET, self.RVK_FACET],
+            facets=[dk_facet, self.DDC_FACET, self.RVK_FACET],
             limit=1,
         )
         if payload.get("status") != "OK":
             return []
         facets = payload.get("facets", {}) or {}
         out: List[str] = []
-        for bucket in facets.get(self.DK_FACET, []):
+        for bucket in facets.get(dk_facet, []):
             value = (bucket.get("value") or "").strip()
-            # udk_raw_de105 holds DK notations prefixed with "dk " (e.g.
+            # udk_raw_<isil> holds DK notations prefixed with "dk " (e.g.
             # "dk 530.145"); the field also contains stray non-DK artifacts
             # ("fg", "fgaut") that must NOT be emitted as classifications. - Claude Generated
             if value.lower().startswith("dk "):

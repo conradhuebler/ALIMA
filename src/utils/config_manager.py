@@ -534,8 +534,21 @@ class ConfigManager:
                 plugins += synthesize_input_instances(system_config)
             ensure_lookup_instances(plugins)
             migrate_catalog_type(plugins)
+            # Institution (ISIL/ELN): set once for a Freiberg configuration that
+            # predates the fields, then made the values in use. - Claude Generated
+            from . import institution
+
+            institution.migrate(system_config_data, system_config, plugins)
+            institution.set_current_from(system_config)
             approved_plugins = dict(config_data.get("approved_plugins", {}) or {})
-            installed_bundles = dict(config_data.get("installed_bundles", {}) or {})
+            # Preset ledger (src/utils/preset_apply.py). The ledger key of the
+            # former deployment format is not read and is gone after the next
+            # save. - Claude Generated
+            raw_presets = config_data.get("applied_presets") or []
+            applied_presets = [
+                dict(e) for e in (raw_presets if isinstance(raw_presets, list) else [])
+                if isinstance(e, dict)
+            ]
 
             # Create main config
             config = AlimaConfig(
@@ -547,7 +560,7 @@ class ConfigManager:
                 unified_config=unified_config,
                 plugins=plugins,  # Claude Generated (plugin system)
                 approved_plugins=approved_plugins,  # Claude Generated (plugin system)
-                installed_bundles=installed_bundles,  # Claude Generated (institutional bundles)
+                applied_presets=applied_presets,  # Claude Generated (institution presets)
                 config_version=config_data.get("config_version", "2.0")
             )
 
@@ -821,6 +834,11 @@ class ConfigManager:
 
             # Convert AlimaConfig to dictionary for serialization
             config_dict = asdict(config)
+            self._omit_unset_institution(config, config_dict)
+            # An empty preset ledger stays out of the file, so a config that
+            # never had a preset applied is saved unchanged. - Claude Generated
+            if not config_dict.get("applied_presets"):
+                config_dict.pop("applied_presets", None)
 
             # DEFAULT: Always preserve unified_config unless explicitly disabled
             if preserve_unified:
@@ -927,10 +945,37 @@ class ConfigManager:
 
             # Update internal cache with saved config - Claude Generated
             self._config = config
+            from . import institution
+
+            institution.set_current_from(config.system_config)
             return True
         except Exception as e:
             self.logger.error(f"Error saving configuration: {e}")
             return False
+
+    def _omit_unset_institution(self, config: AlimaConfig, config_dict: dict) -> None:
+        """Leave ``institution_isil``/``institution_eln`` out of the written
+        ``system_config`` while both are empty and the file on disk never had
+        them (``institution.keep_absent_on_save``), so saving an older
+        config.json does not change it. - Claude Generated"""
+        from . import institution
+
+        on_disk = {}
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                on_disk = (json.load(f) or {}).get("system_config") or {}
+        except FileNotFoundError:
+            on_disk = {}
+        except (OSError, ValueError, AttributeError) as e:
+            self.logger.debug(f"Could not read system_config on disk: {e}")
+            on_disk = {}
+        if not isinstance(on_disk, dict):
+            on_disk = {}
+        section = config_dict.get("system_config")
+        if not isinstance(section, dict):
+            return
+        for key in institution.keep_absent_on_save(config.system_config, on_disk, config.plugins):
+            section.pop(key, None)
 
     def _atomic_write_json(self, config_dict: dict) -> None:
         """Write the config dict to disk atomically with 0600 perms - Claude Generated.

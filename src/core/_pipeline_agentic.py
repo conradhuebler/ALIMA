@@ -368,6 +368,7 @@ class AgenticPipelineMixin:
 
             self.current_analysis_state = ctx.to_keyword_analysis_state()
             self._finish_run_timing()
+            self._finish_source_usage()
             # WP10 P-δ.1: retain the raw SharedContext for chat tools.
             self.last_shared_context = ctx
             try:

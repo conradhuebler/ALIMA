@@ -141,6 +141,7 @@ class FincClient:
         timeout: int = DEFAULT_TIMEOUT,
         session: Optional[requests.Session] = None,
         cache_only: bool = False,
+        source_id: Optional[str] = None,
     ):
         """Initialize the finc client.
 
@@ -157,8 +158,13 @@ class FincClient:
             cache_only: send no HTTP request at all; ``search``/``get_records``
                 return an ERROR envelope carrying the cache-only marker
                 (``src/core/search/cache_only.py``). - Claude Generated
+            source_id: plugin instance id under which ``source_health`` counts
+                connection failures; while the source is down, requests return
+                an ERROR envelope carrying the source-down marker instead.
+                ``None`` leaves requests untracked. - Claude Generated
         """
         self.cache_only = bool(cache_only)
+        self.source_id = source_id
         self.base_url = (base_url or "").rstrip("/")
         self.web_record_url = (web_record_url or "").rstrip("/")
         if self.web_record_url:
@@ -187,6 +193,30 @@ class FincClient:
         logger.debug("finc: request suppressed in cache-only mode")
         return {"status": "ERROR", "resultCount": 0, "records": [],
                 "error": CACHE_MISS_MESSAGE, "http_status": None, **extra}
+
+    def _source_down_envelope(self, **extra: Any) -> Optional[Dict[str, Any]]:
+        """ERROR envelope instead of a request while ``source_health`` skips
+        this source; ``None`` when the request may go out. - Claude Generated"""
+        from src.core.search import source_health
+
+        if not (self.source_id and source_health.is_down(self.source_id)):
+            return None
+        return {"status": "ERROR", "resultCount": 0, "records": [],
+                "error": source_health.down_message(self.source_id),
+                "http_status": None, **extra}
+
+    def _get(self, url: str, **kwargs: Any):
+        """``session.get`` under the source-health gate - Claude Generated"""
+        from src.core.search import source_health
+
+        return source_health.call(self.source_id, self.session.get, url, **kwargs)
+
+    @staticmethod
+    def _network_error_text(exc: Exception) -> str:
+        """Error text of a failed request; a skipped source keeps its marker."""
+        from src.core.search.source_health import SourceDownError
+
+        return str(exc) if isinstance(exc, SourceDownError) else f"network error: {exc}"
 
     # ------------------------------------------------------------------
     # Rate limiting (lightweight — finc is local + fast)
@@ -256,6 +286,9 @@ class FincClient:
             }
         if self.cache_only:
             return self._cache_only_envelope(facets={})
+        down = self._source_down_envelope(facets={})
+        if down is not None:
+            return down
         if not lookfor or not str(lookfor).strip():
             return {
                 "status": "ERROR",
@@ -312,7 +345,7 @@ class FincClient:
         self._apply_rate_limit()
 
         try:
-            response = self.session.get(url, params=params, timeout=self.timeout)
+            response = self._get(url, params=params, timeout=self.timeout)
         except requests.exceptions.RequestException as exc:
             self._consecutive_failures += 1
             logger.warning(f"finc request failed: {exc}")
@@ -321,7 +354,7 @@ class FincClient:
                 "resultCount": 0,
                 "records": [],
                 "facets": {},
-                "error": f"network error: {exc}",
+                "error": self._network_error_text(exc),
                 "http_status": None,
             }
 
@@ -418,6 +451,9 @@ class FincClient:
             }
         if self.cache_only:
             return self._cache_only_envelope()
+        down = self._source_down_envelope()
+        if down is not None:
+            return down
         id_list = [str(i) for i in (ids or []) if i]
         if not id_list:
             return {
@@ -443,13 +479,13 @@ class FincClient:
 
         self._apply_rate_limit()
         try:
-            response = self.session.get(url, params=params, timeout=self.timeout)
+            response = self._get(url, params=params, timeout=self.timeout)
         except requests.exceptions.RequestException as exc:
             self._consecutive_failures += 1
             logger.warning(f"finc record request failed: {exc}")
             return {
                 "status": "ERROR", "resultCount": 0, "records": [],
-                "error": f"network error: {exc}", "http_status": None,
+                "error": self._network_error_text(exc), "http_status": None,
             }
 
         if response.status_code != 200:
@@ -608,7 +644,7 @@ class FincClient:
             from src.utils.net_guard import require_http_url
 
             require_http_url(url, what="finc base URL")
-            response = self.session.get(url, timeout=self.timeout)
+            response = self._get(url, timeout=self.timeout)
             response.raise_for_status()
             spec = response.json()
             props = spec["components"]["schemas"]["Record"]["properties"]

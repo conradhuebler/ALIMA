@@ -22,10 +22,12 @@ means adding `status: "research"`.
 
 ## Institution-Specific Variants
 
-- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Three differences, all deliberate:
+- **`alima_v51_105.yaml`** — UB Freiberg variant of `alima_v51.yaml`. Five differences, all deliberate:
   - **Classification prompt** restricts RVK to economics/business (WiWi); non-WiWi subjects use DK only. DDC is not used in Freiberg.
   - **Aufstellung** (`shelf_candidates` → `shelf_select` → `shelf_guard`): the Freihandsystematik via the `local_scheme` plugin. `shelf_select` is the LLM pick; `enabled: false` leaves it at the deterministic candidate list.
   - **`geo_candidates`** (after `dk_postprocess`, before `shelf_*`): local subject database via lookup `geo_sachdb`; deterministic proposals in `extra.geo_sachdb`, never changes `dk_classifications`, empty without a configured plugin instance. Lines and misses reach `KeywordAnalysisState.geo_sachdb` (result card, `show-protocol`, export). Spec: [`docs/wp_geo_sachdb_plugin.md`](../docs/wp_geo_sachdb_plugin.md).
+  - **`geo_prior`** (after `dk_collect`, before `classification`): the same lookup with the final keywords, every local notation as input `local_notations` (`extra.geo_prompt_text`); `classification` runs when catalogue data OR local notations exist. Without local data the prompt is byte-identical. WP §7.2.
+  - **`publication_form`** (after `dk_postprocess`, before `geo_candidates`): rule table `src/utils/publication_form.py`, no model; a text that calls itself a Dissertation/Diplom-/Masterarbeit gets `Hochschulschrift` in `form_keywords` and DK 378.245/378.244 first in `dk_classifications`, no hit = unchanged; `shelf_*` leave form notations out. WP §7.5.
 
 ## RVK via `rvk_lookup` tool (both v51 + v51_105)
 
@@ -40,7 +42,8 @@ means adding `status: "research"`.
 - **Sync rule:** the non-prompt wiring (`rvk_inline`, `tools`,
   `max_iterations`, `final_keywords` input) is identical in both files; only
   the RVK prompt block differs (general vs. WiWi-only). The three
-  `shelf_*` steps and `geo_candidates` exist **only** in the 105 — house data
+  `shelf_*` steps, `geo_prior` (with the `local_notations` input and `when` of
+  `classification`), `publication_form` and `geo_candidates` exist **only** in the 105 — house data
   is not general-purpose. Everything else stays in step.
 
 ## Erschließungsregeln (both v51 + v51_105)
@@ -128,5 +131,5 @@ means adding `status: "research"`.
 
 - **`alima_v51_105.yaml` must stay in sync with `alima_v51.yaml`** except for the institution-specific classification prompt block.
 - When updating `alima_v51.yaml`, apply the same non-prompt changes to `alima_v51_105.yaml`.
-- The `meta_agent:` block (incl. `reflection:`) is identical in both files — keep it in sync.
+- The `meta_agent:` block (incl. `reflection:`) is identical in both files, except the 105's phases for its own steps (`geo_prior`, `publication_form`, `geo_candidates`, `shelf_*`) in both rule blocks and `max_cycles`. Keep the rest in sync.
 - If the two files diverge beyond the classification prompt, that divergence is a bug.

@@ -272,6 +272,7 @@ class KvkClient:
         timeout: int = 30,
         language: str = "de",
         session: Any = None,
+        source_id: Optional[str] = None,
     ):
         from src.utils.net_guard import require_http_url
 
@@ -280,6 +281,8 @@ class KvkClient:
         self.timeout = int(timeout or 30)
         self.language = str(language or "de")
         self._session = session or requests
+        # Instance id for source_health; None leaves requests untracked. - Claude Generated
+        self.source_id = source_id
         # Verbatim response per term — the raw-cache dual-write reads this.
         self.last_raw: Dict[str, str] = {}
         self.last_http_status: Dict[str, int] = {}
@@ -290,7 +293,11 @@ class KvkClient:
         params = build_params(
             term, search_type=search_type, catalogs=self.catalogs, language=self.language
         )
-        response = self._session.get(self.base_url, params=params, timeout=self.timeout)
+        from src.core.search import source_health
+
+        response = source_health.call(
+            self.source_id, self._session.get, self.base_url, params=params, timeout=self.timeout
+        )
         self.last_http_status[term] = int(getattr(response, "status_code", 0) or 0)
         response.raise_for_status()
         payload = response.text or ""

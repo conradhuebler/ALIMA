@@ -16,7 +16,7 @@ The `src/core/` directory contains the fundamental business logic and data manag
 **Plugin System (`src/core/plugins/`, Qt-free):**
 - Category-agnostic framework: `ConfigField` schema, `PluginCategory` adapter registry, `plugin.toml` manifest + directory loader (multi-file package loading), AST security scanner + hash-pinning (all files, symlinks rejected). Concrete categories: search providers + input sources. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md), Authoring: [`docs/plugin_authoring.md`](../../docs/plugin_authoring.md).
 - Search: `@register_provider` + `config_fields` per provider; `search/factory.py` `build_provider` is the single config→provider site (kills 3× hand-wiring). `sru` is a first-class provider type.
-- ✅ **DK/RVK source is capability-driven (July 7)** — classic `execute_notation_search` (renamed from `execute_dk_search`, WP-D2 sweep Aug 4) picks its extractor via `factory.resolve_dk_extractor` from the enabled `CLASSIFICATION`-capable providers (finc opt-in → custom plugin → SRU/Libero), each exposing `dk_extractor()` (shared `extract_dk_classifications_for_keywords` contract). Any catalog plugin declaring `CLASSIFICATION` becomes a DK source with no core edit (completes the D-4 hand-wired site). Tests: `tests/test_dk_extractor_resolver.py`.
+- ✅ **DK/RVK source is capability-driven (July 7)** — classic `execute_notation_search` (renamed from `execute_dk_search`, WP-D2 sweep Aug 4) picks its extractor via `factory.resolve_dk_extractor` from the enabled `CLASSIFICATION`-capable providers (since Nov 9: list order, see below), each exposing `dk_extractor()` (shared `extract_dk_classifications_for_keywords` contract). Any catalog plugin declaring `CLASSIFICATION` becomes a DK source with no core edit (completes the D-4 hand-wired site). Tests: `tests/test_dk_extractor_resolver.py`.
 - ✅ **Self-contained blueprint dirs (July 6)** — each built-in provider is a copyable plugin dir `search/providers/<name>/` (plugin.toml + README + provider [+ suggester]); `SuggesterBackedProvider` is public API (`search/provider_base.py`); secret settings env-overridable (`ALIMA_PLUGIN_<ID>_<KEY>`); URL/SSRF guards in `src/utils/net_guard.py`. E2E: `tests/test_plugin_blueprint_e2e.py`.
 
 **GND-keyword search:**
@@ -73,6 +73,19 @@ Bind-Parameter. Tests: `tests/test_database_mysql_options.py` (reine
 String-Bau-/Validierungslogik; der eigentliche `SET NAMES`-Aufruf folgt der
 bestehenden Politik, den MySQL/MariaDB-Verbindungspfad nicht gegen einen
 echten Server zu testen, wie der SQLite-Pragma-Block direkt daneben).
+
+### ✅ ADDED (Nov 2026): Quellen-Sperre je Lauf, Zeitlimit je Instanz
+- `search/source_health.py`: nach 3 Verbindungsfehlern in Folge (nicht HTTP-Fehler) ist eine Instanz für den Lauf gesperrt (`SourceDownError`, Marker `source_down:`, nie als „kein Treffer“ gecacht, eine Meldung); Reset bei `start_pipeline`, äußerstem `WorkflowExecutor.run`/`MetaAgent.run`, nach 300 s. ⚠️ Neue Netz-Aufrufe in Clients über `source_health.call(source_id, …)` führen.
+- `search/timeouts.py`: `timeout_s` (finc/kvk: `timeout`), 1 bis 120 s, Standard = bisheriges Limit. `NetworkSourceMixin` (provider_base) trägt `source_id`, `cache_only` und die Rohcache-Naht, auch für kvk und sru. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+
+### ✅ ADDED (Nov 9, 2026): Einrichtung (ISIL/ELN), `search_k10plus`, KVK-`notice`
+- `src/utils/institution.py`: `SystemConfig.institution_isil`/`_eln` → `chain_end_marker`/`finc_dk_facet`/`institution_filter`/`institution_eln` (`None` wenn leer); prozessweit gesetzt von `ConfigManager` (Laden/Speichern). ⚠️ Kein „DE-105“/„105“ als Literal in `src/` (Test `TestNoFixedValue`).
+- sru Preset k10plus: `search_k10plus` (PICA-XML, `picaxml_client.py`), `local` nur mit ELN + Exemplar `209A $B<ELN>`; DK mit ELN über `PicaDkExtractor`. Haken `instance_tool_spec` (Werkzeug je Instanz, `None` = keins). „Nur Cache“ jetzt auch sru.
+- `search_kvk`: `notice` über `KvkProvider.tool_notice(result, tools=…)`, gelesen in `_tool_generation._attach_notice`. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
+
+### ✅ ADDED (Nov 9, 2026): DK-Quellen nach Listenreihenfolge, `search_titles`, Quellenübersicht
+- `factory.dk_candidates`: aktiv + CLASSIFICATION + `dk_enabled` (catalog ohne gespeicherten Schlüssel nur, wenn sonst keine Quelle); ab zwei Quellen `dk_fallback.FallbackDkExtractor` (Rückfall je Schlagwort), bei einer der bare Extraktor. ⚠️ Ein neues Nicht-Antwort-Signal eines Extraktors muss in `FallbackDkExtractor._ask` landen, sonst gilt es als „keine Treffer“.
+- `search/source_usage.py`: Zählwerk je Instanz und Lauf, Reset mit `source_health`; Ergebnis `KeywordAnalysisState.source_usage`. ⚠️ Neue Cache-/Netz-Wege zählen nur, wenn sie `source_usage.record*` aufrufen. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
 
 ### Current Issues
 - ✅ **Raw-First Response Cache (WP2, July 2)**: `search_response_cache` speichert die

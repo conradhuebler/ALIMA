@@ -545,15 +545,22 @@ class SearchTab(QWidget):
             msg += f" ({skipped} ohne GND-ID übersprungen)"
         # Cache-only misses are not failures: one count per source. - Claude Generated
         misses = {}
+        skipped = {}
         if isinstance(errors, dict):
             from src.core.search.cache_only import split_cache_misses
+            from src.core.search.source_health import FAILURE_THRESHOLD, split_source_down
 
             errors, misses = split_cache_misses(errors)
+            errors, skipped = split_source_down(errors)
         if errors:
             msg += f" — Quellen fehlgeschlagen: {', '.join(sorted(errors))}"
         for source, terms in misses.items():
             msg += f"; {source}: {len(terms)} Begriffe nicht im Cache (nur Cache)"
-        self._set_status(msg, "warning" if errors else "success")
+        # One count per skipped source, not one entry per term. - Claude Generated
+        for source, terms in skipped.items():
+            msg += (f"; {source}: nach {FAILURE_THRESHOLD} Verbindungsfehlern "
+                    f"übersprungen ({len(terms)} Begriffe)")
+        self._set_status(msg, "warning" if errors or skipped else "success")
 
     def _on_search_failed(self, message: str):
         self._search_ui_idle()

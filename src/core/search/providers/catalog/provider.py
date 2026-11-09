@@ -11,10 +11,16 @@ from typing import Any, Callable, List, Optional
 
 from src.core.plugins.schema import BOOL, URL, SECRET, ConfigField
 
+from src.core.search import source_health
 from src.core.search.cache_only import CACHE_MISS_MESSAGE, cache_only_field
 from src.core.search.provider import ProviderResult, ProviderToolSpec, ResultItem, SearchCapability
 from src.core.search.registry import register_provider
 from src.core.search.provider_base import SuggesterBackedProvider
+from src.core.search.timeouts import timeout_field, timeout_from
+
+# BiblioClient's SOAP search timeout before it became the instance setting
+# ``timeout_s``. - Claude Generated
+CATALOG_SOAP_TIMEOUT_S = 10
 
 
 @register_provider
@@ -28,6 +34,10 @@ class CatalogProvider(SuggesterBackedProvider):
         SearchCapability.TITLE_RECORDS,
         SearchCapability.CLASSIFICATION,
     }
+    # Axes of the joint title search (search_titles) → Libero use codes
+    # (kb author, sk subjects, i ISBN). - Claude Generated
+    title_search_axes = {"kw": "kw", "title": "title", "author": "kb",
+                         "subject": "sk", "isbn": "i"}
 
     @classmethod
     def config_fields(cls) -> List[ConfigField]:
@@ -53,9 +63,22 @@ class CatalogProvider(SuggesterBackedProvider):
                 help="Basis für OPAC-Titel-Weblinks (…/Record/<rsn>).",
             ),
             ConfigField(
+                key="dk_enabled", label="Libero für DK-Suche nutzen", kind=BOOL, default=False,
+                help="Libero ist DK-Quelle, solange der Schalter an ist; mehrere DK-Quellen "
+                "fragt der DK-Schritt in der Reihenfolge der Liste (Rückfall je Schlagwort). "
+                "Ist der Schalter nie gespeichert worden, ist Libero DK-Quelle, solange keine "
+                "andere Instanz den DK-Schalter an hat. Welche Quellen gelten, steht über "
+                "der Liste.",
+            ),
+            ConfigField(
                 key="strict_gnd_validation_for_dk_search", label="Strikte GND-Validierung (DK)",
                 kind=BOOL, default=True,
                 help="Nur GND-validierte Keywords in die DK-Suche geben (Qualitätskontrolle).",
+            ),
+            timeout_field(
+                CATALOG_SOAP_TIMEOUT_S,
+                help="Wartezeit je SOAP-Suchanfrage (bis zu drei Versuche je Begriff). "
+                "Titeldetails (10 s) und der Web-Rückfall (30 s) haben feste Zeitlimits.",
             ),
             cache_only_field(),
         ]
@@ -153,6 +176,8 @@ class CatalogProvider(SuggesterBackedProvider):
             web_record_url=self._config.get("catalog_web_record_url", "") or "",
             debug=self._config.get("debug", False),
             cache_only=self.cache_only,
+            timeout=timeout_from(self._config, CATALOG_SOAP_TIMEOUT_S),
+            source_id=self.source_id,
         )
 
     def dk_extractor(self, **_ignore: Any):
@@ -177,16 +202,26 @@ class CatalogProvider(SuggesterBackedProvider):
         if capability is SearchCapability.TITLE_RECORDS:
             if self.cache_only:
                 return self._title_records_cache_only(list(query), search_type, max_results)
+            if source_health.is_down(self.source_id):
+                result = _title_records_from_term_lists({term: [] for term in query})
+                result.errors = self._source_down_errors(list(query))
+                return result
             self._wire_progress(progress)
             raw = self.suggester.search_titles(
                 list(query), search_type=search_type, max_results=max_results
             )
+            # Terms the catalog could not be asked about (connection failure,
+            # source down) are unknown: not cached as empty, reported as errors.
+            # - Claude Generated
+            errors = dict(getattr(self.suggester, "last_errors", {}) or {})
             from src.core.search.provider import raw_cache_params_for
             self._store_records_raw(
-                "catalog_titles", list(query),
+                "catalog_titles", [t for t in query if t not in errors],
                 raw_cache_params_for("catalog_titles", search_type=search_type), raw,
             )
-            return _title_records_from_term_lists(raw)
+            result = _title_records_from_term_lists(raw)
+            result.errors = errors
+            return result
         # CLASSIFICATION
         results = self.suggester.extract_dk_classifications(list(query))
         return _classification_from_dk_list(results)
