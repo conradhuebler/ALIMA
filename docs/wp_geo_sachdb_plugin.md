@@ -7,8 +7,10 @@
 > Werkzeuggenerator, deterministischer Schritt `geo_candidates` in
 > `alima_v51_105`, Übernahme ins Ergebnis (`KeywordAnalysisState.geo_sachdb`,
 > §7.1), lokale PPN im gemeinsamen WinIBW-Eintrag (`src/utils/winibw_record.py`,
-> §7.1, Stand 6.11.2026). Nicht vorhanden: GUI-Anbindung außer dem Plugin-Tab
-> und der Abschlusskarte, LLM-Auswahlschritt. Die
+> §7.1, Stand 6.11.2026), Schritt `geo_prior` mit den lokalen Zuordnungen als
+> Eingabe der Klassifikation (§7.2, Stand 9.11.2026). Nicht vorhanden:
+> GUI-Anbindung außer dem Plugin-Tab und der Abschlusskarte, eigener
+> LLM-Auswahlschritt für lokale Notationen, Schutz gegen erfundene DK. Die
 > Antworten des Entwicklers stehen in Abschnitt 8; Schema und Importer setzen sie um.
 >
 > Kennzeichnung: **[gemessen]** = mit Werkzeug an den Kopien in `.scratch/`
@@ -314,31 +316,52 @@ Suche.
 
 ## 7. Anbindung an alima_v51_105
 
+Ablauf: Die Datenbank wird zweimal gefragt. Vor der Klassifikation liefert
+`geo_prior` (§7.2) die lokalen Notationen der finalen Schlagwörter als
+Eingabe `local_notations`; die Klassifikation wägt sie mit den Katalogdaten
+ab und läuft auch, wenn nur sie vorliegen. Nach `dk_postprocess` schlägt
+`geo_candidates` (§7.1) mit den vergebenen Notationen die WinIBW-Zeilen und
+weitere Notationen vor. Phasenkette (Planer- und Reflexionsregeln):
+
+```
+extraction → search → selection_chunks → selection → (verify_keywords) →
+dk_collect → geo_prior → classification → rvk_guard → dk_postprocess →
+publication_form → geo_candidates → shelf_candidates → shelf_select → shelf_guard
+```
+
+`publication_form` (§7.5) liest vor `geo_candidates` die Publikationsform aus
+dem Eingabetext; eine dabei gesetzte Formnotation prüft `geo_candidates` wie
+jede vergebene Notation.
+
 ### 7.1 Umgesetzt: Schritt 7b `geo_candidates` [gelesen aus dem Branch]
 
 | | |
 |---|---|
-| Ort | nach `dk_postprocess`, vor `shelf_candidates` (`workflows/alima_v51_105.yaml:858`); `depends_on: [dk_postprocess]` |
-| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2051`) |
+| Ort | nach `publication_form`, vor `shelf_candidates` (`workflows/alima_v51_105.yaml:986`); `depends_on: [dk_postprocess, publication_form]` |
+| Funktion | `geo_sachdb_candidates` (`src/core/agents/deterministic_functions.py:2076`) |
 | Eingaben | `keywords: ${extra.final_keywords}`, `notations: ${dk_classifications}`; fehlen sie, liest die Funktion dieselben Werte aus dem Kontext |
 | Ausgabe | `extra.geo_sachdb` mit `status`, `keyword_matches` (lokale Sätze je Schlagwort mit Art, PPN und Zeile), `not_found` (Schlagworte ohne lokalen Satz), `notation_matches` (lokale Einträge je vergebener Notation des Systems `scheme`, Standard DK, mit `system`; andere Systeme bleiben draußen), `candidates` (Notationen aus den getroffenen lokalen Sätzen, `assigned` = schon vergeben, mit `line`), `lines` (5550 je getroffenem Satz, 6700 je Kandidat), `prompt_text`, `source` |
 | Schalter | die Plugin-Instanz selbst: keine Instanz/abgeschaltet → `status: disabled`; ohne Datei oder mit anderem Schema → `status: unavailable` mit Grund; beides leeres Ergebnis, der Lauf geht weiter. `config.kinds` begrenzt die Arten (leer = alle), `config.scheme` das System |
 | Schutz gegen Erfindungen | kein LLM beteiligt; nur identische Ansetzungen/Verweisungsformen (`min_score: 90`); `dk_classifications` wird nicht verändert (Test) |
-| Budget | `meta_agent.max_cycles` 20 → 21 (13 aktivierte Schritte); Planner- und Reflexionsregeln nennen den Schritt als Abschluss, kein Prüftor |
+| Budget | `meta_agent.max_cycles` 20 → 21 (13 aktivierte Schritte), mit `geo_prior` 22 (14), mit `publication_form` 23 (15); Planner- und Reflexionsregeln nennen den Schritt als Abschluss, kein Prüftor |
 
 Was der Schritt **nicht** tut: Er geht in keinen Prompt und ändert keine
-Klassifikation.
+Klassifikation. Seit `geo_prior` (§7.2) sind die vergebenen Notationen oft
+lokale Notationen; `assigned` markiert sie, sie stehen dann nicht mehr unter
+„Weitere lokale DK-Vorschläge“, und eine Notation mit genau einer lokalen PPN
+erscheint im WinIBW-Eintrag als `6700 !PPN!` (unverändertes Verhalten, für
+diesen Fall festgehalten in `tests/test_geo_sachdb_prior.py::EndToEnd`).
 
 **Ergebnisübernahme (umgesetzt, Muster `shelf`):**
 `SharedContext.to_keyword_analysis_state` legt in
 `KeywordAnalysisState.geo_sachdb` ab (`_geo_sachdb_for_state`,
-`src/core/agents/shared_context.py:115`):
+`src/core/agents/shared_context.py:122`):
 
 - `terms`: je nachgeschlagenem Schlagwort die lokalen Sätze (`records`:
   Bezeichnung, Art, PPN), der Satz, für den es steht (`record`), `status` und
   die verwendbare `ppn`. Eindeutig (`unique`) ist ein Treffer mit genau einem
   lokalen Satz oder mit genau einem Satz der Art Sachschlagwort unter mehreren
-  (`_geo_pick`, `:34`); hat dieser Satz keine PPN, heißt der Status `no_ppn`,
+  (`_geo_pick`, `:41`); hat dieser Satz keine PPN, heißt der Status `no_ppn`,
   sonst `ambiguous`.
 - `notations`: je vergebener Notation des Systems `scheme` die lokalen
   Einträge, `status` (`unique`: genau eine PPN unter den Einträgen;
@@ -461,16 +484,50 @@ Grenzen: Die Abschlusskarte entsteht nur am Ende eines Laufs (GUI
 Review-Reiter und in der CLI. `from_keyword_analysis_state` bringt das Feld
 nicht nach `extra` zurück.
 
-### 7.2 Vorschlag: Vorwissen vor `classification` (Plan, Phase 3)
+### 7.2 Umgesetzt: Schritt 5b `geo_prior`, lokale Zuordnungen vor `classification`
 
-Ein zweiter deterministischer Schritt `geo_prior` nach `dk_collect` mit
-denselben Eingaben (`${extra.final_keywords}`) liefert `prompt_text` an
-`classification` (neuer Input `geo_context`, Platzhalter im User-Prompt). Das
-Modell sähe dann je Schlagwort die lokalen DK-Notationen mit Erläuterung als
-Hinweis neben den Katalogdaten. Voraussetzung: F1/F2 geklärt, und ein
-Vergleichslauf zeigt, dass die lokalen DK die Zuweisung verbessern. Dieser
-Schritt ändert den Klassifikations-Prompt und gehört deshalb nicht in die
-Vorbereitung.
+Anlass: Liefert der Katalog keine DK-Daten (Libero/finc nicht erreichbar), war
+`extra.dk_prompt_text` leer und `classification` lief nicht; die lokalen
+Notationen erschienen nur als Vorschläge. Entscheidung des Operators: nur
+`alima_v51_105`, die lokale Zuordnung ist immer zusätzliche Evidenz (nicht nur
+Ersatz), alle Kandidaten gehen in den Prompt.
+
+| | |
+|---|---|
+| Ort | nach `dk_collect`, vor `classification` (`workflows/alima_v51_105.yaml:627`); `depends_on: [dk_collect]`, `classification` hat `depends_on: [dk_collect, geo_prior]` |
+| Funktion | `geo_sachdb_prior` (`src/core/agents/deterministic_functions.py:2264`): ruft `geo_sachdb_candidates` mit den Schlagwörtern allein (`context=None`, also auch bei einem späteren Lauf keine vergebenen Notationen), gleiche Konfiguration wie `geo_candidates` (`scheme: DK`, `min_score: 90`, `max_per_keyword: 3`, `max_keywords: 30`, `kinds: []`) plus `title` |
+| Eingaben | `keywords: ${extra.final_keywords}`, `core_keywords: ${extra.core_keywords}`; fehlen sie, aus dem Kontext |
+| Ausgabe | `extra.geo_sachdb_prior` (Nutzlast von `geo_sachdb_candidates`, je Kandidat zusätzlich `via_core_keywords`, dazu `core_keywords`) und `extra.geo_prompt_text` (der Block) |
+| Block | Kopfzeile `<title>:`, eine Hinweiszeile, je Notation `- DK <Notation> \| <Bezeichnung> \| über <Schlagwörter> \| Kernschlagwörter <k> von <n>`; alle Kandidaten, geordnet nach Kernschlagwörtern, dann Schlagwörtern (beide absteigend), dann Notation; ohne PPN und WinIBW-Zeilen. Ohne Kernschlagwörter: Zeile „Kein Kern bestimmt“, Zählung `Schlagwörter <n>`. Kein Plugin, keine Eingabe, kein Kandidat → `""` |
+| Klassifikation | Eingabe `local_notations: ${extra.geo_prompt_text}`; `when: "${extra.dk_prompt_text} != '' or bool(${extra.geo_prompt_text})"` (`or` kann der Auswerter schon; `bool(...)`, weil ein fehlender Wert mit `!= ''` als wahr gälte). Im System-Prompt ein Absatz „Lokale Zuordnungen aus der Freiberger Sachdatenbank“ (Evidenz neben dem Katalog, Vorschlagsliste, Kernschlagwörter höher gewichten, auch ohne Katalogdaten wählbar), im User-Prompt der Block nach den GND-Schlagworten; beide in bedingten Abschnitten `{?local_notations}…{/local_notations}` (`prompt_resolver._render`, siehe `docs/workflow_yaml_spec.md`) |
+| Ohne lokale Daten | System- und User-Prompt byte-gleich zum Stand davor (einmal gegen die Datei vor der Änderung geprüft; der Test hält die Nahtstellen fest) |
+| Reflexion, Planer | Zustandszeile „- Lokale Zuordnungen: n Notationen“ nur mit mindestens einem Kandidaten (`reflection_step.local_notations_line`, im Planerzustand von `MetaAgent._plan_with_llm` ebenso). Regeln: eine schwache oder leere Katalogdatenlage ist bei vorhandenen lokalen Zuordnungen kein Grund für `rerun_dk_collect` bzw. für ein erneutes `dk_collect`; `max_cycles` 21 → 22 |
+| Ergebnis | `KeywordAnalysisState.geo_prior = {candidates}` (`_geo_prior_for_state`, `shared_context.py:174`): `notation`, `system`, `code`, `label`, `via_keywords`, `via_core_keywords`, `in_catalog` (gegen `extra.dk_entries` des DK-Schritts, nur gleiches System). Beide JSON-Formate (`asdict`, `results.geo_prior`), alte Dateien laden mit `{}` |
+| Anzeige | DK-Karte (`format_dk_classifications_card_html`): neben der Treffer-Anzeige ein Kennzeichen „lokale Datenbank“ bzw. „Katalog und lokale Datenbank“, darunter „über <Schlagwörter>“, im Klartext in der Klammer hinter der Notation; CLI `show-protocol` (`format_step_dk_classification`): `* DK 999.5 · lokale Datenbank · über …`. Ohne Treffer in `geo_prior` unverändert |
+| Quellenübersicht | je gefragtem Schlagwort ein Aufruf unter der Lookup-Kennung `geo_sachdb`, gefundene Schlagwörter als Treffer, ein Fehlschlag als Fehler je Schlagwort |
+| Tests | `tests/test_geo_sachdb_prior.py` (39, synthetische Datenbank, Stub-Modell, ein Lauf über den MetaAgent von `geo_prior` bis `shelf_guard` mit leerem Katalog) |
+
+Grenzen:
+
+- Nicht gegen die echte Datenbank und nicht mit einem echten Modell geprüft.
+  Ob die lokalen Zuordnungen die Zuweisung verbessern, ist nicht gemessen
+  (Vergleichslauf mit/ohne, §9).
+- Der Block hat keine Obergrenze (Entscheidung); bei 30 Schlagwörtern mit je
+  bis zu 3 lokalen Sätzen kann er lang werden, die Tokenzahl ist nicht gemessen.
+- Kein Schutz gegen erfundene Notationen: im agentischen Pfad prüft nichts, dass
+  eine gewählte DK aus dem Katalog oder den lokalen Zuordnungen stammt
+  (`rvk_guard` prüft nur RVK, `build_dk_search_results` übernimmt jede
+  Notation). Die Regel steht nur im Prompt.
+- Kernschlagwörter werden über die gefaltete Schreibweise (`store.fold`) den
+  Schlagwörtern zugeordnet, über die eine Notation gefunden wurde.
+- `rerun_dk_collect` ist eine Empfehlung der Reflexion an den Planer, keine
+  Codeverzweigung; die neue Regel wirkt nur, soweit das Modell ihr folgt.
+- Bei leerem Katalog steht die Überschrift „Ausschnitt aus dem
+  Bibliotheksbestand (DK)“ weiter leer im User-Prompt; der Absatz sagt, dass
+  lokale Notationen auch dann wählbar sind.
+- Gezählt wird nur `geo_prior`, nicht `geo_candidates`; die Kennung ist der Typ
+  `geo_sachdb`, nicht die Kennung einer umbenannten Instanz.
+- `from_keyword_analysis_state` bringt das Feld nicht nach `extra` zurück.
 
 ### 7.3 Vorschlag: Auswahl + Guard (Plan, Phase 3)
 
@@ -483,11 +540,56 @@ bräuchte der Guard eine Listenvariante.
 
 ### 7.4 Synchronhaltung mit alima_v51
 
-`alima_v51.yaml` bleibt unverändert, `geo_candidates` ist wie `shelf_*`
-institutionsspezifisch. Soll der Schritt auch dort laufen, wären nötig: der
+`alima_v51.yaml` bleibt unverändert, `geo_prior` und `geo_candidates` sind wie
+`shelf_*` institutionsspezifisch. Soll der Schritt auch dort laufen, wären nötig: der
 Schritt selbst, `max_cycles` +1, die Phasenkette und die Abschluss-Regel in
 `meta_agent.planning.rules` und `meta_agent.reflection.rules`, und
 `workflows/CLAUDE.md` (Sync-Regel). Ohne Plugin-Instanz liefe er dort leer.
+
+### 7.5 Umgesetzt: Schritt 7a `publication_form`, Form aus dem Eingabetext
+
+Anlass (UB Freiberg, Dissertation): Eine Dissertation soll `6700 DK 378.245`
+(mit lokaler PPN, wenn bekannt) und `1131 Hochschulschrift` bekommen. Vorher
+verbot nur eine Prompt-Regel der Klassifikation die Formnotation bei einem
+Werk ohne diese Form; vergeben wurde sie nur, wenn das Modell es tat. Die
+Datenbank führt 378.245 an Formschlagwörtern, `geo_prior` fragt aber nur mit
+Sachschlagwörtern. Entscheidung des Operators: die Form ergibt sich aus dem
+Eingabetext, nur `alima_v51_105`.
+
+| | |
+|---|---|
+| Ort | nach `dk_postprocess`, vor `geo_candidates` (`workflows/alima_v51_105.yaml:954`); `depends_on: [dk_postprocess]`, `geo_candidates` hat `depends_on: [dk_postprocess, publication_form]` |
+| Erkennung | `src/utils/publication_form.py`, `detect_publication_form(text)`: Regeltabelle `RULES` (Name, Form, Reichweite `start`/`head`/`anywhere`, Muster); die erste passende Regel der Tabelle gewinnt, höchstens ein Ergebnis. Formen nur mit einer Notation aus `FORM_NOTATIONS`: `dissertation` (DK 378.245), `diplom_master` (DK 378.244), Formschlagwort jeweils „Hochschulschrift“ |
+| Regeln | Titelei („genehmigte Dissertation zur Erlangung des …“, „zur Erlangung des … Grades Doktor … vorgelegt von“, „thesis submitted … for the degree of Doctor/Master“, „zur Erlangung des … Grades Diplom/Master … eingereicht von“), Selbstbezeichnung am Textanfang („Zusammenfassung der Ergebnisse der Dissertation“, „Kurzfassung der Diplomarbeit“), zitierter Titel mit Kandidat („Dissertation „…“ von Herrn M. Sc.“), Selbstbezug („die vorliegende Dissertation“, „this dissertation“, „this master's thesis“). `head` = Beginn in den ersten 600 Zeichen; Regeln mit fremdem Bezug fallen weg, wenn davor „basiert auf“, „im Rahmen“, „based on“, „part of“ o. ä. steht |
+| Bewusst nicht | das bloße Wort „Dissertation“, Plural und Genitiv als Gegenstand, „Doktorarbeit von …“ ohne zitierten Titel, „Inaugural-Dissertation“ und „Dissertationsschrift“ ohne die Wendungen oben, Bachelorarbeit und Habilitation (keine Formnotation in `FORM_NOTATIONS`), Magisterarbeit |
+| Wirkung | Formschlagwort in `extra.form_keywords` (einmal, Vergleich ohne Groß-/Kleinschreibung) → `1131` über `winibw_record`; Formnotation an die erste Stelle von `dk_classifications`, neu als `{code, type, rank: additional, origin: publication_form, reason: "Form (aus dem Eingabetext): „…“"}`, schon vergeben nur nach vorn gezogen; Erkennung in `extra.publication_form` |
+| Ohne Treffer | Formschlagwörter, Notationen und `extra` unverändert, kein `extra.publication_form` (Test) |
+| PPN | `geo_candidates` prüft die Formnotation wie jede vergebene Notation: ein lokaler Eintrag mit genau einer PPN ergibt `6700 !PPN!`, sonst `6700 DK 378.245` |
+| Aufstellung | `shelf_candidates` lässt alle Notationen aus `FORM_NOTATIONS` aus und gibt die übrige Liste als `classifications` weiter; `shelf_select` liest `dk_codes` daraus statt aus `${dk_classifications}`. Kandidaten und Prompt sind mit und ohne Treffer gleich (Test). Das gilt auch für eine Formnotation, die die Klassifikation selbst vergeben hat |
+| Planer, Reflexion | Phasenkette mit `publication_form`, Abschluss-Schritt, kein Prüftor; eine von ihm gesetzte Formnotation ist kein Grund für eine Wiederholung. `max_cycles` 22 → 23 |
+| Ergebnis | `KeywordAnalysisState.publication_form = {form, label, system, code, form_keyword, evidence, rule}` (`_publication_form_for_state`, `shared_context.py:209`); beide JSON-Formate (`asdict`, `results.publication_form`), alte Dateien laden mit `{}` |
+| Anzeige | DK-Karte: Kennzeichen „Form: Dissertation (aus dem Eingabetext)“ an der Notation, die Textstelle als Tooltip, im Klartext in der Klammer; CLI `show-protocol`: `* DK 378.245 · Form: Dissertation (aus dem Eingabetext), Textstelle „…“`. Ohne Treffer unverändert |
+| Tests | `tests/test_publication_form.py` (35, davon 11 Positiv- und 15 Negativfälle als Untertests; Lauf über den MetaAgent bis zum WinIBW-Eintrag mit synthetischer Datenbank und Systematik) |
+
+Grenzen:
+
+- Erkannt wird nur, was die Regeltabelle kennt; es gibt keine Erkennung durch
+  ein Sprachmodell. Fehlerrichtungen: nicht erkannt heißt Verhalten wie
+  vorher (keine Formnotation, kein Formschlagwort); ein Fehltreffer ist im
+  Ergebnis sichtbar, mit der Textstelle an der Notation.
+- Geprüft nur an den erfundenen Testtexten, nicht an echten Eingaben.
+- Ein Eingabesatz mit Hochschulschriftenvermerk (DOI-/PPN-Eingabe) wird nicht
+  ausgewertet: `BibRecord` hat kein solches Feld, und der agentische Pfad
+  bekommt nur den Text.
+- Eine Rezension, die von „der vorliegenden Dissertation“ spricht, und eine
+  Zusammenfassung einer fremden Dissertation, die mit „Zusammenfassung der
+  Dissertation“ beginnt, ergeben einen Treffer.
+- Die Formnotation steht vorn, ist aber `additional`; ohne Kernnotation
+  zeigt die Zeile „Klassifikation“ der Abschlusskarte sie als erste.
+- Wiederholt der Planer `classification` nach `publication_form`, überschreibt
+  das `dk_classifications` samt Formnotation; `publication_form` läuft danach
+  nicht von selbst erneut (Pflichtschritte gelten als erledigt, sobald sie
+  einmal gelaufen sind).
 
 ## 8. Fragen an den Entwickler und Antworten
 
@@ -536,7 +638,7 @@ Datenbank; wo er es nicht wusste, gilt der Standard und der Punkt ist als
 |---|---|---|
 | 1 ✅ | Analyse, Umwandler, Plugin-Gerüst, Gate, `geo_candidates` (dieser Branch) | erledigt |
 | 2 | F1-F7 klären; Abbildung bestätigen; `convert` der aktuellen Datei; Plugin registrieren (Built-in oder Tier-2), Preset `lookup` | 0,5-1 Tag |
-| 3 | Ergebnisübernahme ✅ (`KeywordAnalysisState.geo_sachdb`, lokale PPN im WinIBW-Eintrag, Abschlusskarte, CLI `show-protocol`, Export; Grenzen §7.1); offen: optional `geo_prior`/`geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
+| 3 | Ergebnisübernahme ✅ (`KeywordAnalysisState.geo_sachdb`, lokale PPN im WinIBW-Eintrag, Abschlusskarte, CLI `show-protocol`, Export; Grenzen §7.1); `geo_prior` ✅ (§7.2); offen: optional `geo_select`/`geo_guard`, Vergleichslauf mit/ohne an ≥ 20 Titeln | 2-3 Tage |
 | 4 | optional normalisierte Schicht + FTS5, `CLASSIFICATION`-Suchquelle für die klassische Pipeline, PPN → GND-ID | 2-4 Tage |
 
 ## 10. Reproduktion

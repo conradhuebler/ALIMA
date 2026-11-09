@@ -111,6 +111,7 @@ DEFAULT_REFLECTION_USER_PROMPT = (
     "- Analyse-Begründung (Auszug): {analyse_excerpt}\n"
     "- Katalog-Titel gesamt: {catalog_total_titles}\n"
     "- Katalog-Notationen (unique): {catalog_unique_notations}\n"
+    "{local_notations_line}"
     "- Fehlende Konzepte: {missing_concepts}\n"
     "- Bereits gesuchte Missing Concepts: {missing_concepts_searched}\n"
     "- Abgeschlossene Steps: {steps_completed}\n"
@@ -134,6 +135,24 @@ def _format_chains(chains: Any) -> str:
         if terms:
             lines.append("    " + " → ".join(terms))
     return "\n".join(lines) if lines else "    keine"
+
+
+def local_notations_line(context: Any) -> str:
+    """``- Lokale Zuordnungen: n Notationen`` plus line break, when the step
+    ``geo_prior`` found local notations in this run (``extra.geo_sachdb_prior``,
+    status ``ok``); ``""`` otherwise, so the state text of every run without
+    them stays as it was. Shared by the reflection and the planner state.
+    - Claude Generated
+    """
+    from src.core.agents.shared_context import GEO_PRIOR_EXTRA_KEY
+
+    prior = (getattr(context, "extra", None) or {}).get(GEO_PRIOR_EXTRA_KEY)
+    if not isinstance(prior, dict) or prior.get("status") != "ok":
+        return ""
+    count = sum(1 for cand in (prior.get("candidates") or []) if isinstance(cand, dict))
+    if not count:
+        return ""
+    return f"- Lokale Zuordnungen: {count} {'Notation' if count == 1 else 'Notationen'}\n"
 
 
 def _format_keyword_list(context: Any, field: str) -> str:
@@ -269,6 +288,9 @@ class ReflectionStep(BaseStep):
             "analyse_excerpt": analyse_excerpt,
             "catalog_total_titles": catalog_total_titles,
             "catalog_unique_notations": catalog_unique_notations,
+            # Empty without local notations (geo_prior), then the state text
+            # is unchanged. - Claude Generated
+            "local_notations_line": local_notations_line(context),
             "has_deep_dk": "ja" if has_deep_dk else "nein",
             "has_keywords": "ja" if has_keywords else "nein",
             # Defensive: if this step ever runs without MetaAgent composing the

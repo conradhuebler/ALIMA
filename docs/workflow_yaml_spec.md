@@ -99,7 +99,9 @@ when: "${extra.score} >= 0.5 and ${extra.intent} != ''"
 ```
 
 Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
-`len/bool/str/int(...)`. Falsy results → step skipped.
+`len/bool/str/int(...)`. Falsy results → step skipped. A path that does not
+resolve gives `None`, so `${extra.x} != ''` is true for a missing key;
+`bool(${extra.x})` is false for a missing key and for `''`.
 
 ## Step type: `llm_agent`
 
@@ -142,6 +144,18 @@ Supported: `==`, `!=`, `>`, `<`, `>=`, `<=`, `and`, `or`,
     ...
     {abstract}                                 # f-string-style substitution from inputs
 ```
+
+**Placeholders**: `{name}` takes the resolved input `name` (lists/dicts as
+JSON, `None` as empty string); a marker without an input stays as written, so
+JSON braces in examples are safe. A substituted value is never scanned again.
+
+**Conditional sections**: `{?name}…{/name}` keeps the text between the markers
+only when input `name` has a value; `None`, an empty or blank string, an empty
+list/dict and a missing input remove the section with its markers. Sections
+are resolved on the template before the placeholders, are not nestable for the
+same name, and a prompt without sections renders as before. Put the opening
+marker directly after the preceding text so an empty section leaves no extra
+line (`alima_v51_105`, `classification`: `{final_keywords}{?local_notations}…`).
 
 **Which model a step runs on is not set here.** `LLMAgentStep` and
 `ReflectionStep` take provider and model from the run context — the pick in the
@@ -224,8 +238,11 @@ Groups child steps. Rarely used. See `composite_step.py`.
 | `gnd_entry_lookup` | `gnd_id: str`, `config: {fallback_to_lobid}` | `entry`, `source` |
 | `extract_gnd_related` | `gnd_id: str` | `related` |
 | `gnd_batch_metadata` | `gnd_ids: List[str]`, `config: {fallback_to_lobid}` | `entries`, `missing`, `tool_calls` |
-| `shelf_candidates` | `notations`, `keywords`, `config: {lookup, max_results, core_only}` | `candidates`, `unplaced`, `prompt_text`, `scheme` |
+| `shelf_candidates` | `notations`, `keywords`, `config: {lookup, max_results, core_only}` | `candidates`, `unplaced`, `prompt_text`, `scheme`, `classifications` (the notations without form notations) |
 | `filter_unauthorized_shelf` | (reads context), `config: {candidates_key, selection_key}` | `shelf`, `dropped`, `checked` |
+| `geo_sachdb_candidates` | `keywords`, `notations`, `config: {lookup, scheme, min_score, max_per_keyword, max_keywords, kinds}` | `status`, `keyword_matches`, `not_found`, `notation_matches`, `candidates`, `lines`, `prompt_text`, `source` |
+| `geo_sachdb_prior` | `keywords`, `core_keywords`, config as above plus `title` | as above (keywords only), `candidates[].via_core_keywords`, `core_keywords`, `prompt_text` (block for the classification) |
+| `publication_form` | `abstract`, `form_keywords`, `dk_classifications` | `publication_form` (detection or `None`), `form_keywords`, `dk_classifications` (unchanged without a detection) |
 
 Source: `src/core/agents/deterministic_functions.py`.
 

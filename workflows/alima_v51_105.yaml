@@ -9,14 +9,22 @@ description: |
   are classified with DK only; DDC is not used in Freiberg.
 
   Steps: extraction → search → selection_chunks → selection
-       → dk_collect → classification → dk_postprocess
-       → geo_candidates
+       → dk_collect → geo_prior → classification → dk_postprocess
+       → publication_form → geo_candidates
        → shelf_candidates → shelf_select → shelf_guard
 
   Zusätzlich zu alima_v51: die Aufstellung im Freihandbestand (Steps 8a-8c)
-  über das Plugin `local_scheme` mit dem Vokabular `freihand_fg`, und
-  Step 7b `geo_candidates` (lokale Sacherschließungsdatenbank, Plugin
-  `geo_sachdb`; ohne konfiguriertes Plugin ein leerer Schritt).
+  über das Plugin `local_scheme` mit dem Vokabular `freihand_fg`, und die
+  lokale Sacherschließungsdatenbank (Plugin `geo_sachdb`) an zwei Stellen:
+  Step 5b `geo_prior` gibt der Klassifikation die lokalen Zuordnungen der
+  finalen Schlagworte als zusätzliche Eingabe `local_notations` (die
+  Klassifikation läuft auch, wenn nur diese vorliegen), Step 7b
+  `geo_candidates` schlägt danach Zeilen und weitere Notationen vor. Ohne
+  konfiguriertes Plugin sind beide leere Schritte. Dazu Step 7a
+  `publication_form`: beschreibt sich der Eingabetext selbst als
+  Dissertation bzw. Diplom-/Masterarbeit (Regeltabelle, kein Modell), setzt
+  er das Formschlagwort Hochschulschrift (1131) und die Formnotation
+  DK 378.245 bzw. 378.244 an die erste Stelle der DK (6700).
 
   Run via:
     CLI:  alima workflow alima_v51_105 --input '{"abstract": "..."}'
@@ -44,8 +52,10 @@ meta_agent:
   # 12 enabled steps run one-per-cycle; with the targeted missing-concept
   # re-select (+selection_chunks/selection) and a safety buffer, 10 was too
   # tight and the loop hit max_cycles before finishing. Raised from 16 with the
-  # three Aufstellungs-Steps, to 21 with geo_candidates. - Claude Generated
-  max_cycles: 21
+  # three Aufstellungs-Steps, to 21 with geo_candidates, to 22 with geo_prior,
+  # to 23 with publication_form (each one more step per run, now 15 enabled
+  # steps). - Claude Generated
+  max_cycles: 23
 
   # The MetaAgent planner + reflection cores are GENERIC (ALIMA-branded) in
   # code. The DOMAIN rules (GND/DK/phase order) live HERE and are appended to
@@ -57,20 +67,28 @@ meta_agent:
     rules: |
       ALIMA-Verschlagwortung — Phasen-Routing:
       - Phasenkette: extraction → search → selection_chunks → selection →
-        dk_collect → classification → rvk_guard → dk_postprocess →
-        geo_candidates → shelf_candidates → shelf_select → shelf_guard.
+        dk_collect → geo_prior → classification → rvk_guard → dk_postprocess →
+        publication_form → geo_candidates → shelf_candidates → shelf_select →
+        shelf_guard.
       - Noch keine Keywords extrahiert → 'extraction'.
       - Keywords vorhanden, aber keine GND-Suche gelaufen → 'search'.
       - GND-Einträge vorhanden, aber keine Auswahl → 'selection_chunks' bzw. 'selection'.
-      - Auswahl vorhanden, aber keine DK → 'dk_collect' bzw. 'classification'.
-      - dk_collect gelaufen UND Katalogdaten stark (>20 Notationen, >30 Titel) → 'classification'.
+      - Auswahl vorhanden, aber keine DK → 'dk_collect', 'geo_prior' bzw. 'classification'.
+      - dk_collect gelaufen → 'geo_prior' (lokale Zuordnungen für die
+        Klassifikation; läuft einmal, kein Prüftor), dann 'classification'.
+      - Katalogdaten stark (>20 Notationen, >30 Titel) ODER Zeile 'Lokale
+        Zuordnungen' im Zustand → 'classification'; eine schwache oder leere
+        Katalogdatenlage ist dann KEIN Grund, 'dk_collect' zu wiederholen.
       - 'classification' gelaufen UND 'DK-Codes (Ist)' nicht leer → nur noch
-        Abschluss-Steps ('dk_postprocess', dann 'geo_candidates', dann die
-        Aufstellung: 'shelf_candidates' → 'shelf_select' → 'shelf_guard'),
-        dann 'finish'.
+        Abschluss-Steps ('dk_postprocess', dann 'publication_form', dann
+        'geo_candidates', dann die Aufstellung: 'shelf_candidates' →
+        'shelf_select' → 'shelf_guard'), dann 'finish'.
         'classification' NICHT ohne einen konkreten, benannten Mangel wiederholen.
-      - Die Aufstellungs-Steps und 'geo_candidates' sind Abschluss, kein
-        Qualitätstor: sie laufen einmal und werden nie wiederholt.
+      - Die Aufstellungs-Steps, 'publication_form' und 'geo_candidates' sind
+        Abschluss, kein Qualitätstor: sie laufen einmal und werden nie
+        wiederholt. Eine Formnotation (z. B. DK 378.245), die
+        'publication_form' gesetzt hat, ist gewollt und kein Grund, einen
+        Step zu wiederholen.
       - Fehlende Konzepte als 'offen, noch nicht gesucht' markiert → 'search' (erneut, einmalig).
       - Fehlende Konzepte als 'alle bereits gesucht' markiert → NICHT erneut 'search',
         sondern mit 'dk_collect'/'classification' fortfahren.
@@ -82,7 +100,8 @@ meta_agent:
   # ALIMA Quality Agent base. User-prompt state placeholders:
   # {dk_codes} {has_deep_dk} {missing_concepts} {missing_concepts_searched}
   # {final_keywords} {keyword_chains_count} {catalog_total_titles}
-  # {catalog_unique_notations} {current_step} {steps_completed} {analyse_excerpt} …
+  # {catalog_unique_notations} {local_notations_line} {current_step}
+  # {steps_completed} {analyse_excerpt} …
   reflection:
     temperature: 0.1
     top_p: 0.9
@@ -91,16 +110,22 @@ meta_agent:
       ALIMA-Verschlagwortung — Phasen & Prüflogik:
       Phasen: initialisation→Keywords | search→GND | selection_chunks→gefiltert |
       selection→Ketten+final_keywords | dk_collect→DK/RVK aus Katalog |
-      classification→finale DK-Zuweisung | geo_candidates→lokale Sachdatenbank
-      (nur Vorschläge, KEIN Prüftor) | shelf_*→Aufstellung im Freihandbestand
-      (deterministische Kandidaten + Auswahl, KEIN Prüftor).
+      geo_prior→lokale Zuordnungen als Eingabe der Klassifikation (KEIN
+      Prüftor) | classification→finale DK-Zuweisung |
+      publication_form→Formschlagwort und Formnotation aus dem Eingabetext
+      (deterministisch, KEIN Prüftor) | geo_candidates→lokale
+      Sachdatenbank (nur Vorschläge, KEIN Prüftor) | shelf_*→Aufstellung im
+      Freihandbestand (deterministische Kandidaten + Auswahl, KEIN Prüftor).
       - Nach initialisation: Keywords sinnvoll, deutsch, zerlegt
         (z.B. 'Dampfschifffahrt | Kapitän')?
       - Nach search: GND-Einträge vorhanden, Keywords aussagekräftig?
       - Nach selection: final_keywords (15-20)? core_keywords (2-5, der
         RSWK-Kern) benannt? missing_concepts vorhanden?
       - Nach dk_collect: Katalogdaten — >20 Notationen UND >30 Titel → genug
-        (action=continue).
+        (action=continue). Eine schwächere Katalogdatenlage erst nach
+        'geo_prior' beurteilen: zeigt der Zustand dann 'Lokale Zuordnungen',
+        ist eine schwache oder leere Katalogdatenlage KEIN Grund für
+        'rerun_dk_collect' (action=continue).
       - Nach classification: DK-Codes vorhanden (Feld 'DK-Codes (Ist)')? Die
         DK-Tiefe ist DETERMINISTISCH geprüft und wird als 'Hat tiefe DK-Codes'
         geliefert — bewerte die Stelligkeit NICHT selbst, fordere KEINE tieferen
@@ -109,11 +134,16 @@ meta_agent:
       Terminierung (gegen Endlosschleifen):
       - 'classification' gelaufen, DK-Codes vorhanden, 'Hat tiefe DK-Codes'=ja →
         KEIN Rerun: action='finish' (oder 'continue', falls noch Abschluss-Steps
-        wie 'dk_postprocess', 'geo_candidates' oder die Aufstellungs-Steps
-        ausstehen).
-      - Leere oder fehlende Treffer in 'geo_candidates' sind KEIN Mangel der
-        Erschließung (Plugin nicht eingerichtet oder Begriff lokal nicht
-        geführt). Niemals deswegen einen Step wiederholen.
+        wie 'dk_postprocess', 'publication_form', 'geo_candidates' oder die
+        Aufstellungs-Steps ausstehen).
+      - Eine Formnotation in 'DK-Codes (Ist)' (z. B. DK 378.245
+        Hochschulschrift), die 'publication_form' aus dem Eingabetext gesetzt
+        hat, ist gewollt und KEIN Mangel. Niemals deswegen 'classification'
+        wiederholen; kein Treffer in 'publication_form' ist ebenfalls kein
+        Mangel.
+      - Leere oder fehlende Treffer in 'geo_prior' oder 'geo_candidates' sind
+        KEIN Mangel der Erschließung (Plugin nicht eingerichtet oder Begriff
+        lokal nicht geführt). Niemals deswegen einen Step wiederholen.
       - Eine fehlende Freihandstelle ist KEIN Mangel der Erschließung: sie
         bedeutet, dass die Systematik für diese Notation keine Stelle führt.
         Niemals deswegen 'classification' wiederholen.
@@ -580,23 +610,67 @@ steps:
       rvk_inline: false
 
   # ──────────────────────────────────────────────────────────────────
+  # Step 5b: Lokale Zuordnungen vor der Klassifikation (Plugin `geo_sachdb`)
+  #
+  # Dieselbe Abfrage wie Step 7b `geo_candidates`, aber vor `classification`
+  # und nur mit den finalen Schlagworten (vergeben ist noch nichts). Jede
+  # Notation aus einem getroffenen lokalen Satz geht mit Bezeichnung, den
+  # Schlagworten, über die sie gefunden wurde, und der Zahl der
+  # Kernschlagworte darunter in `extra.geo_prompt_text`: alle Kandidaten,
+  # geordnet nach Kernschlagworten, dann nach Schlagworten, dann nach
+  # Notation. Das ist die Eingabe `local_notations` der Klassifikation,
+  # zusätzliche Evidenz neben den Katalogdaten.
+  #
+  # Ohne Plugin-Instanz, ohne Datenbank oder ohne Treffer: leerer Block, die
+  # Klassifikation bekommt dann denselben Prompt wie ohne diesen Schritt.
+  # ──────────────────────────────────────────────────────────────────
+  - id: geo_prior
+    type: deterministic
+    function: geo_sachdb_prior
+    description: "Lokale Sachdatenbank: Notationen der finalen Schlagworte als Eingabe der Klassifikation (entscheidet nicht)"
+    enabled: true
+    depends_on: [dk_collect]
+
+    inputs:
+      keywords: "${extra.final_keywords}"
+      core_keywords: "${extra.core_keywords}"
+
+    outputs:
+      extra.geo_sachdb_prior: "result"
+      extra.geo_prompt_text: "result.prompt_text"
+
+    config:
+      lookup: geo_sachdb
+      scheme: DK
+      # Wie geo_candidates: nur identische Ansetzungen/Verweisungsformen.
+      min_score: 90
+      max_per_keyword: 3
+      max_keywords: 30
+      kinds: []
+      title: "Lokale Zuordnungen aus der Freiberger Sachdatenbank (kuratiert)"
+
+  # ──────────────────────────────────────────────────────────────────
   # Step 6: Classification — DK/DDC/RVK assignment
-  # Uses formatted DK prompt text from step 5 as keyword context.
-  # Skipped when the DK search produced no usable context (classic
-  # pipeline also skips classification then).
+  # Uses formatted DK prompt text from step 5 as keyword context and the
+  # local assignments from step 5b (`local_notations`) as further evidence.
+  # Runs when at least one of the two is non-empty; skipped when both are
+  # empty (classic pipeline also skips classification without catalog data).
+  # `bool(...)` for the local block: a missing value (step not run) counts as
+  # empty, so the step never runs on nothing.
   # ──────────────────────────────────────────────────────────────────
   - id: classification
     type: llm_agent
-    description: "Assign DK/DDC/RVK classifications from catalog data"
+    description: "Assign DK/DDC/RVK classifications from catalog data and local assignments"
     enabled: true
-    depends_on: [dk_collect]
-    when: "${extra.dk_prompt_text} != ''"
+    depends_on: [dk_collect, geo_prior]
+    when: "${extra.dk_prompt_text} != '' or bool(${extra.geo_prompt_text})"
 
     inputs:
       abstract: "${abstract}"
       keywords: "${extra.dk_prompt_text}"
       final_keywords: "${extra.final_keywords}"
       core_keywords: "${extra.core_keywords}"
+      local_notations: "${extra.geo_prompt_text}"
 
     outputs:
       dk_classifications: "response.classifications"
@@ -699,7 +773,22 @@ steps:
         medizinische oder geisteswissenschaftliche Werke ohne Wirtschaftsbezug
         bleiben DK-only (kein Tool-Call).
 
-      **Regelwerk klassifikatorische Sacherschließung (DK):**
+      {?local_notations}**Lokale Zuordnungen aus der Freiberger Sachdatenbank (UB Freiberg 105):**
+      - Der Block „Lokale Zuordnungen“ am Ende der Aufgabe enthält kuratierte
+        Zuordnungen von Schlagwörtern zu DK-Notationen aus der lokalen
+        Datenbank, geordnet nach der Zahl der Kernschlagwörter, über die eine
+        Notation erreicht wird.
+      - Sie sind **zusätzliche Evidenz neben dem Bibliotheksbestand**: eine
+        Vorschlagsliste, keine Übernahmeliste. Wähle nur, was zum Werk passt.
+      - Gewichte eine Notation, die über mehrere Kernschlagwörter erreicht
+        wird, höher als eine, die nur über ein einzelnes allgemeines
+        Schlagwort kommt.
+      - Eine Notation aus den lokalen Zuordnungen darf auch dann gewählt
+        werden, wenn der Bibliotheksbestand keine Daten zu ihr hat, auch wenn
+        der Ausschnitt aus dem Bibliotheksbestand leer ist. Notationen, die
+        weder dort noch hier stehen, erfindest du nicht.
+
+      {/local_notations}**Regelwerk klassifikatorische Sacherschließung (DK):**
       1. Wähle die nützlichste und exakteste Stelle in der feinsten möglichen Untergliederungsstufe.
       2. Behandelt ein Werk mehrere verwandte Gegenstände, prüfe, ob eine übergeordnete Klasse günstiger ist als mehrere Einzelstellen.
       3. Beurteile eine Klasse nie nur nach ihrer Bezeichnung — ziehe über- und untergeordnete Klassen hinzu (Mehrdeutigkeit der Sprache).
@@ -803,7 +892,9 @@ steps:
       {core_keywords}
 
       **Alle GND-Schlagworte (bei WiWi Kandidaten für `rvk_lookup`, nur Sachschlagwörter übergeben):**
-      {final_keywords}
+      {final_keywords}{?local_notations}
+
+      {local_notations}{/local_notations}
 
   # ──────────────────────────────────────────────────────────────────
   # Step 6b: RVK guard — drop notations rvk_lookup did not return
@@ -846,6 +937,38 @@ steps:
       dk_search_results_flattened: "result.results"
 
   # ──────────────────────────────────────────────────────────────────
+  # Step 7a: Publikationsform aus dem Eingabetext (Dissertation, …)
+  #
+  # Deterministisch, ohne Modell: die Regeltabelle in
+  # src/utils/publication_form.py sucht eine Wendung, mit der der
+  # Eingabetext sich SELBST als Hochschulschrift beschreibt („Zusammenfassung
+  # der Ergebnisse der Dissertation …“, „Die vorliegende Dissertation …“,
+  # Titelei „… zur Erlangung des akademischen Grades Doktor … vorgelegt
+  # von“). Das bloße Wort „Dissertation“ reicht nicht. Bei einem Treffer:
+  # das Formschlagwort (Hochschulschrift) in extra.form_keywords (→ 1131),
+  # die Formnotation (DK 378.245 bzw. 378.244) an die erste Stelle von
+  # ${dk_classifications} (→ 6700; schon vergeben: nur nach vorn), die
+  # Erkennung mit Textstelle in extra.publication_form. Ohne Treffer bleibt
+  # alles, wie es war. Die Aufstellung (Step 8) lässt Formnotationen aus.
+  # ──────────────────────────────────────────────────────────────────
+  - id: publication_form
+    type: deterministic
+    function: publication_form
+    description: "Publikationsform aus dem Eingabetext: Formschlagwort und Formnotation, nur wenn der Text sich selbst als Hochschulschrift beschreibt"
+    enabled: true
+    depends_on: [dk_postprocess]
+
+    inputs:
+      abstract: "${abstract}"
+      form_keywords: "${extra.form_keywords}"
+      dk_classifications: "${dk_classifications}"
+
+    outputs:
+      extra.publication_form: "result.publication_form"
+      extra.form_keywords: "result.form_keywords"
+      dk_classifications: "result.dk_classifications"
+
+  # ──────────────────────────────────────────────────────────────────
   # Step 7b: Lokale Sacherschließungsdatenbank (Plugin `geo_sachdb`)
   #
   # Schlägt die finalen Schlagworte und die vergebenen DK-Notationen in der
@@ -865,7 +988,9 @@ steps:
     function: geo_sachdb_candidates
     description: "Lokale Sacherschließungsdatenbank: Treffer und Notationsvorschläge (entscheidet nicht)"
     enabled: true
-    depends_on: [dk_postprocess]
+    # publication_form zuerst: dann sieht dieser Schritt auch die Formnotation
+    # und kann ihre lokale PPN für 6700 liefern.
+    depends_on: [dk_postprocess, publication_form]
 
     inputs:
       keywords: "${extra.final_keywords}"
@@ -900,6 +1025,11 @@ steps:
   # 8b wählt eine davon aus — `enabled: false` setzen, dann bleibt es bei der
   #    Kandidatenliste und der Erschließer entscheidet.
   # 8c hält die Auswahl auf die Kandidatenliste fest.
+  #
+  # Formnotationen (classification_systems.FORM_NOTATIONS, z. B. DK 378.245
+  # aus Step 7a) gehen in keinen der drei Schritte: 8a lässt sie aus und gibt
+  # die übrige Liste als extra.shelf.classifications an 8b weiter. Eine
+  # Formnotation würde ein Werk sonst zu „Hochschulwesen“ stellen.
   #
   # Vokabular: vocabularies/freihand_fg.yaml (Plugin `local_scheme`).
   # ──────────────────────────────────────────────────────────────────
@@ -936,7 +1066,8 @@ steps:
       abstract: "${abstract}"
       candidates: "${extra.shelf.prompt_text}"
       final_keywords: "${extra.final_keywords}"
-      dk_codes: "${dk_classifications}"
+      # ${dk_classifications} ohne Formnotationen (aus shelf_candidates).
+      dk_codes: "${extra.shelf.classifications}"
 
     outputs:
       extra.shelf_selection: "response.shelf"

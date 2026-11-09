@@ -155,6 +155,21 @@ def _with_user_rules(system: str, workflow: str, step_id: str, context: Any) -> 
 #: (``{\n  "status": …``) are never touched.
 _PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+#: A conditional section ``{?name}…{/name}``: the text between the markers is
+#: kept only when ``name`` has a value (see ``_has_value``), else the section
+#: goes with its markers. Not nestable for the same name. - Claude Generated
+_SECTION_RE = re.compile(r"\{\?([A-Za-z_][A-Za-z0-9_]*)\}(.*?)\{/\1\}", re.DOTALL)
+
+
+def _has_value(value: Any) -> bool:
+    """``None``, an empty or blank string and an empty container are no value.
+    - Claude Generated"""
+    if value is None:
+        return False
+    if isinstance(value, (dict, list, tuple, set)):
+        return bool(value)
+    return bool(str(value).strip())
+
 
 def _render(template: str, values: Dict[str, Any]) -> str:
     """Replace ``{name}`` markers with stringified values, in a single pass.
@@ -164,6 +179,10 @@ def _render(template: str, values: Dict[str, Any]) -> str:
     personal rule reading "nenne {dk_codes}" came back from the reflection
     prompt with the run's DK codes pasted into it — the module promises the
     opposite (``user_rules``: braces in a rule text stay literal).
+
+    Conditional sections ``{?name}…{/name}`` are resolved first, on the
+    template alone, so a substituted value is never scanned for sections
+    either. A prompt without sections renders exactly as before.
 
     A marker with no value is left standing, as before. - Claude Generated
     """
@@ -177,10 +196,15 @@ def _render(template: str, values: Dict[str, Any]) -> str:
             return json.dumps(v, ensure_ascii=False)
         return str(v)
 
+    def _section(match: "re.Match[str]") -> str:
+        return match.group(2) if _has_value(values.get(match.group(1))) else ""
+
     def _replace(match: "re.Match[str]") -> str:
         name = match.group(1)
         if name not in values:
             return match.group(0)
         return _stringify(values[name])
 
+    if "{?" in template:
+        template = _SECTION_RE.sub(_section, template)
     return _PLACEHOLDER_RE.sub(_replace, template)

@@ -56,7 +56,8 @@ class Wiring(unittest.TestCase):
         ids = [s.id for s in steps]
         self.assertEqual(ids[-4:], ["geo_candidates", "shelf_candidates", "shelf_select", "shelf_guard"])
         by_id = {s.id: s for s in steps}
-        self.assertEqual(by_id["geo_candidates"].depends_on, ["dk_postprocess"])
+        # publication_form davor: die Formnotation soll ihre lokale PPN bekommen.
+        self.assertEqual(by_id["geo_candidates"].depends_on, ["dk_postprocess", "publication_form"])
         self.assertIn(by_id["geo_candidates"].raw.get("function"), TOOL_FN_REGISTRY)
         self.assertEqual(by_id["geo_candidates"].raw["config"]["lookup"], "geo_sachdb")
 
