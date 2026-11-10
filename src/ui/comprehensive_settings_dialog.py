@@ -1074,7 +1074,8 @@ class ComprehensiveSettingsDialog(QDialog):
         ``alima_presets.json`` and its files) - Claude Generated
 
         Same export as the button in the preset group of the Plugins tab
-        (``preset_export.export_preset``): no API keys, tokens or passwords.
+        (``preset_export.export_preset``): no API keys or tokens; a database password only
+        when the export dialog asks for it.
         """
         self.plugin_settings_tab.start_preset_export()
 

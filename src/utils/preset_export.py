@@ -10,10 +10,12 @@ ISIL/ELN, the standard workflow, the LLM address and models and a server
 database as wizard pre-fill.
 
 Never written: SECRET fields and keys named like an API key or token (a used
-secret is declared under ``secrets`` instead), a database password, the path of
-a local SQLite database, any other setting holding a local path, settings the
-plugin type does not declare. Each omission is reported in
-``ExportResult.warnings``. The export reads the saved configuration unless a
+secret is declared under ``secrets`` instead), the path of a local SQLite
+database, any other setting holding a local path, settings the plugin type does
+not declare. The password of a server database is written only on request
+(``include_database_password``), in plain text, and the preset file then gets
+owner-only permissions. Each omission and the plain-text password are reported
+in ``ExportResult.warnings``. The export reads the saved configuration unless a
 ``config`` is passed. Qt-free.
 """
 
@@ -203,9 +205,10 @@ def _llm_block(config: Any) -> Dict[str, Any]:
     return block
 
 
-def _database_block(config: Any, warnings: List[str]) -> Dict[str, Any]:
-    """A server database (MariaDB/MySQL) without password; nothing for SQLite,
-    whose path is local to the workstation - Claude Generated"""
+def _database_block(config: Any, warnings: List[str],
+                    include_password: bool = False) -> Dict[str, Any]:
+    """A server database (MariaDB/MySQL); the password only when asked for;
+    nothing for SQLite, whose path is local to the workstation - Claude Generated"""
     db = config.database_config
     db_type = str(getattr(db, "db_type", "sqlite") or "sqlite").lower()
     if db_type not in ("mysql", "mariadb"):
@@ -217,13 +220,19 @@ def _database_block(config: Any, warnings: List[str]) -> Dict[str, Any]:
     if getattr(db, "port", 3306) != 3306:
         block["port"] = db.port
     if getattr(db, "password", ""):
-        warnings.append("Datenbank: das Passwort wird nicht exportiert")
+        if include_password:
+            block["password"] = db.password
+            warnings.append("Datenbank: das Passwort steht im Klartext im Paket; die Datei "
+                            "nur an berechtigte Personen weitergeben")
+        else:
+            warnings.append("Datenbank: das Passwort wird nicht exportiert")
     return block
 
 
 def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[List[str]] = None,
                   *, preset_id: str = "", version: str = "", label: str = "",
-                  config: Any = None) -> ExportResult:
+                  config: Any = None,
+                  include_database_password: bool = False) -> ExportResult:
     """Write the package folder ``dest_dir`` (new or empty).
 
     ``instance_ids``: the instances to include, in list order; ``None`` = all.
@@ -273,7 +282,7 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         llm = _llm_block(config)
         if llm:
             data["llm"] = llm
-        database = _database_block(config, warnings)
+        database = _database_block(config, warnings, include_database_password)
         if database:
             data["database"] = database
         if entries:
@@ -282,8 +291,11 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
             data["files"] = files
         if secrets:
             data["secrets"] = secrets
-        (stage / PRESET_FILENAME).write_text(
+        preset_path = stage / PRESET_FILENAME
+        preset_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        if (data.get("database") or {}).get("password"):
+            os.chmod(preset_path, 0o600)  # plain-text password: owner only
         if dest.exists():
             dest.rmdir()  # checked empty above
         os.replace(stage, dest)

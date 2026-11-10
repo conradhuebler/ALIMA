@@ -365,6 +365,11 @@ def create_argument_parser():
     preset_export.add_argument("--id", default="", help="Preset id (default: folder name)")
     preset_export.add_argument("--version", default="", help="Preset version (default 1)")
     preset_export.add_argument("--label", default="", help="Human-readable name")
+    preset_export.add_argument("--with-database-password", action="store_true",
+                               dest="with_database_password",
+                               help="Write the server database password into the package "
+                                    "(plain text, file readable by the owner only). "
+                                    "Default: not exported.")
     preset_sub.add_parser("show", help="Show the preset found and the last applied one.")
 
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated

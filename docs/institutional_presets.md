@@ -186,7 +186,7 @@ Katalogseite etwas anderes eingetragen wurde.
 
 ## Export
 
-`alima preset export <ordner> [--plugin <instanz-id> …] [--id …] [--version …] [--label …]`
+`alima preset export <ordner> [--plugin <instanz-id> …] [--id …] [--version …] [--label …] [--with-database-password]`
 oder „Preset exportieren…“ (Gruppe im Plugin-Reiter und „Als Preset
 exportieren“ im Einstellungsdialog; eine Checkliste wählt die Instanzen, das
 Paket entsteht als Unterordner `<Preset-ID>` im gewählten Ordner). Der Ordner
@@ -201,11 +201,21 @@ Das Paket enthält:
   `files/<instanz>/`, mit Prüfsumme, die Einstellung als `@file:<id>`;
 - ISIL und ELN, den Standard-Workflow;
 - für den Assistenten Typ, Name, Adresse und Modelle des allgemeinen
-  Standard-Anbieters und eine Server-Datenbank (MariaDB/MySQL) ohne Passwort;
+  Standard-Anbieters und eine Server-Datenbank (MariaDB/MySQL); deren Passwort
+  nur auf ausdrücklichen Wunsch (siehe unten);
 - `secrets` für jedes verwendete geheime Feld.
 
+Das Datenbankpasswort nimmt der Export nur mit `--with-database-password`
+bzw. dem Kästchen „Datenbank-Passwort im Klartext in das Paket schreiben“ im
+Export-Dialog (das Kästchen erscheint nur, wenn eine Server-Datenbank mit
+Passwort eingerichtet ist) mit. Es steht dann **unverschlüsselt** in
+`alima_presets.json`, die Datei bekommt nur Besitzerrechte (`0600`), der Export
+meldet es als Hinweis, und das Paket gehört nur an berechtigte Personen. Der
+Assistent beim ersten Start belegt das Passwortfeld daraus vor. `alima preset
+apply` ändert die Datenbankverbindung einer bestehenden Installation nicht.
+
 Nicht im Paket, jeweils mit Hinweis: geheime Felder und Felder namens
-`api_key`/`token`, das Datenbankpasswort, der Pfad einer lokalen
+`api_key`/`token`, ohne ausdrücklichen Wunsch das Datenbankpasswort, der Pfad einer lokalen
 SQLite-Datenbank, jede andere Einstellung mit einem lokalen Pfad (etwa
 `k10plus.cache_dir`), Einstellungen, die der Typ nicht deklariert, die
 Einstellungen einer Instanz, deren Typ nicht geladen ist (nur ihr Zustand).
@@ -217,10 +227,10 @@ Prüfsumme (Test `tests/test_institution_presets.py::TestExport`).
 
 - **Beratend.** Nutzer können nach dem Anwenden alles ändern; ein Preset sperrt
   nichts.
-- **Keine Secrets.** Ein Preset trägt keine Schlüssel und Tokens; jede Person
-  trägt sie im Plugin-Reiter oder als Umgebungsvariable ein. Das
-  Datenbankpasswort im Block `database` liest der Assistent weiterhin als
-  Vorbelegung; der Export schreibt es nicht.
+- **Keine API-Schlüssel und Tokens.** Ein Preset trägt keine; jede Person trägt
+  sie im Plugin-Reiter oder als Umgebungsvariable ein. Das Datenbankpasswort im
+  Block `database` liest der Assistent als Vorbelegung; der Export schreibt es
+  nur auf ausdrücklichen Wunsch, im Klartext (siehe „Export“).
 - **Dateien nur mit Prüfsumme.** Die Prüfung sagt, dass die Datei die gemeinte
   ist, nicht, dass ihr Inhalt stimmt. Bei der Geo-Datenbank wird nur das Schema
   geprüft.

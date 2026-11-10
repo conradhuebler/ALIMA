@@ -1376,7 +1376,7 @@ class _ExportPresetDialog(QDialog):
     - Claude Generated
     """
 
-    def __init__(self, instances, parent=None):
+    def __init__(self, instances, parent=None, *, database_password_available=False):
         super().__init__(parent)
         self.setWindowTitle("Preset exportieren")
         v = QVBoxLayout(self)
@@ -1407,12 +1407,25 @@ class _ExportPresetDialog(QDialog):
             item.setCheckState(Qt.CheckState.Checked)
             self.list.addItem(item)
         v.addWidget(self.list, 1)
+        # Only offered when a server database with a password is configured.
+        self.password_cb = QCheckBox("Datenbank-Passwort im Klartext in das Paket schreiben")
+        self.password_cb.setToolTip(
+            "Das Passwort der Server-Datenbank steht dann unverschlüsselt in "
+            "alima_presets.json (die Datei bekommt nur Besitzerrechte). Das Paket nur an "
+            "berechtigte Personen weitergeben. Ohne Haken wird das Passwort nicht exportiert."
+        )
+        self.password_cb.setVisible(bool(database_password_available))
+        v.addWidget(self.password_cb)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
+
+    @property
+    def include_database_password(self) -> bool:
+        return bool(self.password_cb.isVisibleTo(self) and self.password_cb.isChecked())
 
     def selected_instance_ids(self) -> List[str]:
         out = []
@@ -1774,10 +1787,18 @@ class PluginSettingsTab(QWidget):
         from src.utils.preset_export import exportable_instances, export_preset
 
         config = ConfigManager().load_config()
-        dialog = _ExportPresetDialog(exportable_instances(config), self)
+        db = getattr(config, "database_config", None)
+        has_db_password = bool(
+            db is not None
+            and str(getattr(db, "db_type", "") or "").lower() in ("mysql", "mariadb")
+            and getattr(db, "password", "")
+        )
+        dialog = _ExportPresetDialog(exportable_instances(config), self,
+                                     database_password_available=has_db_password)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         selected = dialog.selected_instance_ids()
+        with_password = dialog.include_database_password
         pid = dialog.id_edit.text().strip()
         version = dialog.version_edit.text().strip()
         label = dialog.label_edit.text().strip()
@@ -1791,13 +1812,14 @@ class PluginSettingsTab(QWidget):
             QMessageBox.information(
                 self, "Preset exportiert",
                 "\n".join(result.lines()) + "\n\nExportiert wurde der gespeicherte Stand "
-                "(Einstellungen vorher speichern). Keine Schlüssel und Tokens; Endpunkte und "
-                "Dateien vor dem Verteilen prüfen.",
+                "(Einstellungen vorher speichern). Keine Schlüssel und Tokens; ein "
+                "Datenbank-Passwort nur, wenn es angekreuzt war. Endpunkte und Dateien vor "
+                "dem Verteilen prüfen.",
             )
 
         self._run_preset_job(
             lambda: export_preset(None, dest, selected, preset_id=pid, version=version,
-                                  label=label),
+                                  label=label, include_database_password=with_password),
             done, "Preset wird exportiert …")
 
     def _rescan_plugins(self) -> None:

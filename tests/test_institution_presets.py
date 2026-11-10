@@ -749,6 +749,122 @@ class TestFirstStart(_Home):
         self.assertIn("nicht angewendet", wizard.preset_result_lines[0])
 
 
+class _ServerDbHome(_Home):
+    """A home whose saved configuration has a server database with a password."""
+
+    def setUp(self):
+        super().setUp()
+        cfg = self.config()
+        db = cfg.database_config
+        db.db_type = "mariadb"
+        db.host = "db.example"
+        db.database = "alima"
+        db.username = "alima_user"
+        db.password = "DB-GEHEIM"
+        self.cm.save_config(cfg)
+
+
+class TestExportDatabasePassword(_ServerDbHome):
+    """The password of a server database goes into the package only on request,
+    in plain text, with an owner-only file. - Claude Generated"""
+
+    def export(self, **kw):
+        from src.utils.preset_export import export_preset
+
+        return export_preset(self.cm, self.tmp / "out" / "pkg", preset_id="x", **kw)
+
+    def test_not_exported_by_default(self):
+        result = self.export()
+        for f in result.path.rglob("*"):
+            if f.is_file():
+                self.assertNotIn(b"DB-GEHEIM", f.read_bytes(), f)
+        data = json.loads(result.preset_file.read_text(encoding="utf-8"))
+        self.assertNotIn("password", data["database"])
+        self.assertTrue(any("Passwort wird nicht exportiert" in w for w in result.warnings))
+
+    def test_written_on_request_with_owner_only_file(self):
+        result = self.export(include_database_password=True)
+        data = json.loads(result.preset_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["database"]["password"], "DB-GEHEIM")
+        self.assertEqual(result.preset_file.stat().st_mode & 0o077, 0)
+        self.assertTrue(any("Klartext" in w for w in result.warnings))
+
+    def test_a_package_without_the_option_is_not_restricted(self):
+        result = self.export()
+        self.assertNotEqual(result.preset_file.stat().st_mode & 0o077, 0)
+
+    def test_the_wizard_prefill_reads_it_from_the_package(self):
+        from src.utils.preset_loader import PresetLoader
+
+        result = self.export(include_database_password=True)
+        with patch.dict(os.environ, {pa.ENV_VAR: str(result.path)}):
+            presets = PresetLoader.load()
+        self.assertEqual((presets.db_type, presets.db_host, presets.db_password),
+                         ("mariadb", "db.example", "DB-GEHEIM"))
+
+    def test_apply_does_not_touch_the_database_connection(self):
+        result = self.export(include_database_password=True)
+        before = self.config().database_config
+        plan = pa.build_plan(pa.load_preset(result.preset_file), self.cm)
+        pa.apply_plan(plan, self.cm)
+        after = self.config().database_config
+        self.assertEqual((after.db_type, after.host, after.password),
+                         (before.db_type, before.host, before.password))
+
+
+class TestCliDatabasePassword(_ServerDbHome):
+    """The same through ``alima preset export``."""
+
+    def run_export(self, *extra):
+        from src.cli.commands import preset_cmd
+        from src.cli.main import create_argument_parser
+
+        args = create_argument_parser().parse_args(
+            ["preset", "export", str(self.tmp / "cli_pkg"), *extra])
+        with redirect_stdout(io.StringIO()):
+            rc = preset_cmd.handle_preset(args, logging.getLogger("test"))
+        return rc, self.tmp / "cli_pkg" / pa.PRESET_FILENAME
+
+    def test_cli_flag_writes_it(self):
+        rc, preset = self.run_export("--with-database-password")
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(preset.read_text(encoding="utf-8"))["database"]["password"],
+                         "DB-GEHEIM")
+
+    def test_cli_default_omits_it(self):
+        rc, preset = self.run_export()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("password", json.loads(preset.read_text(encoding="utf-8"))["database"])
+
+
+class TestExportDialogDatabasePassword(_Home):
+    def setUp(self):
+        super().setUp()
+        _need_widgets(self)
+
+    def dialog(self, available):
+        from src.ui.plugin_settings_tab import _ExportPresetDialog
+
+        d = _ExportPresetDialog([("search_provider", "swb", "SWB", True)],
+                                database_password_available=available)
+        _KEEP.append(d)
+        return d
+
+    def test_hidden_and_false_without_a_password(self):
+        d = self.dialog(False)
+        d.password_cb.setChecked(True)
+        self.assertFalse(d.password_cb.isVisibleTo(d))
+        self.assertFalse(d.include_database_password)
+
+    def test_unchecked_by_default_and_true_when_checked(self):
+        d = self.dialog(True)
+        self.assertTrue(d.password_cb.isVisibleTo(d))
+        self.assertFalse(d.password_cb.isChecked())
+        self.assertFalse(d.include_database_password)
+        d.password_cb.setChecked(True)
+        self.assertTrue(d.include_database_password)
+
+
 class TestCli(_Home):
     def run_cli(self, *argv, answer=None):
         from src.cli.commands import preset_cmd

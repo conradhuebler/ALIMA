@@ -71,7 +71,9 @@ def _handle_export(args) -> int:
 
     result = export_preset(None, args.folder, getattr(args, "plugins", None),
                            preset_id=args.id or "", version=args.version or "",
-                           label=args.label or "")
+                           label=args.label or "",
+                           include_database_password=bool(
+                               getattr(args, "with_database_password", False)))
     print("\n".join(result.lines()))
     print("✅ Exportiert (gespeicherter Stand). Keine Schlüssel und Tokens im Paket; "
           "Endpunkte und Dateien vor dem Verteilen prüfen.")
