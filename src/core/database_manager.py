@@ -41,6 +41,10 @@ class DatabaseManager:
         self._thread_local = threading.local()
         self.db_fallback_notice: Optional[str] = None
         self._fallback_triggered = False
+        # What was asked for and why it was not used (set when the fallback to
+        # SQLite triggers) - Claude Generated
+        self.requested_db_type: str = str(getattr(database_config, "db_type", "") or "").lower()
+        self.fallback_reason: Optional[str] = None
 
         # Ensure QCoreApplication exists for QtSql
         if not QCoreApplication.instance():
@@ -149,6 +153,7 @@ class DatabaseManager:
                 and not self._fallback_triggered
             ):
                 self._fallback_triggered = True
+                self.fallback_reason = error_text
                 self.db_fallback_notice = (
                     f"⚠️ {self.config.db_type.upper()} Treiber nicht ladbar. "
                     f"Verwende SQLite Fallback."
@@ -410,6 +415,20 @@ class DatabaseManager:
             return next(iter(result.values()))
         return None
 
+    def _fallback_failure_message(self) -> str:
+        """Why the requested server database was not used - Claude Generated"""
+        from PyQt6.QtCore import QLibraryInfo
+
+        requested = (self.requested_db_type or "mysql").upper()
+        drivers_dir = f"{QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)}/sqldrivers"
+        reason = (self.fallback_reason or "").strip()
+        return (
+            f"❌ {requested}: der Qt-SQL-Treiber lässt sich nicht laden ({reason}). "
+            f"ALIMA würde auf SQLite zurückfallen. Häufige Ursache: eine Systembibliothek "
+            f"des Treibers fehlt; die Treiberdateien liegen in {drivers_dir} "
+            f"(unter Linux zeigt ldd auf libqsqlmysql.so die fehlende Bibliothek)."
+        )
+
     def test_connection(self) -> tuple[bool, str]:
         """
         Test database connection and return status.
@@ -420,6 +439,12 @@ class DatabaseManager:
         """
         try:
             connection = self.get_connection()
+
+            # The connection was opened, but on SQLite instead of the database the
+            # settings ask for: that is a failed test, not a successful one. The
+            # message used to read "SQLITE connection successful". - Claude Generated
+            if self._fallback_triggered:
+                return False, self._fallback_failure_message()
 
             # Simple test query
             if self.config.db_type.lower() in ['sqlite', 'sqlite3']:

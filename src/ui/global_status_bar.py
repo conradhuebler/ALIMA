@@ -29,6 +29,10 @@ class GlobalStatusBar(QStatusBar):
         self.provider_label = QLabel("Provider: Nicht verfügbar")
         self.cache_label = QLabel("Cache: --")
         self.pipeline_label = QLabel("Pipeline: Bereit")
+        # Shown only while the database runs on SQLite although a server database
+        # is configured - Claude Generated
+        self.database_label = QLabel("")
+        self.database_label.setVisible(False)
         self.progress_bar = QProgressBar()
 
         # Setup UI
@@ -60,6 +64,10 @@ class GlobalStatusBar(QStatusBar):
         set_style_prop(self.cache_label, "chip", "success")
         layout.addWidget(self.cache_label)
 
+        # Database fallback warning (hidden unless the fallback is active)
+        set_style_prop(self.database_label, "chip", "error")
+        layout.addWidget(self.database_label)
+
         # Pipeline status
         set_style_prop(self.pipeline_label, "chip", "warning")
         layout.addWidget(self.pipeline_label)
@@ -87,6 +95,26 @@ class GlobalStatusBar(QStatusBar):
         # Initial update - don't load models during startup - Claude Generated
         self.update_provider_info_lazy()
         self.update_cache_status()
+        self.update_database_fallback()
+
+    def update_database_fallback(self) -> None:
+        """Show the warning chip while the database runs on the SQLite fallback.
+
+        The notice comes from the knowledge manager (``db_fallback_notice``); the
+        chip stays until the application restarts with a working driver. The
+        8-second message at startup alone was easy to miss. - Claude Generated
+        """
+        notice = getattr(self.cache_manager, "db_fallback_notice", None) if self.cache_manager else None
+        if not notice:
+            self.database_label.setVisible(False)
+            self.database_label.setToolTip("")
+            return
+        self.database_label.setText("⚠ Datenbank: SQLite (Rückfall)")
+        self.database_label.setToolTip(
+            f"{notice}\nEs wird die lokale SQLite-Datei verwendet, nicht die eingestellte "
+            "Server-Datenbank. Einstellungen, Daten und Speicher, Test der Verbindung zeigt den Grund."
+        )
+        self.database_label.setVisible(True)
 
     def update_provider_info_lazy(self):
         """Update provider display without initializing providers - Claude Generated"""
@@ -151,6 +179,7 @@ class GlobalStatusBar(QStatusBar):
 
     def update_cache_status(self):
         """Update cache status display - Claude Generated"""
+        self.update_database_fallback()
         if self.cache_manager:
             try:
                 # Get cache statistics
