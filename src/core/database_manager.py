@@ -7,6 +7,7 @@ Claude Generated
 """
 
 import logging
+import sys
 import threading
 from typing import Dict, List, Optional, Any, Union
 from PyQt6.QtSql import QSqlDatabase, QSqlQuery, QSqlError
@@ -15,6 +16,31 @@ import json
 
 from ..utils.config_models import DatabaseConfig
 from .sql_dialect import SQLDialect
+
+
+def driver_diagnosis_hint(drivers_dir: str, platform: Optional[str] = None) -> str:
+    """Where to look when the Qt MySQL/MariaDB driver does not load, per system.
+
+    The plugin file is found in ``drivers_dir``; "Driver not loaded" usually means a
+    library the plugin itself needs is missing, not the plugin. The wording is
+    hedged on purpose: the hints for macOS and Windows are not tried on those
+    systems. - Claude Generated
+    """
+    platform = (platform or sys.platform).lower()
+    if platform.startswith("linux"):
+        return (f"Häufige Ursache: eine Systembibliothek des Treibers fehlt. Die Datei "
+                f"libqsqlmysql.so liegt in {drivers_dir}; ldd auf diese Datei zeigt die "
+                f"fehlende Bibliothek (\"not found\"), meist libmysqlclient oder libmariadb.")
+    if platform == "darwin":
+        return (f"Häufige Ursache: eine Bibliothek des Treibers fehlt. Die Datei "
+                f"libqsqlmysql.dylib liegt in {drivers_dir}; otool -L auf diese Datei zeigt "
+                f"die benötigten Bibliotheken (die MySQL- oder MariaDB-Client-Bibliothek "
+                f"muss auffindbar sein).")
+    if platform.startswith("win"):
+        return (f"Häufige Ursache: die Client-Bibliothek (libmysql.dll bzw. libmariadb.dll) "
+                f"liegt weder im PATH noch neben qsqlmysql.dll. Der Treiber liegt in "
+                f"{drivers_dir}; ein Werkzeug wie Dependencies zeigt, was ihm fehlt.")
+    return f"Die Treiberdateien liegen in {drivers_dir}; prüfen, welche Bibliothek dem Treiber fehlt."
 
 
 class DatabaseManager:
@@ -424,9 +450,8 @@ class DatabaseManager:
         reason = (self.fallback_reason or "").strip()
         return (
             f"❌ {requested}: der Qt-SQL-Treiber lässt sich nicht laden ({reason}). "
-            f"ALIMA würde auf SQLite zurückfallen. Häufige Ursache: eine Systembibliothek "
-            f"des Treibers fehlt; die Treiberdateien liegen in {drivers_dir} "
-            f"(unter Linux zeigt ldd auf libqsqlmysql.so die fehlende Bibliothek)."
+            f"ALIMA würde auf SQLite zurückfallen. "
+            f"{driver_diagnosis_hint(drivers_dir)}"
         )
 
     def test_connection(self) -> tuple[bool, str]:

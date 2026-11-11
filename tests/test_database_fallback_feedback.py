@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 from PyQt6.QtSql import QSqlDatabase
 from PyQt6.QtWidgets import QApplication
 
-from src.core.database_manager import DatabaseManager
+from src.core.database_manager import DatabaseManager, driver_diagnosis_hint
 from src.utils.config_models import DatabaseConfig
 
 _KEEP: list = []
@@ -75,6 +75,13 @@ class FallbackIsAFailedTest(unittest.TestCase):
         self.assertEqual(r["requested"], "mariadb")
         self.assertTrue(r["notice"])
 
+    def test_the_message_ends_with_the_hint_of_the_running_system(self):
+        from PyQt6.QtCore import QLibraryInfo
+
+        drivers_dir = f"{QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)}/sqldrivers"
+        message = self.probe("mariadb", drivers=False)["message"]
+        self.assertTrue(message.endswith(driver_diagnosis_hint(drivers_dir)), message)
+
     def test_the_same_for_mysql(self):
         r = self.probe("mysql", drivers=False)
         self.assertFalse(r["ok"])
@@ -91,6 +98,36 @@ class FallbackIsAFailedTest(unittest.TestCase):
         r = self.probe("mariadb", drivers=False, then_query=True)
         self.assertEqual(r["select"], 1)
         self.assertEqual(r["config_type"], "sqlite")
+
+
+class DriverHintPerSystem(unittest.TestCase):
+    DIR = "/x/plugins/sqldrivers"
+
+    def test_linux_names_ldd_and_the_plugin_file(self):
+        hint = driver_diagnosis_hint(self.DIR, "linux")
+        self.assertIn("ldd", hint)
+        self.assertIn("libqsqlmysql.so", hint)
+        self.assertIn(self.DIR, hint)
+        self.assertNotIn("otool", hint)
+
+    def test_macos_names_otool_and_the_dylib(self):
+        hint = driver_diagnosis_hint(self.DIR, "darwin")
+        self.assertIn("otool -L", hint)
+        self.assertIn("libqsqlmysql.dylib", hint)
+        self.assertNotIn("ldd", hint)
+
+    def test_windows_names_the_dlls_and_the_search_path(self):
+        hint = driver_diagnosis_hint(self.DIR, "win32")
+        self.assertIn("qsqlmysql.dll", hint)
+        self.assertIn("libmysql.dll", hint)
+        self.assertIn("PATH", hint)
+        self.assertNotIn("ldd", hint)
+
+    def test_an_unknown_system_gets_the_folder_only(self):
+        hint = driver_diagnosis_hint(self.DIR, "freebsd13")
+        self.assertIn(self.DIR, hint)
+        self.assertNotIn("ldd", hint)
+        self.assertNotIn("otool", hint)
 
 
 class StatusBarShowsTheFallback(unittest.TestCase):
