@@ -210,6 +210,48 @@ class GetMessagesHistoryTool(BaseChatTool):
         )
 
 
+class GetResultSectionTool(BaseChatTool):
+    name = "get_result_section"
+    description = (
+        "Return one section of the finished result of this work as text: "
+        "'ergebnis' (the result card), 'ketten' (chains with the reason for each), "
+        "'klassifikation' (DK notations with rank and designation), 'dk_auswertung', "
+        "'aufstellung' (shelf place with reason), 'lokal' (hits of the local subject "
+        "database), 'quellen' (sources used in the run), 'winibw' (the WinIBW entry), "
+        "'schlagworte', 'suche' (search terms with number of GND hits), 'bericht'. "
+        "The conversation context already holds the result card and the chain "
+        "reasons; call this for the other sections or when the context was cut."
+    )
+    parameters_schema = {
+        "type": "object",
+        "properties": {
+            "section": {
+                "type": "string",
+                "enum": ["ergebnis", "ketten", "klassifikation", "dk_auswertung",
+                         "aufstellung", "lokal", "quellen", "winibw", "schlagworte",
+                         "suche", "bericht"],
+            },
+        },
+        "required": ["section"],
+    }
+
+    def available_for(self, session: Any) -> bool:
+        ctx = _shared_context(session)
+        return bool(ctx and (ctx.extra or {}).get("result_sections"))
+
+    def execute(self, session: Any, section: str = "", **_: Any) -> str:
+        ctx = _shared_context(session)
+        sections = (ctx.extra or {}).get("result_sections") if ctx else None
+        if not sections:
+            return json.dumps({"error": "Kein Ergebnis in dieser Sitzung"})
+        if section not in sections:
+            return json.dumps(
+                {"error": f"Abschnitt '{section}' hat keinen Inhalt",
+                 "available_sections": sorted(sections)}
+            )
+        return json.dumps({"section": section, "text": sections[section]}, ensure_ascii=False)
+
+
 def generic_tools() -> List[BaseChatTool]:
     """Instantiate one of each generic tool. Used by build_chat_toolset."""
     return [
@@ -217,5 +259,6 @@ def generic_tools() -> List[BaseChatTool]:
         GetInputTextTool(),
         GetExtraTool(),
         GetStepResultTool(),
+        GetResultSectionTool(),
         GetMessagesHistoryTool(),
     ]

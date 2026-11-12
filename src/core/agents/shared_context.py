@@ -873,6 +873,17 @@ class SharedContext(BaseSharedContext):
                 normalised_dk.append(cls_)
             else:
                 normalised_dk.append({"code": str(cls_)})
+        # The classification entries carry system, display and rank; the plain
+        # code list alone left a chat agent guessing what a DK number means.
+        entries_by_code = {}
+        for entry in getattr(state, "classification_entries", []) or []:
+            if isinstance(entry, dict) and entry.get("display"):
+                entries_by_code[str(entry.get("code") or "")] = entry
+        if entries_by_code:
+            normalised_dk = [
+                {**entries_by_code.get(str(item.get("code", "")).replace("DK ", "", 1).strip(), {}), **item}
+                for item in normalised_dk
+            ]
         ctx.dk_classifications = normalised_dk
 
         ctx.dk_search_results = list(getattr(state, "dk_search_results", []) or [])
@@ -891,6 +902,20 @@ class SharedContext(BaseSharedContext):
         final_keywords = getattr(state, "final_keywords", None)
         if final_keywords:
             ctx.extra["final_keywords"] = list(final_keywords)
+
+        # Readable result sections for the chat (tool ``get_result_section`` and
+        # the always-present summary); built from the state itself. - Claude Generated
+        try:
+            from src.utils.result_summary import result_sections
+
+            sections = result_sections(state)
+            if sections:
+                ctx.extra["result_sections"] = sections
+        except Exception as exc:  # noqa: BLE001 - the bridge must still return the context
+            from src.utils.error_visibility import log_caught
+            import logging
+
+            log_caught(logging.getLogger(__name__), exc, "Ergebnisabschnitte für den Chat")
 
         return ctx
 

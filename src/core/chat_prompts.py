@@ -506,6 +506,23 @@ def _catalog_tool_rules(available: Optional[Set[str]], compact: bool = False) ->
     return "\n".join(lines) + "\n\n"
 
 
+# Standing rule for every mode: when a finished result is part of the context,
+# the answer is built from it. Without this a model asked to justify the
+# indexing rebuilt it from the abstract and invented what a DK number stands for.
+_RESULT_CONTEXT_RULE = (
+    "\nErgebnis im Kontext (ZWINGEND beachten):\n"
+    "- Steht im Kontext ein Ergebnis der Erschließung, beantworte Fragen zu "
+    "Schlagworten, Ketten, Klassifikation, Aufstellung und lokalen Treffern "
+    "AUS DIESEM ERGEBNIS, nicht aus dem Abstract neu gedacht. Begründungen "
+    "zitieren, was dort steht (z. B. die Begründung je Kette, die Begründung "
+    "der Aufstellung, lokale Treffer).\n"
+    "- Nenne die Bedeutung einer DK-Notation nur, wenn sie im Ergebnis steht "
+    "oder ein Werkzeug sie liefert; rate sie nie aus der Nummer.\n"
+    "- Einzelheiten: Werkzeug `get_result_section` (Abschnitte stehen am Ende "
+    "des Ergebnisses im Kontext).\n"
+)
+
+
 def build_system_prompt(
     mode: str = "general",
     context_hint: str = "",
@@ -558,6 +575,8 @@ def build_system_prompt(
             "general": MODE_GENERAL,
         }[mode]
         sections.append(mode_text)
+
+    sections.append(_RESULT_CONTEXT_RULE)
 
     if context_hint:
         sections.append(f"\nKontext:\n{context_hint}")

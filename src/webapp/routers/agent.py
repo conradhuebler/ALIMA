@@ -438,14 +438,10 @@ async def session_chat(session_id: str, req: ChatMessageRequest) -> dict:
     state = getattr(pm, "current_analysis_state", None) or session.current_analysis_state
     shared_context = _shared_context_from_analysis_state(state)
     if state is not None:
-        wt = getattr(state, "working_title", "") or ""
-        ab = getattr(state, "original_abstract", "") or ""
-        parts = []
-        if wt:
-            parts.append(f"Titel: {wt}")
-        if ab:
-            parts.append(f"Abstract: {ab[:500]}{'…' if len(ab) > 500 else ''}")
-        context_str = "\n".join(parts)
+        from src.utils.result_summary import chat_context_for_state
+
+        sections = ((getattr(shared_context, "extra", None) or {}).get("result_sections"))
+        context_str = chat_context_for_state(state, sections)
 
     services = AppContext().get_services()
 

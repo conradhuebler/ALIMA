@@ -314,21 +314,16 @@ class ChatAgentMixin:
             )
             return
 
-        parts = []
-        if hasattr(analysis_state, "working_title") and analysis_state.working_title:
+        if getattr(analysis_state, "working_title", ""):
             self.working_title = analysis_state.working_title
-            parts.append(f"Titel: {analysis_state.working_title}")
-        if (
-            hasattr(analysis_state, "original_abstract")
-            and analysis_state.original_abstract
-        ):
-            abstract = analysis_state.original_abstract
-            if len(abstract) > 500:
-                abstract = abstract[:500] + "..."
-            parts.append(f"Abstract: {abstract}")
-        self.current_context = "\n".join(parts) or "(kein Titel/Abstract)"
 
         ctx = self._shared_context_from_analysis_state(analysis_state)
+        from ..utils.result_summary import chat_context_for_state
+
+        sections = (getattr(ctx, "extra", None) or {}).get("result_sections") if ctx else None
+        self.current_context = (
+            chat_context_for_state(analysis_state, sections) or "(kein Titel/Abstract)"
+        )
         self.session.last_shared_context = ctx
 
         kw_count = len(getattr(ctx, "extracted_keywords", []) or []) if ctx else 0
