@@ -1616,7 +1616,7 @@ class PluginSettingsTab(QWidget):
 
         The jobs run in a worker thread (``_PresetWorker``); plan and result
         come from the Qt-free ``src/utils/preset_apply.py`` and
-        ``preset_export.py``, the same functions as ``alima preset``.
+        ``preset_export.py``, the same functions as ``python3 src/alima_cli.py preset``.
         - Claude Generated
         """
         box = QGroupBox("Einrichtung (Preset)")

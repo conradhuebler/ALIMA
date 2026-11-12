@@ -1,4 +1,4 @@
-"""CLI handler for ``alima preset {apply,revert,export,show}`` - Claude Generated.
+"""CLI handler for ``python3 src/alima_cli.py preset {apply,revert,export,show}`` - Claude Generated.
 
 Thin frontend over :mod:`src.utils.preset_apply` and
 :mod:`src.utils.preset_export`; the GUI group "Einrichtung (Preset)" calls the
@@ -29,7 +29,7 @@ def _handle_apply(args) -> int:
         path, source = pa.find_preset()
         if path is None:
             print("❌ Kein Preset gefunden (ALIMA_PRESET, Konfigurationsverzeichnis, "
-                  "Projektverzeichnis). Pfad angeben: alima preset apply <ordner|datei>")
+                  "Projektverzeichnis). Pfad angeben: python3 src/alima_cli.py preset apply <ordner|datei>")
             return 1
         preset = pa.load_preset(path, source)
     plan = pa.build_plan(preset)
@@ -44,12 +44,12 @@ def _handle_apply(args) -> int:
     entry = pa.apply_plan(plan)
     files = len((entry or {}).get("files") or [])
     print(f"✅ Angewendet: {len(plan.changes)} Änderungen, {files} Dateien installiert. "
-          "Rückgängig: alima preset revert")
+          "Rückgängig: python3 src/alima_cli.py preset revert")
     if (entry or {}).get("cache"):
         from src.utils.preset_cache import record_lines
 
         print("\n".join(record_lines(entry["cache"])))
-        print("Der Cache bleibt auch nach alima preset revert eingespielt.")
+        print("Der Cache bleibt auch nach python3 src/alima_cli.py preset revert eingespielt.")
     return 0
 
 
@@ -113,7 +113,7 @@ def _handle_show(args) -> int:
 
 
 def handle_preset(args, logger: logging.Logger) -> int:
-    """Dispatch ``alima preset <action>``; returns a process exit code."""
+    """Dispatch ``python3 src/alima_cli.py preset <action>``; returns a process exit code."""
     action = getattr(args, "preset_action", None)
     handlers = {
         "apply": _handle_apply,
@@ -123,7 +123,7 @@ def handle_preset(args, logger: logging.Logger) -> int:
     }
     fn = handlers.get(action)
     if fn is None:
-        print("Usage: alima preset {apply|revert|export|show} …")
+        print("Usage: python3 src/alima_cli.py preset {apply|revert|export|show} …")
         return 2
     try:
         return fn(args)

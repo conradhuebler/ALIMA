@@ -14,7 +14,7 @@ lesen, Vorschau, anwenden, zurücknehmen),
 [`src/utils/preset_cache.py`](../src/utils/preset_cache.py) und
 [`src/core/_ukm_cache_merge.py`](../src/core/_ukm_cache_merge.py) (Cache),
 [`src/utils/preset_loader.py`](../src/utils/preset_loader.py) (Vorbelegung des
-Assistenten). CLI: `alima preset`. GUI: Einstellungen ▸ Datenquellen, Gruppe
+Assistenten). CLI: `python3 src/alima_cli.py preset`. GUI: Einstellungen ▸ Datenquellen, Gruppe
 „Einrichtung (Preset)“ unter den Plugin-Listen. Beispiel:
 [`examples/presets/demo_institution/`](../examples/presets/demo_institution/).
 
@@ -48,7 +48,7 @@ In dieser Reihenfolge, das erste gefundene gilt; das Log nennt Datei und Quelle:
 3. `alima_presets.json` im Projektverzeichnis.
 
 Gefunden wird das Preset vom Einrichtungsassistenten (GUI und CLI), von der
-Gruppe im Plugin-Reiter und von `alima preset show` und `alima preset apply`
+Gruppe im Plugin-Reiter und von `python3 src/alima_cli.py preset show` und `python3 src/alima_cli.py preset apply`
 ohne Pfad.
 
 ## Schlüssel
@@ -246,7 +246,7 @@ Einrichtung. Das Paket nur intern verteilen, nicht in ein öffentliches
 Repository.
 
 **Nicht rückgängig zu machen.** Ein Cache ist neu aufbaubar; das Zusammenführen
-wird deshalb nicht zurückgenommen. `alima preset revert` und „Rückgängig“ nehmen
+wird deshalb nicht zurückgenommen. `python3 src/alima_cli.py preset revert` und „Rückgängig“ nehmen
 Einstellungen und Dateien zurück wie bisher und lassen den Cache, wie er ist.
 Der Verlauf (`applied_presets`) hält je Teil nur die Zahlen fest
 (`cache: [{id, table, status, new, updated, unchanged, …}]`).
@@ -291,14 +291,14 @@ nicht geändert wurde. Dateien: neue werden gelöscht, ersetzte kommen aus der
 `.bak` zurück, seitdem geänderte bleiben. Der Cache bleibt.
 
 ```bash
-alima preset show                                   # gefundenes und zuletzt angewendetes Preset
-alima preset apply ub-musterstadt/ --dry-run        # nur Vorschau
-alima preset apply ub-musterstadt/                  # Vorschau, Rückfrage, anwenden
-alima preset apply --yes                            # gefundenes Preset ohne Rückfrage
-alima preset revert                                 # letztes Preset zurücknehmen
+python3 src/alima_cli.py preset show                                   # gefundenes und zuletzt angewendetes Preset
+python3 src/alima_cli.py preset apply ub-musterstadt/ --dry-run        # nur Vorschau
+python3 src/alima_cli.py preset apply ub-musterstadt/                  # Vorschau, Rückfrage, anwenden
+python3 src/alima_cli.py preset apply --yes                            # gefundenes Preset ohne Rückfrage
+python3 src/alima_cli.py preset revert                                 # letztes Preset zurücknehmen
 ```
 
-`alima preset` läuft ohne vorherige Einrichtung (wie `setup`). Ohne `--yes`
+`python3 src/alima_cli.py preset` läuft ohne vorherige Einrichtung (wie `setup`). Ohne `--yes`
 fragen `apply` und `revert` nach. Mit Fehlern endet `apply` mit Exit-Code 1.
 
 **GUI.** Die Gruppe „Einrichtung (Preset)“ zeigt das gefundene Preset (Name,
@@ -325,7 +325,7 @@ Katalogseite etwas anderes eingetragen wurde.
 
 ## Export
 
-`alima preset export <ordner> [--plugin <instanz-id> …] [--id …] [--version …] [--label …] [--with-database-password] [--no-verify-database] [--with-cache[=TEILE]]`
+`python3 src/alima_cli.py preset export <ordner> [--plugin <instanz-id> …] [--id …] [--version …] [--label …] [--with-database-password] [--no-verify-database] [--with-cache[=TEILE]]`
 oder „Preset exportieren…“ (Gruppe im Plugin-Reiter und „Als Preset
 exportieren“ im Einstellungsdialog; eine Checkliste wählt die Instanzen, das
 Paket entsteht als Unterordner `<Preset-ID>` im gewählten Ordner). Der Ordner
@@ -383,7 +383,7 @@ Export-Dialog (das Kästchen erscheint nur, wenn eine Server-Datenbank mit
 Passwort eingerichtet ist) mit. Es steht dann **unverschlüsselt** in
 `alima_presets.json`, die Datei bekommt nur Besitzerrechte (`0600`), der Export
 meldet es als Hinweis, und das Paket gehört nur an berechtigte Personen. Der
-Assistent beim ersten Start belegt das Passwortfeld daraus vor. `alima preset
+Assistent beim ersten Start belegt das Passwortfeld daraus vor. `python3 src/alima_cli.py preset
 apply` ändert die Datenbankverbindung einer bestehenden Installation nicht.
 
 Nicht im Paket, jeweils mit Hinweis: geheime Felder und Felder namens
@@ -428,13 +428,13 @@ Prüfsumme (Test `tests/test_institution_presets.py::TestExport`).
 
 1. Auf einem eingerichteten Arbeitsplatz (Plugins, ISIL/ELN, Standard-Workflow,
    Geo-Datenbank, Aufstellungssystematik) speichern, dann
-   `alima preset export /srv/alima/ub-paket --id ub-musterstadt --version 2026.1 --label "UB Musterstadt"`.
+   `python3 src/alima_cli.py preset export /srv/alima/ub-paket --id ub-musterstadt --version 2026.1 --label "UB Musterstadt"`.
    Mit `--with-cache` dahinter kommen DK-Cache und GND-Zuordnungen mit (die
    ISIL muss eingetragen sein).
 2. Den Ordner prüfen (Endpunkte, Dateien; keine Schlüssel enthalten) und intern
    verteilen, etwa auf ein Netzlaufwerk. Nicht in ein öffentliches Repository.
 3. Auf jedem Arbeitsplatz entweder
-   `alima preset apply /srv/alima/ub-paket` (mit Vorschau und Rückfrage) oder
+   `python3 src/alima_cli.py preset apply /srv/alima/ub-paket` (mit Vorschau und Rückfrage) oder
    `ALIMA_PRESET=/srv/alima/ub-paket` setzen: dann findet der
    Einrichtungsassistent das Paket beim ersten Start und wendet es an, und die
    GUI-Gruppe bietet es unter „Gefundenes Preset“ an.

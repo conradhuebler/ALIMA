@@ -100,7 +100,7 @@ class CLISetupWizard:
             self.config_manager.save_config(config)
 
             # Institution, workflow, plugins and files of the preset, with the
-            # same plan as `alima preset apply`; never raises. - Claude Generated
+            # same plan as `python3 src/alima_cli.py preset apply`; never raises. - Claude Generated
             if self._presets.path:
                 from .preset_apply import apply_after_setup
 

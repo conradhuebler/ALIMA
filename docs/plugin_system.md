@@ -459,7 +459,7 @@ An institution package (folder with `alima_presets.json` and its files) sets
 instance states, order and settings, ISIL/ELN, the standard workflow, and
 installs shipped files (the database of `geo_sachdb`, the vocabulary of
 `local_scheme`) with checksum. Settings are checked against the type's
-`ConfigField` schema; SECRET fields are never set. `alima preset
+`ConfigField` schema; SECRET fields are never set. `python3 src/alima_cli.py preset
 {apply,revert,export,show}`, GUI group "Einrichtung (Preset)" under the
 category lists. The form of a `geo_sachdb` instance shows the state of an
 available database (`meta`: source, date, checksum) in the row "Datenbank"

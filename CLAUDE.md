@@ -128,7 +128,7 @@ When documenting implemented features, the AI must apply these rules:
   Einrichtungsformat (Plugin-Zustände/-Einstellungen, ISIL/ELN, Standard-Workflow,
   Dateien mit Prüfsumme, Verlauf `applied_presets` + Rückgängig); ersetzt das
   frühere Deployment-Format (Plugin-Verzeichnisse + Profil) samt CLI/GUI. Module `src/utils/preset_apply.py` und
-  `preset_export.py`, CLI `alima preset`. ⚠️ Keine Schlüssel/Tokens im Preset;
+  `preset_export.py`, CLI `python3 src/alima_cli.py preset`. ⚠️ Keine Schlüssel/Tokens im Preset;
   Plugin-Code reist nicht mit. Details: [`docs/institutional_presets.md`](docs/institutional_presets.md).
 - **Einstellungsdialog Phase 1 ✅ DONE (Sep 10, Suite 2290, Branch
   `settings-cleanup-phase1`):** Der Dialog war nicht nur zu voll, sondern in

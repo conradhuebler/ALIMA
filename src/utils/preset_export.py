@@ -334,7 +334,7 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         entries = [_export_instance(inst, stage, files, secrets, warnings) for inst in selected]
         pid = (preset_id or "").strip() or dest.name
         data: Dict[str, Any] = {
-            "_comment": "ALIMA-Einrichtungspaket. Anwenden: alima preset apply <Ordner> "
+            "_comment": "ALIMA-Einrichtungspaket. Anwenden: python3 src/alima_cli.py preset apply <Ordner> "
                         "(Vorschau mit --dry-run). Enthält keine Schlüssel und keine Tokens.",
             "format": FORMAT_VERSION,
             "preset": {"id": pid, "version": (version or "").strip() or "1",
