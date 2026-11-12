@@ -15,6 +15,7 @@ one mixin, the agentic path in the other.
 
 import json
 import re as _re
+import time as _time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -40,23 +41,43 @@ class _AgenticStreamFilter:
         'missing_concepts', 'final_keywords', 'gnd_entries',
     })
 
-    def __init__(self, raw_cb: Callable[[str], None]) -> None:
+    # Progress line: a model that writes long lines (compact JSON) or only
+    # structure gives no complete line for a long time; without a sign of life
+    # the step looks stalled. After this many seconds without any output while
+    # tokens keep arriving, one line with the received size is shown. - Claude Generated
+    PROGRESS_INTERVAL_S = 5.0
+
+    def __init__(self, raw_cb: Callable[[str], None],
+                 clock: Callable[[], float] = _time.monotonic) -> None:
         self._cb = raw_cb
+        self._clock = clock
         self._buf = ""
         self._pending_keyword = ""
+        self._last_out = clock()
+        self._received = 0   # characters received since the last output
+
+    def _out(self, msg: str) -> None:
+        self._last_out = self._clock()
+        self._received = 0
+        self._cb(msg)
 
     def __call__(self, token: str) -> None:
         self._buf += token
+        self._received += len(token)
         while '\n' in self._buf:
             line, self._buf = self._buf.split('\n', 1)
             self._process_line(line)
+        if self._received and self._clock() - self._last_out >= self.PROGRESS_INTERVAL_S:
+            received = self._received
+            self._out(f"⏳ Antwort läuft … {received} Zeichen empfangen\n")
+            self._received = received  # keep counting up between progress lines
 
     def flush(self) -> None:
         if self._buf:
             self._process_line(self._buf)
             self._buf = ""
         if self._pending_keyword:
-            self._cb(f"{self._pending_keyword}\n")
+            self._out(f"{self._pending_keyword}\n")
             self._pending_keyword = ""
 
     def _emit_parsed(self, obj: Any) -> None:
@@ -65,16 +86,16 @@ class _AgenticStreamFilter:
             keyword = obj.get('keyword') or ''
             gnd_id = obj.get('gnd_id') or ''
             if keyword and gnd_id:
-                self._cb(f"{keyword} ({gnd_id})\n")
+                self._out(f"{keyword} ({gnd_id})\n")
                 return
             if keyword:
-                self._cb(f"{keyword}\n")
+                self._out(f"{keyword}\n")
                 return
             # No keyword field — show title/string values then recurse into lists
             for key in ('title', 'working_title'):
                 val = obj.get(key) or ''
                 if val:
-                    self._cb(f"{val}\n")
+                    self._out(f"{val}\n")
             for key, val in obj.items():
                 if key in ('title', 'working_title'):
                     continue
@@ -82,12 +103,12 @@ class _AgenticStreamFilter:
                     for item in val:
                         self._emit_parsed(item)
                 elif isinstance(val, str) and val.strip() and key not in self._STRUCTURAL_KEYS:
-                    self._cb(f"{val}\n")
+                    self._out(f"{val}\n")
         elif isinstance(obj, list):
             for item in obj:
                 self._emit_parsed(item)
         elif isinstance(obj, str) and obj.strip():
-            self._cb(f"{obj}\n")
+            self._out(f"{obj}\n")
 
     def _process_line(self, line: str) -> None:
         s = line.strip().rstrip(',')
@@ -97,7 +118,7 @@ class _AgenticStreamFilter:
         # Compact JSON object or array on one line — parse directly
         if s.startswith('{') or s.startswith('['):
             if self._pending_keyword:
-                self._cb(f"{self._pending_keyword}\n")
+                self._out(f"{self._pending_keyword}\n")
                 self._pending_keyword = ""
             try:
                 import json as _json
@@ -112,24 +133,24 @@ class _AgenticStreamFilter:
             if key == 'keyword':
                 self._pending_keyword = val
             elif key == 'gnd_id' and self._pending_keyword:
-                self._cb(f"{self._pending_keyword} ({val})\n")
+                self._out(f"{self._pending_keyword} ({val})\n")
                 self._pending_keyword = ""
             elif key not in self._STRUCTURAL_KEYS:
                 if self._pending_keyword:
-                    self._cb(f"{self._pending_keyword}\n")
+                    self._out(f"{self._pending_keyword}\n")
                     self._pending_keyword = ""
-                self._cb(f"{val}\n")
+                self._out(f"{val}\n")
             return
         if self._KV_KEY_STRUCT.match(s) or self._KV_SCALAR.match(s):
             if self._pending_keyword:
-                self._cb(f"{self._pending_keyword}\n")
+                self._out(f"{self._pending_keyword}\n")
                 self._pending_keyword = ""
             return
         # Non-JSON line (status message with emojis, headers) → pass through
         if self._pending_keyword:
-            self._cb(f"{self._pending_keyword}\n")
+            self._out(f"{self._pending_keyword}\n")
             self._pending_keyword = ""
-        self._cb(line + '\n')
+        self._out(line + '\n')
 
 
 class AgenticPipelineMixin:
