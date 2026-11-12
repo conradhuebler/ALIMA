@@ -89,9 +89,10 @@ class TestBudgetPrecedence(unittest.TestCase):
 
 
 class TestOverrideReachesTheContext(unittest.TestCase):
-    def test_config_default_leaves_the_yaml_alone(self):
-        """Absent by default: an unset budget must not silently lower one."""
-        self.assertIsNone(PipelineConfig().global_max_tokens_override)
+    def test_config_default_is_64k_with_thinking_off(self):
+        """Shipped default for all front ends; None/0 stays available as "YAML decides"."""
+        self.assertEqual(PipelineConfig().global_max_tokens_override, 65536)
+        self.assertIs(PipelineConfig().global_think_override, False)
 
     def test_context_survives_a_warm_start_roundtrip(self):
         ctx = SharedContext(abstract="a", initial_keywords=[])
@@ -112,7 +113,7 @@ class TestOverrideReachesTheContext(unittest.TestCase):
         )
         self.assertEqual(cfg.global_max_tokens_override, 32768)
 
-    def test_cli_without_the_flag_leaves_it_unset(self):
+    def test_cli_without_the_flag_keeps_the_default_budget_and_thinking_off(self):
         from src.utils.pipeline_config_builder import PipelineConfigBuilder
 
         builder = MagicMock()
@@ -122,7 +123,9 @@ class TestOverrideReachesTheContext(unittest.TestCase):
         cfg = PipelineConfigBuilder.parse_and_apply_cli_args(
             builder, argparse.Namespace(max_tokens=None)
         )
-        self.assertIsNone(cfg.global_max_tokens_override)
+        # shipped defaults: 64K budget, thinking off (all front ends)
+        self.assertEqual(cfg.global_max_tokens_override, 65536)
+        self.assertIs(cfg.global_think_override, False)
 
 
 class TestShippedDefaults(unittest.TestCase):
@@ -270,9 +273,9 @@ class TestWebappBudget(unittest.TestCase):
         })
         self.assertEqual(pm.config.global_max_tokens_override, 32768)
 
-    def test_without_the_field_the_yaml_keeps_deciding(self):
+    def test_without_the_field_the_shipped_default_applies(self):
         pm = self._post("budget-unset", {"input_type": "text", "content": "abc"})
-        self.assertIsNone(pm.config.global_max_tokens_override)
+        self.assertEqual(pm.config.global_max_tokens_override, 65536)
 
     def test_garbage_is_no_override_not_an_error(self):
         """The field comes from a browser; a typo must not fail the analysis."""

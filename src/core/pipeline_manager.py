@@ -108,13 +108,16 @@ class PipelineConfig:
     global_provider_override: Optional[str] = None
     global_model_override: Optional[str] = None
     # Global thinking override for all LLM steps (None = leave per-step/task value) - Claude Generated
-    global_think_override: Optional[bool] = None
+    # Default False: thinking off unless an operator switches it on (GUI, CLI and
+    # webapp share this default; None still means "leave the per-step value").
+    global_think_override: Optional[bool] = False
     # Global token budget for all agentic LLM steps (None = leave the workflow
     # YAML's per-step ``llm.max_tokens``). Set, it OUTRANKS the YAML: it exists
     # so an operator can lift the budget without editing two workflow files in
     # five places each. Reaches the steps as ``SharedContext.max_tokens_override``;
     # the classic path takes no budget parameter at all. - Claude Generated
-    global_max_tokens_override: Optional[int] = None
+    # Default 65536; None/0 = per-step YAML budget.
+    global_max_tokens_override: Optional[int] = 65536
     # Per-run switch for the decision-model prefilter. True = use it when a decision
     # model is configured (and the pool needs more than one chunk); False = off for
     # this run, so the same input can be run with and without it for an A/B
@@ -178,6 +181,8 @@ class PipelineConfig:
             if step_id not in self.step_configs:
                 continue
             step_config = self.step_configs[step_id]
+            if not hasattr(step_config, "think"):  # not a StepConfig (e.g. a plain dict)
+                continue
             if self.global_provider_override:
                 step_config.provider = self.global_provider_override
             if self.global_model_override:

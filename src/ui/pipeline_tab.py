@@ -504,6 +504,7 @@ class PipelineTab(
             "Standard = pro Modell/Task konfigurierter Wert\n"
             "An = think=true · Aus = think=false"
         )
+        self.global_think_combo.setCurrentIndex(2)  # default: Aus
         self.global_think_combo.setStyleSheet(_combo_css)
         self.global_think_combo.setFixedWidth(110)
         tb_layout.addWidget(self.global_think_combo)
@@ -515,7 +516,7 @@ class PipelineTab(
         self.global_max_tokens_spin = QSpinBox()
         self.global_max_tokens_spin.setRange(0, 131072)
         self.global_max_tokens_spin.setSingleStep(2048)
-        self.global_max_tokens_spin.setValue(0)
+        self.global_max_tokens_spin.setValue(65536)
         self.global_max_tokens_spin.setSpecialValueText("Standard")
         self.global_max_tokens_spin.setToolTip(
             "max_tokens für alle agentischen LLM-Schritte.\n"
