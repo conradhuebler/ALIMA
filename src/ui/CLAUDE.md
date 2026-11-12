@@ -61,6 +61,12 @@ bleibt über Einstellungen → Erschließung und Workflows erreichbar.
 
 ## [Variable Section - Short-term Information]
 
+### ✅ ADDED (Nov 12, 2026): Pipeline-Tab folgt dem agentischen Schritt, Chat-Kontext mit Ergebnis, Voreinstellungen
+- `PipelineTabEventsMixin._on_agentic_step_snapshot`: bei `_step_status == "running"` setzt es den Status des Schrittwidgets, springt per `jump_to_step` zum Reiter (`_AGENTIC_STEP_MAP`: nur die fünf klassischen Reiter) und nennt den Schritt in `pipeline_status_label`. Schritte ohne Eintrag lassen den Reiter stehen.
+- `ChatAgentMixin.load_context` baut `current_context` mit `result_summary.chat_context_for_state` (Titel, Abstract-Anfang, Ergebnis-Zusammenfassung); die Webapp nutzt dieselbe Funktion. Chat-Werkzeug `get_result_section` (`chat_tools/generic.py`).
+- Der Pipeline-Tab startet mit Thinking „Aus" (`global_think_combo` Index 2) und Budget 65536 (`global_max_tokens_spin`); „Standard"/0 bleibt wählbar.
+- Einstellungsdialog, Gruppe Wiederholungserkennung: Felder für Warn-/Abbruchschwelle, Aktion und Wiederholungen (`comprehensive_settings_dialog._build_repetition_group`); n-Gramm-, Fenster- und Zeichenfelder sind entfernt. Die Vorschlagsknöpfe der Warnleiste (`retry_with_variations`) haben keinen Empfänger (vorbestehend).
+
 ### ✅ ADDED (Nov 9, 2026): Gruppe „Einrichtung (Preset)“ im Plugin-Tab
 `PluginSettingsTab._build_preset_group`: gefundenes Preset (Quelle, Name, Version), zuletzt angewendetes (Verlauf), „Preset anwenden…“ (gefunden/Datei/Ordner → `_PresetPlanDialog`), „Rückgängig“, „Preset exportieren…“ (`_ExportPresetDialog`, auch hinter `export_preset_button` des Einstellungsdialogs). Jobs im `_PresetWorker`; nach dem Speichern `_after_preset` (Schritte in den Dialogzustand, `preset_applied` → `ComprehensiveSettingsDialog._on_preset_applied` für ISIL/ELN/Workflow und Verlauf). ⚠️ Wirkt sofort, nicht Teil der Unit of Work des Dialogs. Info-Zeile je Typ: `register_type_info` (geo_sachdb: Stand der Datenbank). Spec: [`docs/institutional_presets.md`](../../docs/institutional_presets.md).
 

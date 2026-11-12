@@ -8,6 +8,17 @@ This file summarizes notable changes in this branch since the last upstream rele
 
 ## [Unreleased]
 
+### Web App and Chat (November 2026)
+
+- Web app: results are shown in tabs (Log / Chat, Result, Classification); the pipeline steps, settings and the start button sit in a side column and the input stays collapsible on top. The final result is also shown in the log, so the chat can refer to it.
+- Web app: „Ergebnis laden…" shows a saved result file (web app export or saved analysis) without running an analysis.
+- Web app: a „mit Decision" switch per run (only enabled when a decision model is set up); static files carry a version so a browser no longer mixes old scripts with a new page.
+- Thinking is off and the token budget is 65536 by default (CLI, desktop app and web app); „Standard" in the selection leaves it to the model or the workflow.
+- Chat: the chat now gets the finished result (keywords, chains with reasons, classification with designations, shelf place, local hits) and can fetch single sections; answers about the result are bound to it.
+- Desktop app: the pipeline tab follows the running step of an agentic workflow; a long answer without line breaks shows a progress line instead of looking stalled.
+- Repetition loops are detected by the information content of the new text (warning, then abort), in the classic and the agentic path, including the thinking channel; what happens after an abort is configurable (stop, retry, or the agent decides).
+- Setup presets: the command to apply a preset is `python3 src/alima_cli.py preset apply <folder>`.
+
 ### Agentic ↔ Classic Core Convergence
 
 - Agentic GND search (`search_swb`/`search_lobid` MCP tools) now uses the same mapping-first cache as the classic pipeline (MetaSuggester with read + write-back), instead of always-live HTTP against raw suggesters.

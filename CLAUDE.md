@@ -124,6 +124,13 @@ When documenting implemented features, the AI must apply these rules:
 - `UnifiedKnowledgeManager` — singleton, mapping-first search. Thread-safety details in `MEMORY.md`.
 
 ## [Variable Section — Current Tasks]
+- **Webapp-Reiter, Chat-Ergebnis, Wiederholungserkennung ✅ ADDED (Nov 12):**
+  Ergebnisse in Reitern mit Seitenspalte und „Ergebnis laden…“ (`src/webapp/CLAUDE.md`);
+  Voreinstellung Thinking aus, Budget 65536 (`PipelineConfig`); der Chat bekommt das
+  Ergebnis als Kontext (`src/utils/result_summary.py`, Werkzeug `get_result_section`);
+  Wiederholungsschleifen über den Informationsgehalt erkannt, Verhalten danach
+  einstellbar (`src/utils/CLAUDE.md`). ⚠️ Nicht gegen echte flint-/ornith-Schleifen und
+  nicht mit einem echten Modell im Chat geprüft. Details: `AIChangelog.md` (Nov 12).
 - **Einrichtungs-Presets ✅ ADDED (Nov 9):** `alima_presets.json` ist das
   Einrichtungsformat (Plugin-Zustände/-Einstellungen, ISIL/ELN, Standard-Workflow,
   Dateien mit Prüfsumme, Verlauf `applied_presets` + Rückgängig); ersetzt das

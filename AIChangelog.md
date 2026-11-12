@@ -6,6 +6,16 @@
 
 ## 2026
 
+### Voreinstellungen, Agent-Fortschritt, Decision-Schalter, Chat-Kontext (November 12, 2026)
+
+Fünf kleine Änderungen aus dem Betrieb, je ein Commit (`48baf19`, `55e6a1c`, `8142148`, `477d60d`, `7be3f77`).
+
+- **Voreinstellungen:** `PipelineConfig.global_think_override=False` (Thinking aus) und `global_max_tokens_override=65536`; gelten für CLI, Qt-GUI und Webapp, die GUI-Auswahl startet darauf. `None`/0 heißt: Modell bzw. Workflow-YAML entscheidet. `apply_global_override` überspringt Schrittkonfigurationen ohne `think`-Attribut (ein Test übergibt Dicts). Webapp: die Seite sendet Thinking und Budget immer (`default`/`0` für „Standard"); fehlt das Feld (API-Aufruf), gilt die Voreinstellung. Ein Modell mit kleinerem Ausgabelimit bekommt trotzdem 65536 angefragt, nicht gegen echte Anbieter geprüft.
+- **Agent-Fortschritt in der Qt-GUI:** `WorkflowExecutor._emit_snapshot(status="running")` sendet eine Markierung (`_step_id`, `_step_type`, `_step_description`, `_step_status`) ohne Kontextkopie; der Pipeline-Tab springt zum Reiter des Schritts (`_AGENTIC_STEP_MAP`, nur die fünf klassischen Reiter), die Webapp-Schrittliste hebt den laufenden Schritt hervor. Schritte ohne Eintrag in der Abbildung (`geo_prior`, `rvk_guard` …) lassen den Reiter stehen und stehen nur in der Statuszeile. Das Agentic-Dock zeigt für den laufenden Schritt kurz ein leeres Panel „running".
+- **Fortschrittszeile im Stream:** `_AgenticStreamFilter` arbeitet zeilenweise; lange oder kompakte JSON-Zeilen blieben bis zum Zeilenende unsichtbar. Kommen Tokens an und war 5 s nichts zu sehen, erscheint „⏳ Antwort läuft … N Zeichen empfangen". Kein Zeitgeber: ohne eintreffende Tokens (langes Denken, hängende Verbindung) bleibt die Anzeige still.
+- **Webapp „mit Decision":** `GET /api/decision` meldet, ob ein Entscheidungsmodell eingerichtet ist; der Schalter ist sonst gesperrt und wird nicht gesendet. Das Formularfeld `decision_prefilter` (`on`/`off`) setzt `PipelineConfig.use_decision_prefilter` je Lauf. Ohne konfiguriertes Modell ruft `prefilter_by_decision` nichts auf (Test `test_role_off_means_no_call_and_none`).
+- **Chat bekommt das Ergebnis:** der Chat sah nur Titel und Abstract-Anfang; der Rückbau `SharedContext.from_keyword_analysis_state` ließ Aufstellung, lokale Treffer, Kernschlagworte, Quellen und DK-Rang/Bezeichnung weg, das Modell erfand die Bedeutung von DK-Nummern („DK 547 für Hochpolymere"). Neu `src/utils/result_summary.py`: lesbare Abschnitte aus dem Zustand (`ergebnis`, `ketten` mit Begründung, `klassifikation` mit Bezeichnung aus den lokalen Treffern, `dk_auswertung`, `aufstellung`, `lokal`, `quellen`, `winibw`, `schlagworte`, `suche`, `bericht`) in `SharedContext.extra["result_sections"]`; eine schlanke Zusammenfassung steht immer im Kontext von Webapp und Qt-GUI (am Beispiel etwa 3200 Zeichen, nicht in Tokens gemessen), den Rest liefert `get_result_section`. `_RESULT_CONTEXT_RULE` im System-Prompt bindet Antworten zum Ergebnis an das Ergebnis. Geprüft nur an einem gespeicherten lokalen Ergebnis und mit Tests, nicht mit einem echten Modell.
+
 ### Wiederholungserkennung über den Informationsgehalt (November 12, 2026)
 
 Anlass: Wiederholungsschleifen von flint und ornith auf dem Server; der

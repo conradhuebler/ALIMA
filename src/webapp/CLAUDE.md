@@ -34,7 +34,7 @@ Two stacked zones; at ≥1100 px they fill the window and the page does not scro
 - **Top `#input-zone`**:
   - `.input-zone-header`: always visible: chevron + label, the result status line `#results-panel` (`role=status`; `data-state` idle/running/completed/loaded, working title, file name of a loaded result), and the load/save group (`#load-result-btn` Ergebnis laden… / `#export-btn` Speichern / `#recovery-btn` Wiederherstellen / `#clear-btn` Neue Analyse, `#load-result-message` for a refused file).
   - `.input-zone-body` (**collapsible**): input sources, text editor, extracted text. Collapses on run start, on the first chat send and after loading a file.
-- **`.work-row`** below: left column `.pipeline-bar.side-panel` (run button, selects, stepper; ≥1100 px 280 px wide, stacked above on smaller screens; thinking defaults to Aus, budget to 65536) beside **`.panel-stream`**: the log card, tab bar `#result-tablist` (Log / Chat · Ergebnis · Klassifikation) replaces the card title; `#log` holds the three `role=tabpanel` panels, one shown, each scrolling by itself.
+- **`.work-row`** below: left column `.pipeline-bar.side-panel` (run button, selects, „mit Decision“, stepper; ≥1100 px 280 px wide, stacked above on smaller screens; thinking defaults to Aus, budget to 65536) beside **`.panel-stream`**: the log card, tab bar `#result-tablist` (Log / Chat · Ergebnis · Klassifikation) replaces the card title; `#log` holds the three `role=tabpanel` panels, one shown, each scrolling by itself.
   - The panels sit **inside `#log`**, so the `#log`-scoped chrome of `alima_render.css` reaches every tab. `alima_render.js` writes into `window.__alimaLogId` (default `log-region`); `appendBlockToTab` points it at a tab's region for one card. Shared assets unchanged.
   - Routing (`RESULT_TAB_BY_CARD` in `app.js`): `final_result`, `workflow_report` → Ergebnis; `dk_classifications`, `dk_statistics`, `dk_search` → Klassifikation; every other event → Log. `tests/test_webapp_result_tabs.py` fails when the server emits a card kind without an entry.
   - `final_result` is also appended to the Log tab (`LOG_COPY_CARDS`, ids stripped) so the chat can refer to it.
@@ -70,7 +70,7 @@ Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workf
 ✅ **Progress Tracking** - Percentage display for long-running DK searches
 ✅ **Thread-Safe Streaming** - Streaming buffer protected with locks for concurrent access (2026-01-12)
 ✅ **LLM Queue System** - Max 3 concurrent LLM requests, unlimited direct pipeline execution (2026-01-13)
-✅ **Global Queue Status** - Live badge showing LLM + Pipeline activity for all users (2026-01-13)
+⚠️ **Global Queue Status** - Endpunkt `/api/queue/status` vorhanden; das Badge im Template ist nicht mit JavaScript verbunden (siehe unten)
 
 ## LLM Queue System - Claude Generated (2026-01-13)
 
@@ -88,10 +88,7 @@ Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workf
 - **Metrics Endpoint**: `/api/queue/status` returns combined LLM + pipeline stats
 
 ### Global Queue Status Badge
-- **Location**: Header badge showing "N/M LLM · X Pipelines"
-- **Update Frequency**: Every 20 seconds via JavaScript polling
-- **Display Logic**: Green (healthy) / Yellow (busy) indicator
-- **Tooltip**: Shows LLM active/pending and pipeline count on hover
+- **Template**: `#global-queue-badge` (versteckt, `display: none`) in `webapp.html`; **kein JavaScript fragt `/api/queue/status` ab** (in `static/*.js` kommt „queue" nicht vor), das Badge wird also nie gefüllt oder eingeblendet. Der Endpunkt selbst liefert LLM- und Pipeline-Zähler.
 
 ## Thread-Safety - Claude Generated (2026-01-12)
 
@@ -159,6 +156,7 @@ Root:             /                    → 301-redirect to /webapp
 | GET | `/api/workflows` | List classical + agentic workflows for the dropdown |
 | POST | `/api/session/{id}/chat` | Send a chat message in the session context |
 | GET | `/api/queue/status` | Get global queue statistics |
+| GET | `/api/decision` | `{configured, label}`: ob ein Entscheidungsmodell eingerichtet ist (Schalter „mit Decision“) |
 | WS | `/ws/{id}` | WebSocket for live updates (30 min timeout, heartbeat every 5s) |
 | GET | `/api/export/{id}` | Download JSON results |
 | POST | `/api/session/{id}/load` | Show a saved result file (multipart `file`) without a run |
@@ -213,6 +211,12 @@ Then visit `http://localhost:8000` in browser.
 - Batch processing UI (process multiple documents in queue)
 - Docker containerization
 - Monitoring & metrics (queue depth, execution time histograms, error rates)
+
+## Voreinstellungen und Formularfelder (Nov 12, 2026)
+
+- `POST /api/analyze/{id}` nimmt `think_override` (`on`/`off`/`default`), `max_tokens_override` (Zahl oder `0`) und `decision_prefilter` (`on`/`off`). Fehlt ein Feld, gilt die Voreinstellung der `PipelineConfig` (Thinking aus, Budget 65536); `default` bzw. `0` hebt sie auf (Modell bzw. Workflow-YAML entscheidet). Die Seite sendet Thinking und Budget immer, `decision_prefilter` nur, wenn `/api/decision` ein Modell meldet (sonst ist der Schalter gesperrt).
+- Der Chat der Sitzung bekommt Titel, Abstract-Anfang und die Ergebnis-Zusammenfassung (`result_summary.chat_context_for_state`); die Abschnitte liefert das Werkzeug `get_result_section`.
+- Statische Dateien tragen `?v=<Änderungszeit>` (`_asset_version()` in `app.py`), damit ein Browser kein altes JS/CSS zu neuem HTML lädt.
 
 ## Chat-UX WP (July 2026)
 

@@ -87,6 +87,13 @@ echten Server zu testen, wie der SQLite-Pragma-Block direkt daneben).
 - `factory.dk_candidates`: aktiv + CLASSIFICATION + `dk_enabled` (catalog ohne gespeicherten Schlüssel nur, wenn sonst keine Quelle); ab zwei Quellen `dk_fallback.FallbackDkExtractor` (Rückfall je Schlagwort), bei einer der bare Extraktor. ⚠️ Ein neues Nicht-Antwort-Signal eines Extraktors muss in `FallbackDkExtractor._ask` landen, sonst gilt es als „keine Treffer“.
 - `search/source_usage.py`: Zählwerk je Instanz und Lauf, Reset mit `source_health`; Ergebnis `KeywordAnalysisState.source_usage`. ⚠️ Neue Cache-/Netz-Wege zählen nur, wenn sie `source_usage.record*` aufrufen. Spec: [`docs/plugin_system.md`](../../docs/plugin_system.md).
 
+### ✅ ADDED (Nov 12, 2026): Voreinstellungen, Running-Marker, Chat-Ergebnisabschnitte
+- `PipelineConfig.global_think_override=False`, `global_max_tokens_override=65536` (None/0 = Modell bzw. Workflow-YAML); `apply_global_override` überspringt Einträge ohne `think`-Attribut.
+- `WorkflowExecutor._emit_snapshot(status="running")` meldet eine kleine Markierung an `context_callback` (keine Kontextkopie); Verbraucher: Qt-Pipeline-Tab, Webapp-Schrittliste, `AgenticContextWidget`. Tests: `tests/test_agentic_running_marker.py`.
+- `_AgenticStreamFilter` (`_pipeline_agentic.py`): nach 5 s ohne Ausgabe bei eintreffenden Tokens eine Fortschrittszeile; kein Zeitgeber. Tests: `tests/test_agentic_stream_progress.py`.
+- `SharedContext.from_keyword_analysis_state` legt `extra["result_sections"]` (`src/utils/result_summary.py`) und DK-Einträge mit Rang an; die Chat-Werkzeuge lesen sie (`get_result_section`). ⚠️ Der Rückbau bleibt unvollständig (Rohantworten, `step_results` fehlen), Abschnitte sind Text, nicht Struktur.
+- Wiederholungserkennung: `RepetitionGuard` um `generate_with_tools`, `StopReason.REPETITION`, Verhalten danach in `AgentLoop` (`repetition_config.repetition_action`: abort | retry | agent; `max_retries` je Lauf), Werkzeug `set_generation_params` führt der `AgentLoop` selbst aus. Details: `src/utils/CLAUDE.md`, `AIChangelog.md` (Nov 12).
+
 ### Current Issues
 - ✅ **Raw-First Response Cache (WP2, July 2)**: `search_response_cache` speichert die
   Quell-Antwort verbatim; `aggregate_gnd_results` (`src/core/search/aggregate.py`)
