@@ -2007,3 +2007,6 @@ body {
     .work-row > .panel-stream { height: 100%; }
 }
 .side-panel .pipeline-controls { order: -1; }
+
+.check-inline { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: 0.85rem; color: var(--clr-text); cursor: pointer; }
+.check-inline.is-disabled { color: var(--clr-muted); cursor: not-allowed; }

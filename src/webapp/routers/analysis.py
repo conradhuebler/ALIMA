@@ -52,6 +52,7 @@ async def start_analysis(
     global_override: Optional[str] = Form(None),  # "provider|model" override - Claude Generated
     think_override: Optional[str] = Form(None),  # "default"|"on"|"off" thinking override - Claude Generated
     max_tokens_override: Optional[str] = Form(None),  # token budget for all agentic LLM steps - Claude Generated
+    decision_prefilter: Optional[str] = Form(None),  # "on"|"off": decision-model prefilter for this run - Claude Generated
     source_type: Optional[str] = Form(None),   # Original source type for filename metadata - Claude Generated
     source_value: Optional[str] = Form(None),  # DOI/URL/filename for working title - Claude Generated
     workflow: Optional[str] = Form(None),  # Workflow stem or __classic__ - Claude Generated
@@ -96,7 +97,7 @@ async def start_analysis(
         logger.info(f"Session {session_id} workflow set to: {workflow}")
 
     # Start analysis in background with file contents, not the UploadFile object
-    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow, think_override, max_tokens_override))
+    asyncio.create_task(run_analysis(session_id, input_type, content, file_contents, filename, global_override, source_type, source_value, workflow, think_override, max_tokens_override, decision_prefilter))
 
     return {"session_id": session_id, "status": "started"}
 
@@ -154,6 +155,7 @@ async def run_analysis(
     workflow: Optional[str] = None,  # Workflow stem or __classic__ - Claude Generated
     think_override: Optional[str] = None,  # "default"|"on"|"off" thinking override - Claude Generated
     max_tokens_override: Optional[str] = None,  # token budget for all agentic LLM steps - Claude Generated
+    decision_prefilter: Optional[str] = None,  # "on"|"off" - Claude Generated
 ):
     """Execute pipeline analysis with direct PipelineManager - Claude Generated"""
 
@@ -257,6 +259,10 @@ async def run_analysis(
 
         # Apply global override if provided - Claude Generated
         think_val = _parse_think_override(think_override)
+        # The shipped default (thinking off) stands when the field is absent; an
+        # explicit "default" from the page means "leave it to the model". - Claude Generated
+        if think_override is not None:
+            pipeline_config.global_think_override = think_val
         if global_override or think_val is not None:
             if global_override:
                 provider, model = PipelineConfig.parse_override_string(global_override)
@@ -274,9 +280,15 @@ async def run_analysis(
         # to the agentic steps through the config, not through
         # apply_global_override(). - Claude Generated
         budget_val = _parse_max_tokens_override(max_tokens_override)
-        if budget_val:
-            pipeline_config.global_max_tokens_override = budget_val
-            logger.info(f"🔬 Webapp token budget: max_tokens={budget_val}")
+        if max_tokens_override is not None:
+            # absent: the shipped default; "0"/"default" from the page: the workflow YAML decides
+            pipeline_config.global_max_tokens_override = budget_val or None
+            logger.info(f"🔬 Webapp token budget: max_tokens={budget_val or 'workflow'}")
+
+        # Decision-model prefilter, per run. Without a configured decision model
+        # nothing is called either way (prefilter_by_decision returns None). - Claude Generated
+        if decision_prefilter is not None:
+            pipeline_config.use_decision_prefilter = decision_prefilter.strip().lower() != "off"
 
         # Set config on pipeline manager (was missing - config was built but never applied)
         pipeline_manager.set_config(pipeline_config)

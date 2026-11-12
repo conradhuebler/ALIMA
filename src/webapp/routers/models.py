@@ -24,6 +24,18 @@ router = APIRouter()
 _DETECT_TIMEOUT_S = 8.0
 
 
+@router.get("/api/decision")
+async def get_decision_model() -> dict:
+    """Whether a decision model is configured (the page's "mit Decision" switch) - Claude Generated"""
+    try:
+        unified = AppContext().get_services()['config_manager'].get_unified_config()
+        name, model, _src = unified.explain_default_provider_model(scope="decision")
+    except Exception as e:  # noqa: BLE001 - the page then shows the switch as unavailable
+        logger.warning(f"Decision model lookup failed: {e}")
+        return {"configured": False, "label": ""}
+    return {"configured": bool(name and model), "label": f"{name}/{model}" if name and model else ""}
+
+
 @router.get("/api/models")
 async def get_available_models() -> list:
     """Get available provider/model combinations for override dropdown - Claude Generated

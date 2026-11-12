@@ -273,6 +273,22 @@ class TestWebappBudget(unittest.TestCase):
         })
         self.assertEqual(pm.config.global_max_tokens_override, 32768)
 
+    def test_explicit_standard_choices_leave_it_to_model_and_workflow(self):
+        pm = self._post("explicit-default", {
+            "input_type": "text", "content": "abc",
+            "think_override": "default", "max_tokens_override": "0",
+        })
+        self.assertIsNone(pm.config.global_think_override)
+        self.assertIsNone(pm.config.global_max_tokens_override)
+
+    def test_decision_switch_reaches_the_config_per_run(self):
+        off = self._post("dec-off", {"input_type": "text", "content": "abc",
+                                     "decision_prefilter": "off"})
+        self.assertIs(off.config.use_decision_prefilter, False)
+        on = self._post("dec-on", {"input_type": "text", "content": "abc",
+                                   "decision_prefilter": "on"})
+        self.assertIs(on.config.use_decision_prefilter, True)
+
     def test_without_the_field_the_shipped_default_applies(self):
         pm = self._post("budget-unset", {"input_type": "text", "content": "abc"})
         self.assertEqual(pm.config.global_max_tokens_override, 65536)
@@ -306,3 +322,26 @@ class TestWebappBudget(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWebappDecisionAndDefaults(unittest.TestCase):
+    """Claude Generated: the page's "mit Decision" switch and the explicit "Standard" choices."""
+
+    def test_page_sends_explicit_defaults_and_the_decision_switch(self):
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        js = (root / "src/webapp/static/app.js").read_text(encoding="utf-8")
+        html = (root / "src/webapp/templates/webapp.html").read_text(encoding="utf-8")
+        self.assertIn("thinkSelect.value || 'default'", js)
+        self.assertIn("budgetSelect.value || '0'", js)
+        self.assertIn("formData.append('decision_prefilter'", js)
+        self.assertIn('id="decision-prefilter"', html)
+
+    def test_decision_endpoint_reports_unconfigured(self):
+        from fastapi.testclient import TestClient
+        from src.webapp.app import app
+
+        res = TestClient(app).get("/api/decision")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("configured", res.json())

@@ -192,6 +192,7 @@ class AlimaWebapp {
         this.restoreResultTab();
         await this.loadWorkflows();
         await this.loadModelOverrides();
+        this.loadDecisionSwitch();
         // Check if current URL session is already active (page refresh scenario)
         const reconnectedCurrent = await this.checkCurrentSessionState();
         // If not, check localStorage for a different running session
@@ -399,6 +400,29 @@ class AlimaWebapp {
             console.log(`Loaded ${models.length} models across ${providers.length} providers`);
         } catch (e) {
             console.error('Failed to load models:', e);
+        }
+    }
+
+    // "mit Decision": enabled only when a decision model is configured; without
+    // one nothing is called and nothing is sent. - Claude Generated
+    async loadDecisionSwitch() {
+        const box = document.getElementById('decision-prefilter');
+        if (!box) return;
+        let info = { configured: false, label: '' };
+        try {
+            const res = await fetch('/api/decision');
+            if (res.ok) info = await res.json();
+        } catch (e) {
+            console.warn('Decision model lookup failed:', e);
+        }
+        box.disabled = !info.configured;
+        box.checked = !!info.configured;
+        const wrap = box.closest('label');
+        if (wrap) {
+            wrap.title = info.configured
+                ? `Entscheidungsmodell ${info.label} für diesen Lauf nutzen (nur bei großen GND-Pools). Aus = Lauf wie ohne Entscheidungsmodell.`
+                : 'Kein Entscheidungsmodell eingerichtet (Einstellungen ▸ Sprachmodelle ▸ Entscheidungsmodell).';
+            wrap.classList.toggle('is-disabled', !info.configured);
         }
     }
 
@@ -997,15 +1021,23 @@ class AlimaWebapp {
 
             // Add global thinking override if not "default" - Claude Generated
             const thinkSelect = document.getElementById('think-override');
-            if (thinkSelect && thinkSelect.value) {
-                formData.append('think_override', thinkSelect.value);
+            // Always sent: an empty choice means "model default" ("default"), not
+            // "field absent", since the server's own default is thinking off.
+            if (thinkSelect) {
+                formData.append('think_override', thinkSelect.value || 'default');
             }
 
             // Add the token budget if not "Standard" — it outranks the
             // workflow YAML's per-step max_tokens. - Claude Generated
             const budgetSelect = document.getElementById('max-tokens-override');
-            if (budgetSelect && budgetSelect.value) {
-                formData.append('max_tokens_override', budgetSelect.value);
+            if (budgetSelect) {
+                formData.append('max_tokens_override', budgetSelect.value || '0');
+            }
+
+            // Decision-model prefilter for this run (only when a model is set).
+            const decisionBox = document.getElementById('decision-prefilter');
+            if (decisionBox && !decisionBox.disabled) {
+                formData.append('decision_prefilter', decisionBox.checked ? 'on' : 'off');
             }
 
             const response = await fetch(`/api/analyze/${this.sessionId}`, {
