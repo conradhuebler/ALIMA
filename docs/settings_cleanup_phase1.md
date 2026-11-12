@@ -108,8 +108,9 @@ adressiert) — dafür gibt es jetzt einen Test.
   unvollständig bewahrt.
 - `UnifiedProvider.id` (uuid4) hat keinen Leser, ist aber ein persistierter
   Identitätsschlüssel. Eigene Durchsicht wert.
-- `RepetitionDetectionConfig.show_suggestions` hat auch nach der Reparatur
-  keinen Leser.
-- Die Wiederholungserkennung hängt an `AlimaManager.analyze_abstract` und deckt
-  agentische Läufe nicht ab. Der Gruppentitel sagt das jetzt; ob sie es abdecken
-  *sollte*, ist offen.
+- ✅ (Nov 2026) `RepetitionDetectionConfig.show_suggestions` ist mit der
+  Ablösung der alten Wiederholungserkennung entfernt.
+- ✅ (Nov 2026) Die Wiederholungserkennung deckt agentische Läufe und den Chat
+  ab (`LlmService.generate_with_tools`, alle Anbieter), nicht mehr nur
+  `AlimaManager`. Details: `src/utils/repetition_detector.py`, `AIChangelog.md`
+  (2026-11-12).

@@ -13,7 +13,9 @@ from collections import Counter
 from src.core.data_models import AgentResponse, AgentResult, ToolCall, ToolResult, StopReason
 from src.core.processing_utils import strip_think_tags
 from src.mcp.tool_registry import ToolRegistry
+from src.mcp.tool_schemas import SET_GENERATION_PARAMS
 from src.utils.error_visibility import log_caught
+from src.utils.repetition_detector import resolve_repetition_config, retry_sampling_params
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,7 @@ class AgentLoop:
         should_stop: Optional[Callable[[], bool]] = None,
         status_callback: Optional[Callable[[str], None]] = None,
         on_thinking: Optional[Callable[[str], None]] = None,
+        repetition_config: Optional[Any] = None,
     ):
         self.llm_service = llm_service
         self.tool_registry = tool_registry
@@ -122,10 +125,116 @@ class AgentLoop:
         # provider reasoning channel are routed here instead of into the answer
         # stream. None (default) keeps the token stream unfiltered. - Claude Generated
         self.on_thinking = on_thinking
+        # Repetition settings (detection lives in generate_with_tools; what
+        # happens after a REPETITION stop is decided here, see
+        # _handle_repetition). Explicit config wins, else the service's
+        # config manager, else the defaults. - Claude Generated
+        self.repetition_config = resolve_repetition_config(
+            repetition_config if repetition_config is not None
+            else getattr(llm_service, "config_manager", None)
+        )
 
     @property
     def _status_cb(self) -> Optional[Callable[[str], None]]:
         return self.status_callback or self.stream_callback
+
+    def _generate(
+        self,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        tools,
+        gen: Dict[str, Any],
+        seed: Optional[int],
+        think: Optional[bool],
+        stream_callback: Optional[Callable[[str], None]],
+        thinking_callback: Optional[Callable[[str], None]],
+    ) -> AgentResponse:
+        """One generate_with_tools call with the run's current sampling - Claude Generated
+
+        ``gen`` holds temperature/top_p/max_tokens/repetition_penalty for this
+        run; set_generation_params and the ``retry`` action change it.
+        """
+        kwargs: Dict[str, Any] = dict(
+            provider=provider,
+            model=model,
+            messages=messages,
+            tools=tools,
+            temperature=gen["temperature"],
+            top_p=gen["top_p"],
+            max_tokens=gen["max_tokens"],
+            seed=seed,
+            stream_callback=stream_callback,
+            should_stop=self.should_stop,
+            think=think,
+            thinking_callback=thinking_callback,
+            repetition_config=self.repetition_config,
+        )
+        if gen.get("repetition_penalty") is not None:
+            kwargs["repetition_penalty"] = gen["repetition_penalty"]
+        return self.llm_service.generate_with_tools(**kwargs)
+
+    def _handle_repetition(
+        self,
+        response: AgentResponse,
+        messages: List[Dict[str, Any]],
+        gen: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> str:
+        """Decide what follows a REPETITION stop - Claude Generated
+
+        ``repetition_action`` (``RepetitionDetectionConfig``):
+
+        * ``retry`` — the same request again with varied sampling
+          (``retry_sampling_params``).
+        * ``agent`` — the text before the loop goes into the conversation as
+          the assistant's turn, followed by a note (role ``user``: a mid-run
+          ``system`` message would replace the system prompt in the Anthropic
+          and Gemini converters) that the answer was stopped; the model decides
+          how to go on and may call ``set_generation_params``.
+        * ``abort`` — the run ends with the text before the loop.
+
+        ``retry`` and ``agent`` together get at most ``max_retries`` attempts
+        per run; after that the run ends as with ``abort``.
+        Returns ``"retry"``, ``"agent"`` or ``"stop"``.
+        """
+        cfg = self.repetition_config
+        info = response.repetition or {}
+        where = "Denkkanal" if info.get("channel") == "thinking" else "Antwort"
+        state["last"] = info
+        action = cfg.repetition_action
+        if action in ("retry", "agent") and state["attempts"] < cfg.max_retries:
+            state["attempts"] += 1
+            n, limit = state["attempts"], cfg.max_retries
+            if action == "retry":
+                gen.update(retry_sampling_params(gen["temperature"], gen["top_p"], n))
+                logger.warning(f"Repetition stop ({where}) → retry {n}/{limit} with {gen}")
+                if self._status_cb:
+                    self._status_cb(
+                        f"\n🔁 Wiederholungsschleife erkannt ({where}): neuer Versuch {n}/{limit} "
+                        f"mit temperature={gen['temperature']}, top_p={gen['top_p']}\n"
+                    )
+                return "retry"
+            partial = strip_think_tags(response.content or "").strip()
+            if partial:
+                messages.append({"role": "assistant", "content": partial})
+            messages.append({"role": "user", "content": _repetition_note(info, bool(partial))})
+            state["offer_params_tool"] = True
+            logger.warning(f"Repetition stop ({where}) → agent decides ({n}/{limit})")
+            if self._status_cb:
+                self._status_cb(
+                    f"\n🔁 Wiederholungsschleife erkannt ({where}): Antwort abgebrochen, "
+                    f"der Agent entscheidet über das weitere Vorgehen ({n}/{limit})\n"
+                )
+            return "agent"
+        logger.warning(f"Repetition stop ({where}) → run ends with partial result")
+        if self._status_cb:
+            self._status_cb(
+                f"\n⛔ Wiederholungsschleife erkannt ({where}): Schritt endet mit dem Text "
+                f"vor der Schleife ({info.get('kept_chars', 0)} Zeichen behalten, "
+                f"{info.get('cut_chars', 0)} abgeschnitten)\n"
+            )
+        return "stop"
 
     def run(
         self,
@@ -191,6 +300,27 @@ class AgentLoop:
         # Leaving it unset made an empty turn look like a successful step.
         # See AgentResult.error. - Claude Generated
         run_error: Optional[str] = None
+        # Sampling of this run; set_generation_params and the repetition
+        # "retry" action change it for all following calls. - Claude Generated
+        gen: Dict[str, Any] = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens,
+            "repetition_penalty": None,
+        }
+        rep_state: Dict[str, Any] = {"attempts": 0, "last": None, "offer_params_tool": False}
+
+        def _current_tools():
+            # set_generation_params is offered from the first repetition stop
+            # with action "agent" on — also in a run without other tools, so
+            # the note's advice can be followed. - Claude Generated
+            if not rep_state["offer_params_tool"]:
+                return tool_schemas
+            schema = SET_GENERATION_PARAMS.to_schema()
+            base = list(tool_schemas or [])
+            if all(t.get("name") != schema["name"] for t in base):
+                base.append(schema)
+            return base
 
         for iteration in range(1, self.max_iterations + 1):
             # Cancel check (P-δ.3 hook). Latency = max one iteration.
@@ -213,15 +343,6 @@ class AgentLoop:
             if self._status_cb and self.max_iterations > 1:
                 self._status_cb(f"\n🔄 Iteration {iteration}/{self.max_iterations}: Warte auf LLM-Antwort...")
 
-            # Fresh per-iteration filter: diverts streamed <think> content to
-            # the thinking channel; without on_thinking the stream stays
-            # untouched (pipeline paths). - Claude Generated
-            think_filter: Optional[ThinkStreamFilter] = None
-            stream_cb = self.stream_callback
-            if self.on_thinking and self.stream_callback:
-                think_filter = ThinkStreamFilter(self.stream_callback, self.on_thinking)
-                stream_cb = think_filter.feed
-
             # Providers with a SEPARATE reasoning channel (Ollama, vLLM) used to
             # hand it over only as the finished string on the response, so the
             # thinking appeared in one lump after the turn while the inline
@@ -235,32 +356,45 @@ class AgentLoop:
 
             thinking_cb = _thinking_cb if self.on_thinking else None
 
-            try:
-                response: AgentResponse = self.llm_service.generate_with_tools(
-                    provider=provider,
-                    model=model,
-                    messages=messages,
-                    tools=tool_schemas,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_tokens=max_tokens,
-                    seed=seed,
-                    stream_callback=stream_cb,
-                    should_stop=self.should_stop,
-                    think=think,
-                    thinking_callback=thinking_cb,
-                )
-            except Exception as e:
+            # One call, repeated in place when a repetition stop is answered
+            # with "retry" or "agent" (no iteration is used up for it). A fresh
+            # think filter per call: an aborted stream may end inside an open
+            # <think>. - Claude Generated
+            call_error: Optional[Exception] = None
+            while True:
+                # Fresh per-call filter: diverts streamed <think> content to
+                # the thinking channel; without on_thinking the stream stays
+                # untouched (pipeline paths). - Claude Generated
+                think_filter: Optional[ThinkStreamFilter] = None
+                stream_cb = self.stream_callback
+                if self.on_thinking and self.stream_callback:
+                    think_filter = ThinkStreamFilter(self.stream_callback, self.on_thinking)
+                    stream_cb = think_filter.feed
+                try:
+                    response: AgentResponse = self._generate(
+                        provider, model, messages, _current_tools(), gen, seed, think,
+                        stream_cb, thinking_cb,
+                    )
+                except Exception as e:
+                    if think_filter:
+                        think_filter.flush()
+                    call_error = e
+                    break
                 if think_filter:
                     think_filter.flush()
+                if response.stop_reason != StopReason.REPETITION:
+                    break
+                if self._handle_repetition(response, messages, gen, rep_state) == "stop":
+                    break
+
+            if call_error is not None:
+                e = call_error
                 logger.error(f"LLM call failed at tool-call {iteration}: {e}")
                 if self._status_cb:
                     self._status_cb(f"\n❌ LLM-Fehler: {e}\n")
                 final_content = f"Error: {e}"
                 run_error = str(e)  # mark run as failed, not just oddly-worded - Claude Generated
                 break
-            if think_filter:
-                think_filter.flush()
 
             # Provider reasoning channel → thinking block. Only when it did NOT
             # already arrive chunk-wise above (non-streaming call, or a provider
@@ -290,6 +424,17 @@ class AgentLoop:
                 final_stop_reason = StopReason.CANCELLED
                 if self._status_cb:
                     self._status_cb("\n⏹ Agent-Abbruch durch Operator\n")
+                if final_content:
+                    messages.append({"role": "assistant", "content": strip_think_tags(final_content)})
+                break
+
+            # Repetition stop that _handle_repetition did not turn into another
+            # attempt: the run ends with the text before the loop. Not an
+            # error (that text is the model's), but stop_reason "repetition"
+            # tells the caller it is unfinished. - Claude Generated
+            if response.stop_reason == StopReason.REPETITION:
+                final_content = response.content or ""
+                final_stop_reason = StopReason.REPETITION
                 if final_content:
                     messages.append({"role": "assistant", "content": strip_think_tags(final_content)})
                 break
@@ -361,9 +506,16 @@ class AgentLoop:
                         except Exception:
                             logger.exception("on_tool_call hook raised")
 
-                    # Execute tool
+                    # Execute tool. set_generation_params acts on this run's
+                    # sampling, so the loop answers it itself instead of the
+                    # (shared) registry. - Claude Generated
                     tool_start = time.time()
-                    result_str = self.tool_registry.execute(tc.name, tc.arguments)
+                    if tc.name == SET_GENERATION_PARAMS.name and rep_state["offer_params_tool"]:
+                        result_str = json.dumps(
+                            apply_generation_params(gen, tc.arguments), ensure_ascii=False
+                        )
+                    else:
+                        result_str = self.tool_registry.execute(tc.name, tc.arguments)
                     tool_duration = time.time() - tool_start
 
                     # P-δ.3 hook: notify after tool dispatch
@@ -458,17 +610,16 @@ class AgentLoop:
                     ),
                 })
                 try:
-                    forced = self.llm_service.generate_with_tools(
-                        provider=provider, model=model, messages=messages, tools=[],
-                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                        seed=seed, think=think,
-                        should_stop=self.should_stop, thinking_callback=thinking_cb,
+                    forced = self._generate(
+                        provider, model, messages, [], gen, seed, think, None, thinking_cb,
                     )
                     if forced.stop_reason == StopReason.CANCELLED:
                         final_stop_reason = StopReason.CANCELLED
                         if self._status_cb:
                             self._status_cb("\n⏹ Agent-Abbruch durch Operator\n")
                         break
+                    if forced.stop_reason == StopReason.REPETITION:
+                        rep_state["last"] = forced.repetition
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     final_stop_reason = forced.stop_reason
                     if final_content:
@@ -508,7 +659,7 @@ class AgentLoop:
                         budget = ""
                         advice = " max_tokens erhöhen oder die Eingabe kürzen."
                     final_content = (
-                        f"⚠️ Das Modell hat das Token-Budget (max_tokens={max_tokens}) "
+                        f"⚠️ Das Modell hat das Token-Budget (max_tokens={gen['max_tokens']}) "
                         f"aufgebraucht, bevor eine Antwort kam.{budget}{advice}"
                     )
                     run_error = final_content
@@ -553,14 +704,13 @@ class AgentLoop:
                 })
                 cancelled = False
                 try:
-                    forced = self.llm_service.generate_with_tools(
-                        provider=provider, model=model,
-                        messages=messages, tools=[],  # No tools = force text response
-                        temperature=temperature, top_p=top_p, max_tokens=max_tokens,
-                        seed=seed, think=think,
-                        should_stop=self.should_stop, thinking_callback=thinking_cb,
+                    forced = self._generate(
+                        provider, model, messages, [],  # No tools = force text response
+                        gen, seed, think, None, thinking_cb,
                     )
                     cancelled = forced.stop_reason == StopReason.CANCELLED
+                    if forced.stop_reason == StopReason.REPETITION:
+                        rep_state["last"] = forced.repetition
                     final_stop_reason = forced.stop_reason
                     final_content = forced.content or getattr(forced, "reasoning", "")
                     if final_content and not cancelled:
@@ -598,6 +748,7 @@ class AgentLoop:
             messages=conv,
             error=run_error,
             stop_reason=getattr(final_stop_reason, "value", str(final_stop_reason)),
+            repetition=rep_state["last"],
         )
 
     def _emit_final(self, text: str) -> str:
@@ -692,3 +843,88 @@ def _truncate_args(args: Dict[str, Any], max_len: int = 150) -> str:
     if len(s) > max_len:
         return s[:max_len] + "..."
     return s
+
+
+# Limits of set_generation_params (also stated in its tool description).
+GENERATION_PARAM_LIMITS: Dict[str, tuple] = {
+    "temperature": (0.0, 2.0),
+    "top_p": (0.05, 1.0),
+    "repetition_penalty": (1.0, 2.0),
+    "max_tokens": (256, 32768),
+}
+
+
+def apply_generation_params(gen: Dict[str, Any], arguments: Any) -> Dict[str, Any]:
+    """Validate and apply a set_generation_params call to ``gen`` - Claude Generated
+
+    All or nothing: a single invalid value leaves ``gen`` untouched. Numbers
+    may arrive as numeric strings (some models quote them); booleans are not
+    numbers here. Returns the JSON-able tool result.
+    """
+    if not isinstance(arguments, dict):
+        return {"error": "Argumente müssen ein Objekt sein", "allowed": sorted(GENERATION_PARAM_LIMITS)}
+    errors: List[str] = []
+    applied: Dict[str, Any] = {}
+    unknown = sorted(k for k in arguments if k not in GENERATION_PARAM_LIMITS)
+    if unknown:
+        errors.append(f"unbekannte Parameter: {', '.join(unknown)}")
+    for name, (lo, hi) in GENERATION_PARAM_LIMITS.items():
+        if name not in arguments or arguments[name] is None:
+            continue
+        raw = arguments[name]
+        if isinstance(raw, bool):
+            errors.append(f"{name}: Zahl erwartet, nicht {raw!r}")
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            errors.append(f"{name}: Zahl erwartet, nicht {raw!r}")
+            continue
+        if value != value or not (lo <= value <= hi):  # NaN or out of range
+            errors.append(f"{name}: {raw!r} liegt nicht in {lo}–{hi}")
+            continue
+        if name == "max_tokens":
+            if value != int(value):
+                errors.append(f"max_tokens: ganze Zahl erwartet, nicht {raw!r}")
+                continue
+            applied[name] = int(value)
+        else:
+            applied[name] = round(value, 3)
+    if not errors and not applied:
+        errors.append(
+            "kein Parameter angegeben (erlaubt: " + ", ".join(sorted(GENERATION_PARAM_LIMITS)) + ")"
+        )
+    if errors:
+        return {"error": "; ".join(errors), "unchanged": dict(gen)}
+    gen.update(applied)
+    return {
+        "ok": True,
+        "applied": applied,
+        "now": dict(gen),
+        "note": "Gilt für die folgenden Modellaufrufe dieses Laufs, nicht dauerhaft.",
+    }
+
+
+def _repetition_note(info: Dict[str, Any], partial_kept: bool) -> str:
+    """The note a model gets after its answer was stopped by the guard - Claude Generated"""
+    where = "im Denkkanal" if info.get("channel") == "thinking" else "in der Antwort"
+    rate = info.get("rate")
+    threshold = info.get("threshold")
+    measured = (
+        f" (Informationsrate {rate:.3f} unter {threshold:.3f})"
+        if isinstance(rate, (int, float)) and isinstance(threshold, (int, float))
+        else ""
+    )
+    kept = (
+        "Der Text bis zum Beginn der Schleife steht oben als deine letzte Antwort."
+        if partial_kept
+        else "Vor der Schleife lag kein verwertbarer Antworttext."
+    )
+    return (
+        f"[Systemhinweis] Deine letzte Antwort wurde automatisch abgebrochen: sie geriet "
+        f"{where} in eine Wiederholungsschleife{measured}. {kept} Wiederhole dich nicht. "
+        "Entscheide selbst, wie es weitergeht: setze die Antwort ohne Wiederholung fort, "
+        "formuliere sie knapper neu, oder ändere mit dem Werkzeug set_generation_params "
+        "die Sampling-Parameter (temperature, top_p, repetition_penalty, max_tokens) für "
+        "die folgenden Aufrufe."
+    )

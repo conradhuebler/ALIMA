@@ -169,10 +169,11 @@ class RepetitionWarningBar(QFrame):
         if not already_showing:
             self.warning_icon_label.setText("⚠️")
 
+            # RepetitionResult.detection_type of the information-rate
+            # detector (src/utils/repetition_detector.py). - Claude Generated
             type_labels = {
-                "char_pattern": "Zeichenwiederholung erkannt",
-                "ngram": "Phrasenwiederholung erkannt",
-                "window_similarity": "Textblock-Wiederholung erkannt",
+                "low_information": "Wiederholungsschleife erkannt",
+                "counter_loop": "Zählschleife erkannt",
             }
             self.warning_title_label.setText(
                 type_labels.get(detection_type, "Wiederholung erkannt")

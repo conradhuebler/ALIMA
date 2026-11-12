@@ -247,7 +247,7 @@ class SwitchLeavesNoOldColoursTest(_SchemeState):
         root = QWidget()
         lay = QVBoxLayout(root)
         bar = RepetitionWarningBar()
-        bar.show_warning("ngram", "x", [], grace_period=False)
+        bar.show_warning("low_information", "x", [], grace_period=False)
         panel = AgenticStepPanel("selection", "llm")
         panel.apply({"_step_status": "completed", "extra": {"a": 1}})
         label = QLabel("x")

@@ -19,11 +19,16 @@ from .processing_utils import (
 from .provider_status_service import ProviderStatusService
 from ..utils.error_visibility import log_caught
 from ..utils.repetition_detector import (
+    EVENT_ABORT,
+    EVENT_GRACE,
+    EVENT_RESOLVED,
+    EVENT_WARN,
     RepetitionDetector,
-    RepetitionDetectorConfig,
+    RepetitionMonitor,
     RepetitionResult,
     get_parameter_variation_suggestions,
-    format_repetition_warning,
+    resolve_repetition_config,
+    retry_sampling_params,
 )
 
 
@@ -79,38 +84,74 @@ class AlimaManager:
         self._init_repetition_detector()
 
     def _init_repetition_detector(self):
-        """Initialize repetition detector from config - Claude Generated"""
+        """Read the repetition settings - Claude Generated
+
+        ``resolve_repetition_config`` falls back to the defaults for anything
+        that is not a real config (a test Mock, a failed load). Each
+        ``_generate_response`` builds its own monitor from it: up to three
+        generations run at once (``_llm_semaphore``), and one shared detector
+        would mix their texts.
+        """
+        self.repetition_config = resolve_repetition_config(self.config_manager)
+        cfg = self.repetition_config
+        self.logger.debug(
+            f"Repetition detection: enabled={cfg.enabled}, warn<{cfg.warn_threshold}, "
+            f"abort<{cfg.abort_threshold}, action={cfg.classic_repetition_action}"
+        )
+
+    def _report_repetition_event(
+        self,
+        name: str,
+        result: Optional[RepetitionResult],
+        callback: Optional[Callable],
+        temperature: float,
+        top_p: float,
+        repetition_penalty: Optional[float],
+        note: str = "",
+    ) -> None:
+        """Monitor event → log + warning-bar callback - Claude Generated
+
+        Callback contract (unchanged): ``(result, suggestions, grace_period,
+        resolved, grace_seconds)``. ``warn`` shows the bar without countdown,
+        ``grace`` with it, ``resolved`` turns it green; ``abort`` shows the
+        result with ``note`` (what happens next) as its details.
+        """
+        grace = self.repetition_config.grace_period_seconds
+        if name == EVENT_RESOLVED:
+            self.logger.info("✅ REPETITION_RESOLVED: Informationsrate wieder über der Warnschwelle")
+            if callback:
+                callback(None, [], False, True, 0.0)
+            return
+        if result is None:
+            return
+        if name == EVENT_WARN:
+            self.logger.warning(f"🔄 REPETITION_WARN: {result.details}")
+        elif name == EVENT_GRACE:
+            self.logger.warning(f"🔄 REPETITION_DETECTED: {result.details}")
+            self.logger.info(f"⏳ GRACE_PERIOD_STARTED: {grace}s countdown")
+        if not callback:
+            return
+        suggestions = get_parameter_variation_suggestions(
+            temperature=temperature,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty or 1.0,
+            detection_type=result.detection_type,
+        )
+        if name == EVENT_ABORT:
+            from dataclasses import replace
+
+            callback(replace(result, details=note or result.details), suggestions, False, False, 0.0)
+        else:
+            callback(result, suggestions, name == EVENT_GRACE, False, grace if name == EVENT_GRACE else 0.0)
+
+    def _notify_repetition(self, text: str, level: str = "warning") -> None:
+        """Repetition notice on the state bus (GUI log, webapp, CLI stderr) - Claude Generated"""
         try:
-            config = self.config_manager.load_config()
-            rep_config = getattr(config, 'repetition_config', None)
+            from .state_bus import AlimaStateBus
 
-            if rep_config:
-                detector_config = RepetitionDetectorConfig(
-                    # Master switches
-                    enabled=rep_config.enabled,
-                    auto_abort=rep_config.auto_abort,
-                    grace_period_seconds=getattr(rep_config, 'grace_period_seconds', 2.0),  # Claude Generated (2026-02-17)
-                    # N-gram detection
-                    ngram_size=rep_config.ngram_size,
-                    ngram_threshold=rep_config.ngram_threshold,
-                    # Window similarity
-                    window_size=getattr(rep_config, 'window_size', 300),
-                    similarity_threshold=rep_config.window_similarity_threshold,
-                    min_windows=getattr(rep_config, 'min_windows', 4),
-                    # Character patterns
-                    char_repeat_threshold=rep_config.char_repeat_threshold,
-                    # Processing control
-                    min_text_length=getattr(rep_config, 'min_text_length', 1000),
-                    check_interval=getattr(rep_config, 'check_interval', 200),
-                )
-            else:
-                detector_config = RepetitionDetectorConfig()
-
-            self.repetition_detector = RepetitionDetector(detector_config)
-            self.logger.debug(f"RepetitionDetector initialized: ngram={detector_config.ngram_threshold}, min_text={detector_config.min_text_length}, enabled={detector_config.enabled}")
-        except Exception as e:
-            self.logger.warning(f"Failed to initialize RepetitionDetector: {e}, using defaults")
-            self.repetition_detector = RepetitionDetector()
+            AlimaStateBus().emit_event("state.notice", {"text": text, "level": level})
+        except Exception as e:  # display only
+            log_caught(self.logger, e, "repetition notice bus emit")
 
     def set_ollama_url(self, url: str):
         """Set the Ollama URL for LLM requests."""
@@ -491,171 +532,159 @@ class AlimaManager:
             self.logger.debug(f"LLM_SERVICE_CALL: provider='{actual_provider}', model='{llm_model}'")
             self.logger.debug(f"STREAM_CALLBACK: {'present' if stream_callback else 'none'}")
 
-            response_generator = self.llm_service.generate_response(
-                provider=actual_provider,
-                model=llm_model,
-                prompt=formatted_prompt,
-                request_id=request_id,
-                temperature=temperature,
-                p_value=p_value,
-                seed=seed,
-                system=prompt_config.system,
-                stream=True,  # Enable streaming
-                repetition_penalty=repetition_penalty,
-                think=think,
-                output_format=prompt_config.output_format,  # JSON-Mode - Claude Generated
-            )
+            rep_cfg = self.repetition_config
+            attempt = 0
+            cur_temperature, cur_top_p = temperature, p_value
 
-            self.logger.debug(f"LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
-
-            full_response_text = ""
-            if response_generator is None:
-                self.logger.error(
-                    f"💥 LLM service returned None for request_id: {request_id}, provider: {actual_provider}, model: {llm_model}"
+            # One pass per attempt: a repetition abort with
+            # classic_repetition_action="retry" regenerates with varied
+            # sampling (retry_sampling_params), at most rep_cfg.max_retries
+            # times. - Claude Generated
+            while True:
+                response_generator = self.llm_service.generate_response(
+                    provider=actual_provider,
+                    model=llm_model,
+                    prompt=formatted_prompt,
+                    request_id=request_id,
+                    temperature=cur_temperature,
+                    p_value=cur_top_p,
+                    seed=seed,
+                    system=prompt_config.system,
+                    stream=True,  # Enable streaming
+                    repetition_penalty=repetition_penalty,
+                    think=think,
+                    output_format=prompt_config.output_format,  # JSON-Mode - Claude Generated
                 )
-                return None
 
-            # Initialize JSON stream filter for display - Claude Generated
-            from ..utils.json_stream_filter import JsonStreamFilter
-            json_filter = JsonStreamFilter(enabled=(prompt_config.output_format != "xml"))
+                self.logger.debug(f"LLM_SERVICE_RESULT: response_generator={response_generator is not None}")
 
-            # Reset repetition detector for new generation - Claude Generated
-            self.repetition_detector.reset()
-            repetition_aborted = False
+                full_response_text = ""
+                if response_generator is None:
+                    self.logger.error(
+                        f"💥 LLM service returned None for request_id: {request_id}, provider: {actual_provider}, model: {llm_model}"
+                    )
+                    return None
 
-            # Grace period state tracking - Claude Generated (2026-02-17)
-            repetition_grace_start: Optional[float] = None  # Timestamp when grace period started
-            repetition_last_detected: Optional[RepetitionResult] = None  # Last detection result
-            repetition_count = 0  # Count total detections
-            repetition_resolved_count = 0  # Count successful resolutions
-            repetition_clean_chunks = 0  # Consecutive clean chunks since last detection - Claude Generated
-            repetition_clean_since: Optional[float] = None  # Timestamp when clean streak started - Claude Generated
+                # Initialize JSON stream filter for display - Claude Generated
+                from ..utils.json_stream_filter import JsonStreamFilter
+                json_filter = JsonStreamFilter(enabled=(prompt_config.output_format != "xml"))
 
-            try:
-                chunk_count = 0
-                for text_chunk in response_generator:
-                    if text_chunk is None:
-                        continue  # Skip None chunks
-                    chunk_count += 1
-                    full_response_text += text_chunk
+                # A fresh monitor per generation (see _init_repetition_detector).
+                monitor = RepetitionMonitor(
+                    RepetitionDetector.from_config(rep_cfg),
+                    auto_abort=rep_cfg.auto_abort,
+                    grace_seconds=rep_cfg.grace_period_seconds,
+                )
+                aborted: Optional[RepetitionResult] = None
+                interrupted = False
 
-                    # Check for external interrupt (e.g. user pressed Stop) - Claude Generated
-                    if self._interrupt_check_func and self._interrupt_check_func():
-                        self.logger.info("🛑 STREAM_INTERRUPTED: User requested stop during streaming")
-                        if hasattr(response_generator, 'close'):
-                            try:
-                                response_generator.close()
-                            except Exception:
-                                pass  # best-effort generator close on user abort - Claude Generated
-                        break
+                try:
+                    chunk_count = 0
+                    for text_chunk in response_generator:
+                        if text_chunk is None:
+                            continue  # Skip None chunks
+                        chunk_count += 1
+                        full_response_text += text_chunk
 
-                    # Check for repetition patterns - Claude Generated
-                    rep_result = self.repetition_detector.add_chunk(text_chunk)
-                    if rep_result and rep_result.is_repetitive:
-                        # Repetition detected - handle grace period - Claude Generated (2026-02-17)
-                        repetition_clean_chunks = 0  # Reset clean-chunk counter on any detection - Claude Generated
-                        repetition_clean_since = None  # Reset clean streak timer - Claude Generated
-                        if repetition_grace_start is None:
-                            # START grace period
-                            repetition_grace_start = time.time()
-                            repetition_last_detected = rep_result
-                            repetition_count += 1  # Count first detection
+                        # Check for external interrupt (e.g. user pressed Stop) - Claude Generated
+                        if self._interrupt_check_func and self._interrupt_check_func():
+                            self.logger.info("🛑 STREAM_INTERRUPTED: User requested stop during streaming")
+                            interrupted = True
+                            if hasattr(response_generator, 'close'):
+                                try:
+                                    response_generator.close()
+                                except Exception:
+                                    pass  # best-effort generator close on user abort - Claude Generated
+                            break
 
-                            self.logger.warning(f"🔄 REPETITION_DETECTED: {rep_result.detection_type} - {rep_result.details}")
-                            self.logger.info(f"⏳ GRACE_PERIOD_STARTED: {self.repetition_detector.config.grace_period_seconds}s countdown")
-
-                            # Generate parameter suggestions
-                            suggestions = get_parameter_variation_suggestions(
-                                temperature=temperature,
-                                top_p=p_value,
-                                repetition_penalty=repetition_penalty or 1.0,
-                                detection_type=rep_result.detection_type,
+                        event = monitor.feed(text_chunk)
+                        if event:
+                            name, res = event
+                            if name == EVENT_ABORT:
+                                aborted = res
+                                break
+                            self._report_repetition_event(
+                                name, res, on_repetition_detected,
+                                cur_temperature, cur_top_p, repetition_penalty,
                             )
 
-                            # Call callback with grace_period=True
-                            if on_repetition_detected:
-                                on_repetition_detected(
-                                    rep_result,
-                                    suggestions,
-                                    True,  # grace_period
-                                    False,  # resolved
-                                    self.repetition_detector.config.grace_period_seconds  # grace_seconds
-                                )
+                        if stream_callback:
+                            self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
+                            # Apply JSON filter for display (full_response_text remains unfiltered) - Claude Generated
+                            filtered_chunk = json_filter.feed(text_chunk)
+                            if filtered_chunk:
+                                stream_callback(filtered_chunk)
                         else:
-                            # CONTINUE grace period - repetition persists
-                            repetition_last_detected = rep_result
-                            elapsed = time.time() - repetition_grace_start
+                            self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
 
-                            # Check if grace period expired
-                            if elapsed >= self.repetition_detector.config.grace_period_seconds:
-                                # ABORT after grace period
-                                if self.repetition_detector.config.auto_abort:
-                                    self.logger.warning(f"🛑 AUTO_ABORT: Grace period expired ({elapsed:.1f}s), cancelling generation")
-                                    repetition_aborted = True
-                                    # Try to cancel the LLM generation
-                                    try:
-                                        self.llm_service.cancel_generation(reason="repetition_persistent")
-                                    except Exception as cancel_err:
-                                        self.logger.debug(f"Cancel generation not supported: {cancel_err}")
-                                    break
+                    # A response that ends at abort level looped until it
+                    # stopped by itself (often at the token limit).
+                    if aborted is None and not interrupted:
+                        event = monitor.finish()
+                        if event and event[0] == EVENT_ABORT:
+                            aborted = event[1]
+
+                    # Close the generator to release the HTTP connection - Claude Generated
+                    if aborted is not None and hasattr(response_generator, 'close'):
+                        try:
+                            response_generator.close()
+                        except Exception as close_err:
+                            self.logger.debug(f"Generator close error (ignored): {close_err}")
+
+                    if aborted is not None:
+                        self.logger.info(f"⚠️ LLM_STREAM_ABORTED: {chunk_count} chunks, {len(full_response_text)} chars (repetition detected)")
                     else:
-                        # No repetition in this chunk - check for resolution - Claude Generated (2026-02-17)
-                        if repetition_grace_start is not None:
-                            repetition_clean_chunks += 1
-                            if repetition_clean_since is None:
-                                repetition_clean_since = time.time()
-                            # Require BOTH 5 consecutive clean chunks AND 1.0s clean time
-                            # to guard against fast-streaming false resolutions - Claude Generated
-                            clean_elapsed = time.time() - repetition_clean_since
-                            if repetition_clean_chunks >= 5 and clean_elapsed >= 1.0:
-                                # RESOLVED - repetition stopped during grace period
-                                elapsed = time.time() - repetition_grace_start
-                                repetition_resolved_count += 1  # Count resolution
-                                self.logger.info(f"✅ REPETITION_RESOLVED: Stopped after {elapsed:.1f}s, continuing generation")
-                                repetition_grace_start = None
-                                repetition_last_detected = None
-                                repetition_clean_chunks = 0
-                                repetition_clean_since = None
+                        self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
 
-                                # Notify UI that repetition resolved
-                                if on_repetition_detected:
-                                    on_repetition_detected(None, [], False, True, 0.0)  # result, suggestions, grace_period, resolved, grace_seconds
+                    if monitor.detections:
+                        self.logger.info(
+                            f"📊 REPETITION_SUMMARY: {monitor.detections} Wiederholung(en) erkannt, "
+                            f"{monitor.resolutions} während der Gnadenfrist ({rep_cfg.grace_period_seconds}s) behoben"
+                        )
 
-                    if stream_callback:
-                        self.logger.debug(f"📡 Streaming chunk #{chunk_count}: '{text_chunk[:50]}...'")
-                        # Apply JSON filter for display (full_response_text remains unfiltered) - Claude Generated
-                        filtered_chunk = json_filter.feed(text_chunk)
-                        if filtered_chunk:
-                            stream_callback(filtered_chunk)
-                    else:
-                        self.logger.debug(f"📡 Chunk #{chunk_count} (no callback): '{text_chunk[:50]}...'")
-
-                # Close the generator to release the HTTP connection - Claude Generated
-                if repetition_aborted and hasattr(response_generator, 'close'):
-                    try:
-                        response_generator.close()
-                    except Exception as close_err:
-                        self.logger.debug(f"Generator close error (ignored): {close_err}")
-
-                if repetition_aborted:
-                    self.logger.info(f"⚠️ LLM_STREAM_ABORTED: {chunk_count} chunks, {len(full_response_text)} chars (repetition detected)")
-                else:
-                    self.logger.info(f"✅ LLM_STREAM_COMPLETE: {chunk_count} chunks, {len(full_response_text)} chars total")
-
-                # Log repetition statistics summary - Claude Generated (2026-02-17)
-                if repetition_count > 0:
-                    self.logger.info(
-                        f"📊 REPETITION_SUMMARY: {repetition_count} Wiederholung(en) erkannt, "
-                        f"{repetition_resolved_count} erfolgreich behoben durch Grace Period ({self.repetition_detector.config.grace_period_seconds}s)"
+                except Exception as e:
+                    self.logger.error(
+                        f"💥 Error during streaming LLM response for request_id {request_id}: {e}"
                     )
+                    return f"Error: {e}"
 
-            except Exception as e:
-                self.logger.error(
-                    f"💥 Error during streaming LLM response for request_id {request_id}: {e}"
+                if aborted is None:
+                    return full_response_text
+
+                # Keep the text before the loop, drop the loop tail.
+                cut = max(0, min(len(full_response_text), aborted.position))
+                kept = full_response_text[:cut]
+                self.logger.warning(
+                    f"🔁 REPETITION_ABORT ({aborted.detection_type}): {aborted.details}; "
+                    f"behalten {cut} von {len(full_response_text)} Zeichen"
                 )
-                return f"Error: {e}"
+                if rep_cfg.classic_repetition_action == "retry" and attempt < rep_cfg.max_retries:
+                    attempt += 1
+                    params = retry_sampling_params(cur_temperature, cur_top_p, attempt)
+                    cur_temperature, cur_top_p = params["temperature"], params["top_p"]
+                    message = (
+                        f"🔁 Wiederholungsschleife erkannt, neuer Versuch {attempt}/{rep_cfg.max_retries} "
+                        f"mit temperature={cur_temperature}, top_p={cur_top_p}"
+                    )
+                    self._report_repetition_event(
+                        EVENT_ABORT, aborted, on_repetition_detected,
+                        cur_temperature, cur_top_p, repetition_penalty, note=message,
+                    )
+                    self._notify_repetition(message)
+                    if stream_callback:
+                        stream_callback(f"\n\n{message}\n\n")
+                    continue
 
-            return full_response_text
+                message = (
+                    f"🔁 Wiederholungsschleife erkannt, Generierung abgebrochen. "
+                    f"Das Teilergebnis bis Zeichen {cut} von {len(full_response_text)} bleibt erhalten"
+                )
+                self._report_repetition_event(
+                    EVENT_ABORT, aborted, on_repetition_detected,
+                    cur_temperature, cur_top_p, repetition_penalty, note=message,
+                )
+                self._notify_repetition(message)
+                return kept
         except Exception as e:
             self.logger.error(f"Error during LLM call: {e}")
             return f"Error: {e}"

@@ -2476,6 +2476,8 @@ class LlmService(QObject):
         should_stop: Optional[Callable[[], bool]] = None,
         think: Optional[bool] = None,
         thinking_callback: Optional[Callable[[str], None]] = None,
+        repetition_penalty: Optional[float] = None,
+        repetition_config: Optional[Any] = None,
     ) -> "AgentResponse":
         """
         Generate a response with tool-calling support - Claude Generated
@@ -2484,6 +2486,18 @@ class LlmService(QObject):
         - Takes messages (conversation format) instead of a single prompt
         - Takes tool definitions (JSON Schema)
         - Returns AgentResponse with optional tool_calls
+
+        Repetition guard (all providers): ``stream_callback``,
+        ``thinking_callback`` and ``should_stop`` are wrapped by a
+        ``RepetitionGuard`` (settings: ``repetition_config``, else
+        ``AlimaConfig.repetition_config``). A loop in the answer or thinking
+        channel stops the stream; the response then carries
+        ``StopReason.REPETITION``, the text before the loop and
+        ``AgentResponse.repetition``. Without a stream the text is measured
+        after the call (no early stop, same cut). ``repetition_penalty`` reaches
+        Ollama (``repeat_penalty``) and OpenAI-compatible endpoints
+        (``extra_body``), as in ``generate_response``; Anthropic and Gemini
+        ignore it.
 
         Args:
             provider: Provider name
@@ -2533,44 +2547,118 @@ class LlmService(QObject):
         provider_config = provider_info.get('config')
         provider_type = getattr(provider_config, 'provider_type', '') if provider_config else ''
 
+        # Repetition guard around the three callbacks every provider loop
+        # uses. ``should_stop`` is called exactly as often as before (the
+        # pipeline's step abort is single-shot). A thinking sink is added for
+        # Ollama/OpenAI-compatible even when the caller has none — there it
+        # only receives the reasoning deltas; for Anthropic a callback would
+        # switch thinking display on, so it stays as given. - Claude Generated
+        from src.utils.repetition_detector import RepetitionGuard, resolve_repetition_config
+
+        label = f"{provider}/{model}"
+        rep_cfg = resolve_repetition_config(
+            repetition_config if repetition_config is not None else getattr(self, "config_manager", None)
+        )
+        guard: Optional[RepetitionGuard] = None
+        g_stream, g_thinking, g_stop = stream_callback, thinking_callback, should_stop
+        if rep_cfg.enabled:
+            guard = RepetitionGuard(rep_cfg, on_event=self._repetition_event_reporter(label))
+            g_stream = guard.wrap_stream(stream_callback)
+            if thinking_callback is not None or provider_type in ("ollama", "openai_compatible"):
+                g_thinking = guard.wrap_thinking(thinking_callback)
+            g_stop = guard.wrap_should_stop(should_stop)
+
         # Provider call, wrapped so a transient HTTP 429 waits + retries instead
         # of aborting the whole workflow. The wait notice goes on the state bus
         # (see _retry_on_rate_limit), NOT into stream_callback — as a token it
         # would be rendered as part of the model's answer. - Claude Generated
         def _dispatch() -> "AgentResponse":
+            if guard is not None:
+                guard.reset()
             if provider_type == "ollama":
                 return self._generate_ollama_native_with_tools(
-                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop, thinking_callback=thinking_callback,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, g_stream,
+                    should_stop=g_stop, thinking_callback=g_thinking,
+                    repetition_penalty=repetition_penalty,
                 )
             elif provider_type == "openai_compatible":
                 return self._generate_openai_with_tools(
-                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop, thinking_callback=thinking_callback,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, g_stream,
+                    should_stop=g_stop, thinking_callback=g_thinking,
+                    repetition_penalty=repetition_penalty,
                 )
             elif provider_type == "anthropic":
                 # P-η: Anthropic SDK kennt kein seed-Param; Argument hier nicht weitergereicht.
                 return self._generate_anthropic_with_tools(
-                    provider, model, messages, tools, temperature, top_p, max_tokens, stream_callback,
-                    should_stop=should_stop, thinking_callback=thinking_callback,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, g_stream,
+                    should_stop=g_stop, thinking_callback=g_thinking,
                 )
             elif provider_type == "gemini":
                 return self._generate_gemini_with_tools(
-                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, g_stream,
+                    should_stop=g_stop,
                 )
             else:
                 # Fallback: simulate tool-calling via text for unsupported providers
                 return self._generate_text_fallback_with_tools(
-                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, stream_callback,
-                    should_stop=should_stop,
+                    provider, model, messages, tools, temperature, top_p, max_tokens, seed, g_stream,
+                    should_stop=g_stop,
                 )
 
-        return _retry_on_rate_limit(
+        response = _retry_on_rate_limit(
             _dispatch,
-            label=f"{provider}/{model}",
+            label=label,
             should_stop=should_stop,
         )
+        if guard is not None and response is not None:
+            # CANCELLED without a guard trip is the operator's stop: leave it.
+            operator_cancelled = (
+                getattr(response, "stop_reason", None) == StopReason.CANCELLED and not guard.tripped
+            )
+            info = guard.apply(response, operator_cancelled=operator_cancelled)
+            if info is not None:
+                response.stop_reason = StopReason.REPETITION
+                response.repetition = info
+                self.logger.warning(
+                    f"🔁 {label}: Wiederholungsschleife ({info.get('channel')}, "
+                    f"{info.get('detection_type')}), behalten {info.get('kept_chars')} Zeichen, "
+                    f"abgeschnitten {info.get('cut_chars')}"
+                )
+        return response
+
+    def _repetition_event_reporter(self, label: str) -> Callable:
+        """Guard event → log line, and a bus notice on abort - Claude Generated
+
+        The notice reaches every log surface (GUI chat panel, webapp, CLI
+        stderr) the same way the rate-limit wait does.
+        """
+        from src.utils.repetition_detector import EVENT_ABORT, EVENT_GRACE, EVENT_WARN
+
+        def _report(name: str, res) -> None:
+            if res is None:
+                self.logger.info(f"✅ {label}: Informationsrate wieder über der Warnschwelle")
+                return
+            if name == EVENT_WARN:
+                self.logger.info(f"🔄 {label}: mögliche Wiederholung. {res.details}")
+            elif name == EVENT_GRACE:
+                self.logger.warning(f"🔄 {label}: Wiederholung, Gnadenfrist läuft. {res.details}")
+            elif name == EVENT_ABORT:
+                channel = "Denkkanal" if res.channel == "thinking" else "Antwort"
+                notice = (
+                    f"🔁 Wiederholungsschleife erkannt ({label}, {channel}): Generierung "
+                    f"abgebrochen, der Text vor der Schleife bleibt erhalten. {res.details}"
+                )
+                self.logger.warning(notice)
+                try:
+                    from src.core.state_bus import AlimaStateBus
+
+                    AlimaStateBus().emit_event("state.notice", {"text": notice, "level": "warning"})
+                except Exception as exc:  # display only
+                    from src.utils.error_visibility import log_caught
+
+                    log_caught(self.logger, exc, "repetition notice bus emit")
+
+        return _report
 
     def _generate_ollama_native_with_tools(
         self,
@@ -2585,6 +2673,7 @@ class LlmService(QObject):
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
         thinking_callback: Optional[Callable[[str], None]] = None,
+        repetition_penalty: Optional[float] = None,
     ) -> "AgentResponse":
         """Tool-calling via Ollama native client - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2614,6 +2703,9 @@ class LlmService(QObject):
         # answer. - Claude Generated
         if max_tokens:
             options["num_predict"] = int(max_tokens)
+        # Same rule as the text path: 1.0 means "no override". - Claude Generated
+        if repetition_penalty is not None and repetition_penalty != 1.0:
+            options["repeat_penalty"] = float(repetition_penalty)
 
         # Thinking control (top-level kwarg, mirrors _generate_ollama_native) - Claude Generated
         think_kwargs: dict = {}
@@ -2752,6 +2844,7 @@ class LlmService(QObject):
         stream_callback: Optional[Callable[[str], None]] = None,
         should_stop: Optional[Callable[[], bool]] = None,
         thinking_callback: Optional[Callable[[str], None]] = None,
+        repetition_penalty: Optional[float] = None,
     ) -> "AgentResponse":
         """Tool-calling via OpenAI-compatible API - Claude Generated"""
         from src.core.data_models import AgentResponse, ToolCall, StopReason
@@ -2797,6 +2890,10 @@ class LlmService(QObject):
                 if any(model.lower().startswith(prefix) for prefix in self.STRICT_DEFAULT_SAMPLING_MODELS):
                     params.pop("temperature", None)
                     params.pop("top_p", None)
+                # Not a standard OpenAI field; same extra_body route as the
+                # text path (_generate_openai_compatible). - Claude Generated
+                if repetition_penalty is not None and repetition_penalty != 1.0:
+                    params.setdefault("extra_body", {})["repetition_penalty"] = float(repetition_penalty)
                 self._apply_openai_think(params, model)
                 response_stream = self.clients[provider].chat.completions.create(**params)
 
@@ -2890,6 +2987,10 @@ class LlmService(QObject):
                 if any(model.lower().startswith(prefix) for prefix in self.STRICT_DEFAULT_SAMPLING_MODELS):
                     params.pop("temperature", None)
                     params.pop("top_p", None)
+                # Not a standard OpenAI field; same extra_body route as the
+                # text path (_generate_openai_compatible). - Claude Generated
+                if repetition_penalty is not None and repetition_penalty != 1.0:
+                    params.setdefault("extra_body", {})["repetition_penalty"] = float(repetition_penalty)
                 self._apply_openai_think(params, model)
 
                 response = self.clients[provider].chat.completions.create(**params)

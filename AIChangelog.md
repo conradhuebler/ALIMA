@@ -6,6 +6,56 @@
 
 ## 2026
 
+### Wiederholungserkennung über den Informationsgehalt (November 12, 2026)
+
+Anlass: Wiederholungsschleifen von flint und ornith auf dem Server; der
+agentische Pfad hatte gar keine Erkennung, der klassische drei starre Prüfungen
+(Zeichenfolge, 6-Gramm ≥ 8×, Jaccard-Fenster). Beides ersetzt durch eine Messung
+in `src/utils/repetition_detector.py`: jeder Abschnitt von 400 Zeichen wird mit
+raw Deflate (Stufe 9) komprimiert, der bisher erzeugte Text (bis 32 KB) als
+`zdict`; Rate = komprimierte Bytes je Zeichen, gemittelt über 4 Abschnitte.
+Warnung unter 0,12, Abbruch unter 0,06 (Denkkanal 0,10/0,04). Eine zweite Rate
+mit maskierten Ziffern fängt Zählschleifen („1. X", „2. X"), deren Zähler die
+normale Rate bei 0,10 hält. Je Zeichen statt je Byte, weil Box-Zeichen sonst
+dreifach zählen; Glättung 4 statt 3 hob das Minimum echter Listen von 0,146 auf
+0,241.
+
+Kalibrierung (`scripts/calibrate_repetition.py`, gespeicherte Ergebnisse unter
+`/home/conrad/src/ALIMA/*.json`, `examples/`, `~/.config/alima`,
+`/tmp/alima_webapp_autosave`, `~/Downloads`, JSON-Zeilen aus `alima*.log`, Prosa
+aus `docs/`): 116 verschiedene Modell-/Werkzeugtexte, davon 67 lang genug für
+eine Bewertung (≥ 1600 Zeichen); kleinstes geglättetes Minimum 0,158
+(XML-Antworten), ohne Ziffern 0,117. Fehlalarme: 0/116 Warnung, 0/116 Abbruch;
+Doku-Prosa 3/63 Warnung (ASCII-Diagramme), 0/63 Abbruch. Zwölf synthetische
+Schleifen (0,015–0,043, Zählschleife 0,104 bzw. 0,018 maskiert): Abbruch 1607–3620
+Zeichen nach Schleifenbeginn bei Gnadenfrist 0, Schnitt 0–624 Zeichen hinter dem
+Beginn (nie davor). Gespeicherte Denkkanal-Texte gab es keine; die Schwellen des
+Denkkanals sind nicht an echten Daten kalibriert. Echte flint/ornith-Rohantworten
+lagen nicht vor.
+
+Einbindung: `LlmService.generate_with_tools` umhüllt `stream_callback`,
+`thinking_callback` und `should_stop` mit einem `RepetitionGuard` (alle
+Anbieter, Inline-`<think>` getrennt gemessen); Abbruch → neuer
+`StopReason.REPETITION`, Text vor der Schleife bleibt, `AgentResponse.repetition`
+nennt Kanal, Rate, behaltene/abgeschnittene Zeichen; Hinweis als `state.notice`
+(GUI, Webapp, CLI). Ohne Stream wird nachträglich gemessen (kein früher Abbruch,
+gleicher Schnitt). `AgentLoop` entscheidet nach `repetition_action`: `agent`
+(Standard; Teiltext + Hinweis als `user`-Nachricht, weil die Anthropic- und
+Gemini-Konverter eine spätere `system`-Nachricht als System-Prompt übernehmen),
+`retry` (temperature/top_p angehoben), `abort`; höchstens `max_retries` (0–3,
+Standard 1) je Lauf. Werkzeug `set_generation_params` (temperature, top_p,
+repetition_penalty, max_tokens; alles oder nichts) wird ab dem ersten Hinweis
+angeboten und vom Loop selbst ausgeführt, nicht über die geteilte
+`ToolRegistry`. Klassisch: `AlimaManager` baut je Aufruf einen eigenen Monitor
+(bis zu drei Aufrufe laufen parallel), Gnadenfrist und Warnleisten-Callback wie
+bisher, `classic_repetition_action` Standard `retry`. Alte Konfigurationsschlüssel
+werden beim Laden ohne Tippfehler-Warnung verworfen. Tests:
+`tests/test_repetition_detector.py`, `test_repetition_guard_tools.py`,
+`test_agent_loop_repetition.py`, `test_classic_repetition.py`,
+`test_settings_repetition_widgets.py`, `test_repetition_config_roundtrip.py`;
+24 Mutationen, alle von den Gate-Tests erkannt. Nicht gegen echte Anbieter
+geprüft.
+
 ### Cache im Einrichtungs-Preset, Prüfung der Server-Datenbank beim Export (November 11, 2026)
 
 Ausgang (UB Freiberg, entschieden): Libero und finc sind lange nicht

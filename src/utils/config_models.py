@@ -998,36 +998,95 @@ class UIConfig:
         self.color_scheme = value
 
 
+REPETITION_ACTIONS = ("abort", "retry", "agent")
+CLASSIC_REPETITION_ACTIONS = ("abort", "retry")
+
+# Keys of the former n-gram/window/character detector (replaced Nov 2026 by the
+# information-rate measurement). Saved configs still carry them; the loader
+# drops them quietly instead of reporting them as typos. - Claude Generated
+RETIRED_REPETITION_KEYS = frozenset({
+    "show_suggestions", "ngram_size", "ngram_threshold", "window_size",
+    "window_similarity_threshold", "min_windows", "char_repeat_threshold",
+    "min_text_length", "check_interval",
+})
+
+
 @dataclass
 class RepetitionDetectionConfig:
-    """Configuration for LLM repetition detection - Claude Generated
+    """LLM repetition-loop detection by information content - Claude Generated
 
-    Detects when LLMs fall into repetitive output loops and enables
-    automatic abort with parameter variation suggestions.
-
-    Tuned to avoid false positives - requires substantial repetition before triggering.
+    Measurement: ``src/utils/repetition_detector.py`` (Deflate rate of each new
+    segment against the text generated before it). The thresholds are
+    information rates (compressed / raw bytes), smoothed over
+    ``smoothing_segments`` segments; calibrated with
+    ``scripts/calibrate_repetition.py``.
     """
-    # Master switch
-    enabled: bool = True              # Enable repetition detection
-    auto_abort: bool = True           # Automatically abort on detection
-    show_suggestions: bool = True     # Show parameter variation suggestions
-    grace_period_seconds: float = 2.0 # Wait before aborting (0 = immediate, Claude Generated)
+    enabled: bool = True
+    # False: report only (warning bar, log), never stop a generation.
+    auto_abort: bool = True
+    # Abort level must hold this long before the stream is stopped.
+    grace_period_seconds: float = 2.0
 
-    # N-gram detection
-    ngram_size: int = 6               # Words per N-gram (longer = more specific)
-    ngram_threshold: int = 8          # Repetitions before flagging (higher = more lenient)
+    # Answer channel
+    warn_threshold: float = 0.12
+    abort_threshold: float = 0.06
+    # Thinking channel (reasoning field or inline <think>). Lower = later than
+    # the answer channel; not calibrated against real reasoning text (none was
+    # stored locally when the defaults were set).
+    thinking_warn_threshold: float = 0.10
+    thinking_abort_threshold: float = 0.04
 
-    # Window similarity detection
-    window_size: int = 300            # Characters per comparison window
-    window_similarity_threshold: float = 0.90  # Jaccard threshold (0.0-1.0)
-    min_windows: int = 4              # Minimum windows before comparison
+    segment_chars: int = 400
+    smoothing_segments: int = 4
 
-    # Character pattern detection
-    char_repeat_threshold: int = 80   # Consecutive identical chars ("!!!", "aaa")
+    # What happens after an abort.
+    # Agentic (AgentLoop): abort | retry | agent
+    repetition_action: str = "agent"
+    # Classic pipeline (AlimaManager): abort | retry
+    classic_repetition_action: str = "retry"
+    # Re-attempts per run (retry / agent), 0..3
+    max_retries: int = 1
 
-    # Processing control
-    min_text_length: int = 1000       # Start checking after N characters
-    check_interval: int = 200         # Check every N characters
+    def __post_init__(self):
+        """Clamp/normalise instead of failing the whole config - Claude Generated"""
+        log = logging.getLogger(__name__)
+        if self.repetition_action not in REPETITION_ACTIONS:
+            log.warning(
+                f"repetition_config.repetition_action {self.repetition_action!r} unbekannt, verwende 'agent'"
+            )
+            self.repetition_action = "agent"
+        if self.classic_repetition_action not in CLASSIC_REPETITION_ACTIONS:
+            log.warning(
+                f"repetition_config.classic_repetition_action {self.classic_repetition_action!r} "
+                f"unbekannt, verwende 'retry'"
+            )
+            self.classic_repetition_action = "retry"
+        try:
+            self.max_retries = max(0, min(3, int(self.max_retries)))
+        except (TypeError, ValueError):
+            self.max_retries = 1
+        try:
+            self.segment_chars = max(100, min(4000, int(self.segment_chars)))
+            self.smoothing_segments = max(1, min(10, int(self.smoothing_segments)))
+        except (TypeError, ValueError):
+            self.segment_chars, self.smoothing_segments = 400, 3
+        for warn_name, abort_name in (
+            ("warn_threshold", "abort_threshold"),
+            ("thinking_warn_threshold", "thinking_abort_threshold"),
+        ):
+            try:
+                warn = max(0.0, min(1.0, float(getattr(self, warn_name))))
+                abort = max(0.0, min(1.0, float(getattr(self, abort_name))))
+            except (TypeError, ValueError):
+                warn, abort = getattr(RepetitionDetectionConfig, warn_name), getattr(
+                    RepetitionDetectionConfig, abort_name
+                )
+            setattr(self, warn_name, warn)
+            setattr(self, abort_name, min(abort, warn))
+        try:
+            self.grace_period_seconds = max(0.0, float(self.grace_period_seconds))
+        except (TypeError, ValueError):
+            self.grace_period_seconds = 2.0
 
 
 # ============================================================================

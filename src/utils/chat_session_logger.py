@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS chat_log (
     response      TEXT,
     tool_calls    TEXT,   -- JSON array of {name, arguments, result, ...}
     iterations    INTEGER,
-    stop_reason   TEXT,   -- end_turn | tool_use | max_tokens | cancelled
+    stop_reason   TEXT,   -- end_turn | tool_use | max_tokens | cancelled | repetition
     error         TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_chat_log_session ON chat_log(session_id);

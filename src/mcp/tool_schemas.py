@@ -168,6 +168,29 @@ GET_DB_STATS = ToolDefinition(
     },
 )
 
+SET_GENERATION_PARAMS = ToolDefinition(
+    name="set_generation_params",
+    description=(
+        "Change the sampling parameters for the following model calls of THIS "
+        "run only (not saved, not used by other runs). Offered after an answer "
+        "was stopped because it ran into a repetition loop. Give at least one "
+        "parameter; all values are checked, and an invalid one changes nothing. "
+        "Limits: temperature 0.0-2.0, top_p 0.05-1.0, repetition_penalty "
+        "1.0-2.0 (reaches Ollama and OpenAI-compatible endpoints; Anthropic and "
+        "Gemini ignore it), max_tokens 256-32768. Higher temperature or "
+        "repetition_penalty make a renewed loop less likely."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "temperature": {"type": "number", "description": "0.0-2.0"},
+            "top_p": {"type": "number", "description": "0.05-1.0"},
+            "repetition_penalty": {"type": "number", "description": "1.0-2.0 (1.0 = off)"},
+            "max_tokens": {"type": "integer", "description": "256-32768"},
+        },
+    },
+)
+
 ABOUT_ALIMA = ToolDefinition(
     name="about_alima",
     description=(

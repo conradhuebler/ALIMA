@@ -302,8 +302,15 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
         return svc, target
 
     def _assert_should_stop_forwarded(self, generator_attr, handler_attr):
+        """The handler's should_stop must reach the caller's callback.
+
+        Since Nov 2026 the handler gets the repetition guard's wrapper (it adds
+        "a loop was detected"), so identity is no longer the contract — the
+        wrapper must call the operator's callback and return its True.
+        - Claude Generated
+        """
         svc, target = self._patched_service(generator_attr, handler_attr)
-        cb = lambda: False
+        cb = MagicMock(return_value=False)
         svc.generate_with_tools(
             provider="fake", model="m",
             messages=[{"role": "user", "content": "hi"}],
@@ -311,8 +318,12 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
             should_stop=cb,
         )
         _, kwargs = target.call_args
-        self.assertIs(kwargs.get("should_stop"), cb,
-                      f"{handler_attr} did not receive should_stop kwarg")
+        forwarded = kwargs.get("should_stop")
+        self.assertTrue(callable(forwarded), f"{handler_attr} did not receive should_stop kwarg")
+        cb.reset_mock()
+        cb.return_value = True
+        self.assertTrue(forwarded(), f"{handler_attr}: operator stop not forwarded")
+        cb.assert_called_once_with()
 
     def test_ollama_receives_should_stop(self):
         self._assert_should_stop_forwarded(
@@ -342,7 +353,7 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
         svc.supported_providers = {"fake": {"generator": MagicMock()}}
         target = MagicMock(return_value=_make_response())
         svc._generate_text_fallback_with_tools = target
-        cb = lambda: False
+        cb = MagicMock(return_value=False)
         svc.generate_with_tools(
             provider="fake", model="m",
             messages=[{"role": "user", "content": "hi"}],
@@ -350,7 +361,11 @@ class TestShouldStopSignaturePropagation(unittest.TestCase):
             should_stop=cb,
         )
         _, kwargs = target.call_args
-        self.assertIs(kwargs.get("should_stop"), cb)
+        # wrapped by the repetition guard; must delegate to the caller's callback
+        cb.reset_mock()
+        cb.return_value = True
+        self.assertTrue(kwargs.get("should_stop")())
+        cb.assert_called_once_with()
 
     def test_anthropic_positional_arg_count_unchanged(self):
         """Anthropic handler receives exactly 8 positional args: provider,

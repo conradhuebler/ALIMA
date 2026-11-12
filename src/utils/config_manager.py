@@ -468,9 +468,22 @@ class ConfigManager:
             # was serialised by asdict and never read back, so the six controls in
             # Settings ▸ System wrote to disk and the loader discarded them.
             # - Claude Generated
+            # Keys of the former n-gram/window detector are dropped here, quietly:
+            # build_config_section would name them as typos on every load until
+            # the next save. enabled/auto_abort/grace_period_seconds carry over.
+            # - Claude Generated
+            rep_data = dict(config_data.get("repetition_config") or {})
+            retired = sorted(k for k in rep_data if k in RETIRED_REPETITION_KEYS)
+            if retired:
+                self.logger.info(
+                    "repetition_config: Schlüssel der früheren Wiederholungserkennung "
+                    f"übergangen ({', '.join(retired)}); neue Messung mit Standardschwellen"
+                )
+                for k in retired:
+                    rep_data.pop(k, None)
             repetition_config = build_config_section(
                 RepetitionDetectionConfig,
-                config_data.get("repetition_config", {}),
+                rep_data,
                 context="repetition_config",
             )
 

@@ -461,45 +461,75 @@ class ComprehensiveSettingsDialog(QDialog):
         group.setLayout(form)
         return group
 
+    # (value, label) of the two action pickers - Claude Generated
+    REPETITION_ACTIONS = (
+        ("agent", "Agent entscheidet (Hinweis + Teiltext)"),
+        ("retry", "Einmal neu mit anderen Parametern"),
+        ("abort", "Abbrechen mit Teilergebnis"),
+    )
+    CLASSIC_REPETITION_ACTIONS = (
+        ("retry", "Neu mit anderen Parametern"),
+        ("abort", "Abbrechen mit Teilergebnis"),
+    )
+
+    @staticmethod
+    def _rate_spin(tooltip: str) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(0.0, 0.5)
+        spin.setDecimals(3)
+        spin.setSingleStep(0.005)
+        spin.setToolTip(tooltip)
+        return spin
+
     def _build_repetition_group(self) -> QGroupBox:
-        """Wiederholungserkennung im klassischen Stream - Claude Generated"""
-        # Repetition Detection settings - Claude Generated
-        repetition_group = QGroupBox("🔄 Wiederholungserkennung (klassische Läufe)")
+        """Wiederholungserkennung über den Informationsgehalt - Claude Generated"""
+        repetition_group = QGroupBox("🔄 Wiederholungserkennung")
         repetition_layout = QFormLayout()
 
         scope_note = QLabel(
-            "Wirkt auf die klassische Abstract-Analyse. Agentische Workflows "
-            "laufen über den LLM-Dienst und werden nicht überwacht."
+            "Wirkt auf klassische Läufe, agentische Workflows und den Chat (alle Anbieter). "
+            "Gemessen wird, wie viel Neues jeder Abschnitt von 400 Zeichen gegenüber dem "
+            "bisher erzeugten Text enthält (komprimierte Bytes je Zeichen). Ein niedriger "
+            "Wert heißt: der Text wiederholt sich."
         )
         scope_note.setWordWrap(True)
         set_tone(scope_note, "muted")
         scope_note.setStyleSheet("font-size: 10px;")
         repetition_layout.addRow(scope_note)
 
-        self.repetition_enabled = QCheckBox("Enable repetition detection")
-        self.repetition_enabled.setToolTip("Detect when LLM falls into repetitive output loops")
-        repetition_layout.addRow("Detection:", self.repetition_enabled)
+        self.repetition_enabled = QCheckBox("Wiederholungen erkennen")
+        self.repetition_enabled.setToolTip("Misst den Informationsgehalt der Antwort und des Denkkanals")
+        repetition_layout.addRow("Erkennung:", self.repetition_enabled)
 
-        self.repetition_auto_abort = QCheckBox("Auto-abort on detection")
-        self.repetition_auto_abort.setToolTip("Automatically stop generation when repetition is detected")
-        repetition_layout.addRow("Auto-Abort:", self.repetition_auto_abort)
+        self.repetition_auto_abort = QCheckBox("Bei Schleife abbrechen")
+        self.repetition_auto_abort.setToolTip(
+            "Aus: nur warnen (Warnleiste, Log), die Generierung läuft weiter"
+        )
+        repetition_layout.addRow("Abbruch:", self.repetition_auto_abort)
 
-        self.repetition_ngram_threshold = QSpinBox()
-        self.repetition_ngram_threshold.setRange(3, 20)
-        self.repetition_ngram_threshold.setToolTip("Number of phrase repetitions before triggering (higher = more lenient)")
-        repetition_layout.addRow("N-gram Threshold:", self.repetition_ngram_threshold)
+        self.repetition_warn_threshold = self._rate_spin("Unter diesem Wert erscheint eine Warnung")
+        self.repetition_abort_threshold = self._rate_spin("Unter diesem Wert wird abgebrochen")
+        answer_row = QHBoxLayout()
+        answer_row.addWidget(QLabel("Warnung unter"))
+        answer_row.addWidget(self.repetition_warn_threshold)
+        answer_row.addWidget(QLabel("Abbruch unter"))
+        answer_row.addWidget(self.repetition_abort_threshold)
+        answer_row.addStretch()
+        repetition_layout.addRow("Antwort:", answer_row)
 
-        self.repetition_min_text = QSpinBox()
-        self.repetition_min_text.setRange(100, 5000)
-        self.repetition_min_text.setSingleStep(100)
-        self.repetition_min_text.setSuffix(" chars")
-        self.repetition_min_text.setToolTip("Minimum text length before checking starts")
-        repetition_layout.addRow("Min Text Length:", self.repetition_min_text)
-
-        self.repetition_char_threshold = QSpinBox()
-        self.repetition_char_threshold.setRange(20, 200)
-        self.repetition_char_threshold.setToolTip("Consecutive identical characters before triggering (e.g., '!!!')")
-        repetition_layout.addRow("Char Repeat Threshold:", self.repetition_char_threshold)
+        self.repetition_thinking_warn_threshold = self._rate_spin(
+            "Denkkanal (Reasoning-Feld oder <think>): Warnung unter diesem Wert"
+        )
+        self.repetition_thinking_abort_threshold = self._rate_spin(
+            "Denkkanal (Reasoning-Feld oder <think>): Abbruch unter diesem Wert"
+        )
+        thinking_row = QHBoxLayout()
+        thinking_row.addWidget(QLabel("Warnung unter"))
+        thinking_row.addWidget(self.repetition_thinking_warn_threshold)
+        thinking_row.addWidget(QLabel("Abbruch unter"))
+        thinking_row.addWidget(self.repetition_thinking_abort_threshold)
+        thinking_row.addStretch()
+        repetition_layout.addRow("Denkkanal:", thinking_row)
 
         # Grace period setting - Claude Generated (2026-02-17)
         self.repetition_grace_period = QDoubleSpinBox()
@@ -509,11 +539,29 @@ class ComprehensiveSettingsDialog(QDialog):
         self.repetition_grace_period.setDecimals(1)
         self.repetition_grace_period.setSuffix(" s")
         self.repetition_grace_period.setToolTip(
-            "Wartezeit vor Auto-Abbruch bei Wiederholungen\n"
-            "0 = sofortiger Abbruch (alte Verhalten)\n"
-            "2-5 = empfohlen für False-Positive-Vermeidung"
+            "So lange muss der Wert unter der Abbruchschwelle bleiben, bevor abgebrochen wird\n"
+            "0 = sofort"
         )
-        repetition_layout.addRow("Grace Period:", self.repetition_grace_period)
+        repetition_layout.addRow("Gnadenfrist:", self.repetition_grace_period)
+
+        self.repetition_action_combo = QComboBox()
+        for value, label in self.REPETITION_ACTIONS:
+            self.repetition_action_combo.addItem(label, value)
+        self.repetition_action_combo.setToolTip("Was nach einem Abbruch in agentischen Läufen und im Chat geschieht")
+        repetition_layout.addRow("Danach (agentisch):", self.repetition_action_combo)
+
+        self.classic_repetition_action_combo = QComboBox()
+        for value, label in self.CLASSIC_REPETITION_ACTIONS:
+            self.classic_repetition_action_combo.addItem(label, value)
+        self.classic_repetition_action_combo.setToolTip("Was nach einem Abbruch in der klassischen Pipeline geschieht")
+        repetition_layout.addRow("Danach (klassisch):", self.classic_repetition_action_combo)
+
+        self.repetition_max_retries = QSpinBox()
+        self.repetition_max_retries.setRange(0, 3)
+        self.repetition_max_retries.setToolTip(
+            "Neue Versuche bzw. Agent-Hinweise je Lauf; danach endet der Schritt mit dem Teilergebnis"
+        )
+        repetition_layout.addRow("Versuche je Lauf:", self.repetition_max_retries)
 
         repetition_group.setLayout(repetition_layout)
         return repetition_group
@@ -843,22 +891,23 @@ class ComprehensiveSettingsDialog(QDialog):
         self.color_scheme_combo.setCurrentIndex(max(0, scheme_idx))
 
         # Repetition Detection settings - Claude Generated
-        rep_config = getattr(config, 'repetition_config', None)
-        if rep_config:
-            self.repetition_enabled.setChecked(rep_config.enabled)
-            self.repetition_auto_abort.setChecked(rep_config.auto_abort)
-            self.repetition_ngram_threshold.setValue(rep_config.ngram_threshold)
-            self.repetition_min_text.setValue(rep_config.min_text_length)
-            self.repetition_char_threshold.setValue(rep_config.char_repeat_threshold)
-            self.repetition_grace_period.setValue(getattr(rep_config, 'grace_period_seconds', 2.0))  # Claude Generated (2026-02-17)
-        else:
-            # Use defaults
-            self.repetition_enabled.setChecked(True)
-            self.repetition_auto_abort.setChecked(True)
-            self.repetition_ngram_threshold.setValue(8)
-            self.repetition_min_text.setValue(1000)
-            self.repetition_char_threshold.setValue(80)
-            self.repetition_grace_period.setValue(2.0)  # Claude Generated (2026-02-17)
+        from ..utils.config_models import RepetitionDetectionConfig
+
+        rep_config = getattr(config, 'repetition_config', None) or RepetitionDetectionConfig()
+        self.repetition_enabled.setChecked(rep_config.enabled)
+        self.repetition_auto_abort.setChecked(rep_config.auto_abort)
+        self.repetition_warn_threshold.setValue(rep_config.warn_threshold)
+        self.repetition_abort_threshold.setValue(rep_config.abort_threshold)
+        self.repetition_thinking_warn_threshold.setValue(rep_config.thinking_warn_threshold)
+        self.repetition_thinking_abort_threshold.setValue(rep_config.thinking_abort_threshold)
+        self.repetition_grace_period.setValue(rep_config.grace_period_seconds)
+        self.repetition_action_combo.setCurrentIndex(
+            max(0, self.repetition_action_combo.findData(rep_config.repetition_action))
+        )
+        self.classic_repetition_action_combo.setCurrentIndex(
+            max(0, self.classic_repetition_action_combo.findData(rep_config.classic_repetition_action))
+        )
+        self.repetition_max_retries.setValue(rep_config.max_retries)
 
         # Update UI based on database type
         self._on_db_type_changed(config.database.db_type)
@@ -1042,19 +1091,24 @@ class ComprehensiveSettingsDialog(QDialog):
         config.ui_config.font_size = self.font_size_spin.value()
         config.ui_config.color_scheme = normalize_color_scheme(self.color_scheme_combo.currentData())
 
-        # Repetition Detection — the six widgeted values; ngram_size, window_size,
-        # window_similarity_threshold, min_windows, check_interval and
-        # show_suggestions have no widget and keep their loaded values.
-        # - Claude Generated
+        # Repetition Detection — segment_chars and smoothing_segments have no
+        # widget and keep their loaded values. abort never above warn (the
+        # dataclass enforces the same on load). - Claude Generated
         if getattr(config, "repetition_config", None) is None:
             config.repetition_config = RepetitionDetectionConfig()
         rep = config.repetition_config
         rep.enabled = self.repetition_enabled.isChecked()
         rep.auto_abort = self.repetition_auto_abort.isChecked()
-        rep.ngram_threshold = self.repetition_ngram_threshold.value()
-        rep.min_text_length = self.repetition_min_text.value()
-        rep.char_repeat_threshold = self.repetition_char_threshold.value()
+        rep.warn_threshold = self.repetition_warn_threshold.value()
+        rep.abort_threshold = min(self.repetition_abort_threshold.value(), rep.warn_threshold)
+        rep.thinking_warn_threshold = self.repetition_thinking_warn_threshold.value()
+        rep.thinking_abort_threshold = min(
+            self.repetition_thinking_abort_threshold.value(), rep.thinking_warn_threshold
+        )
         rep.grace_period_seconds = self.repetition_grace_period.value()
+        rep.repetition_action = self.repetition_action_combo.currentData() or "agent"
+        rep.classic_repetition_action = self.classic_repetition_action_combo.currentData() or "retry"
+        rep.max_retries = self.repetition_max_retries.value()
 
         # Task preferences are already up-to-date in config_to_edit from UnifiedProviderTab - Claude Generated (Refactoring)
 

@@ -405,6 +405,7 @@ class StopReason(Enum):
     TOOL_USE = "tool_use"        # Wants to call tools
     MAX_TOKENS = "max_tokens"    # Hit token limit
     CANCELLED = "cancelled"      # User cancelled
+    REPETITION = "repetition"    # Stopped by the repetition guard (loop) - Claude Generated
 
 
 @dataclass
@@ -417,6 +418,9 @@ class AgentResponse:
     # Captured so a model that answers only in its reasoning channel — or runs out
     # of tokens mid-reasoning — doesn't surface as a silent empty response. - Claude Generated
     reasoning: str = ""
+    # Set with StopReason.REPETITION: channel, rate, loop position and how many
+    # characters were kept / cut (RepetitionGuard.apply). - Claude Generated
+    repetition: Optional[Dict[str, Any]] = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -439,3 +443,7 @@ class AgentResult:
     # error string, NOT a model answer. Callers must check this instead of
     # treating the run as successful - Claude Generated
     error: Optional[str] = None
+    # Last repetition stop of the run (AgentResponse.repetition), None without
+    # one. With stop_reason "repetition" the content is the text before the
+    # loop, not a finished answer. - Claude Generated
+    repetition: Optional[Dict[str, Any]] = None

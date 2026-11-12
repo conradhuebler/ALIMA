@@ -6,7 +6,7 @@
 - `ConfigManager`: thread-safe singleton; JSON-persisted unified config + provider system. `reset()` for test isolation.
 - `TextProcessor`: language detection, keyword extraction, text cleaning, stopword filtering.
 - `model_capabilities`: auto-detection of model-specific chunking thresholds (15+ patterns; explicit > pattern > default).
-- `repetition_detector`: LLM repetition-loop detection (char/n-gram/window) + parameter-variation suggestions.
+- `repetition_detector`: loop detection by information rate (Deflate of each 400-char segment against the text before it, per char, smoothed over 4; digit-masked rate for counter loops). `RepetitionMonitor` (grace/abort events) serves `AlimaManager`, `RepetitionGuard` wraps `generate_with_tools` (all providers, answer + thinking). Thresholds from `scripts/calibrate_repetition.py`; thinking thresholds not calibrated on real reasoning text.
 - `smart_provider_selector`: provider/model resolution (explicit UI > task prefs > config defaults).
 - `pdf_extractor` (P-η): PyPDF2 extraction + quality heuristic + optional Vision-LLM OCR fallback.
 - `image_analyzer` (P-η): sync wrapper over `LlmService.generate_response(image=...)`.

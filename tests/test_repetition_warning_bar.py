@@ -26,10 +26,10 @@ class TestRepetitionWarningBarStateMachine(unittest.TestCase):
         bar = self._bar()
         try:
             self.assertEqual(bar._warning_style_state, "hidden")
-            bar.show_warning("ngram", "details", [{"label": "A", "params": {"x": 1}}])
+            bar.show_warning("low_information", "details", [{"label": "A", "params": {"x": 1}}])
             self.assertEqual(bar._warning_style_state, "orange")
             self.assertEqual(bar.warning_details_label.text(), "details")
-            self.assertEqual(bar.warning_title_label.text(), "Phrasenwiederholung erkannt")
+            self.assertEqual(bar.warning_title_label.text(), "Wiederholungsschleife erkannt")
             # one suggestion button was built
             self.assertEqual(bar.suggestions_button_layout.count(), 1)
 
@@ -47,11 +47,12 @@ class TestRepetitionWarningBarStateMachine(unittest.TestCase):
     def test_repeat_same_detection_type_is_deduped(self):
         bar = self._bar()
         try:
-            bar.show_warning("char_pattern", "d1", [{"label": "A"}])
+            bar.show_warning("counter_loop", "d1", [{"label": "A"}])
+            self.assertEqual(bar.warning_title_label.text(), "Zählschleife erkannt")
             self.assertEqual(bar.suggestions_button_layout.count(), 1)
             # Same type again while orange → already_showing branch, no rebuild,
             # details still update.
-            bar.show_warning("char_pattern", "d2", [{"label": "A"}, {"label": "B"}])
+            bar.show_warning("counter_loop", "d2", [{"label": "A"}, {"label": "B"}])
             self.assertEqual(bar._warning_style_state, "orange")
             self.assertEqual(bar.warning_details_label.text(), "d2")
             self.assertEqual(bar.suggestions_button_layout.count(), 1)
@@ -61,7 +62,7 @@ class TestRepetitionWarningBarStateMachine(unittest.TestCase):
     def test_grace_period_starts_countdown(self):
         bar = self._bar()
         try:
-            bar.show_warning("ngram", "d", [], grace_period=True, grace_seconds=2.0)
+            bar.show_warning("low_information", "d", [], grace_period=True, grace_seconds=2.0)
             self.assertTrue(bar.grace_timer.isActive())
             self.assertIn("2.0s", bar.countdown_label.text())
         finally:
@@ -73,7 +74,7 @@ class TestRepetitionWarningBarStateMachine(unittest.TestCase):
         try:
             fired = []
             bar.abort_requested.connect(lambda: fired.append(True))
-            bar.show_warning("ngram", "d", [{"label": "A"}])
+            bar.show_warning("low_information", "d", [{"label": "A"}])
             bar._on_abort_requested()
             self.assertEqual(fired, [True])
             self.assertEqual(bar._warning_style_state, "hidden")
@@ -85,7 +86,7 @@ class TestRepetitionWarningBarStateMachine(unittest.TestCase):
         try:
             payloads = []
             bar.retry_requested.connect(payloads.append)
-            bar.show_warning("ngram", "d", [{"label": "A", "params": {"temperature": 0.9}}])
+            bar.show_warning("low_information", "d", [{"label": "A", "params": {"temperature": 0.9}}])
             bar._on_suggestion_clicked({"temperature": 0.9})
             self.assertEqual(payloads, [{"temperature": 0.9}])
             self.assertEqual(bar._warning_style_state, "hidden")
@@ -99,10 +100,10 @@ class TestPanelDelegation(unittest.TestCase):
     def test_show_repetition_warning_delegates(self):
         stub = SimpleNamespace(repetition_bar=MagicMock())
         PipelineChatPanel.show_repetition_warning(
-            stub, "ngram", "d", [{"label": "A"}], grace_period=True, grace_seconds=1.5
+            stub, "low_information", "d", [{"label": "A"}], grace_period=True, grace_seconds=1.5
         )
         stub.repetition_bar.show_warning.assert_called_once_with(
-            "ngram", "d", [{"label": "A"}], True, 1.5
+            "low_information", "d", [{"label": "A"}], True, 1.5
         )
 
     def test_hide_repetition_warning_delegates(self):
