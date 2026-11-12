@@ -6,6 +6,19 @@
 
 ## 2026
 
+### Presets tragen LLM-Zugänge: `providers`, `default_models` (November 12, 2026)
+
+Anlass: der Block `llm` war nur eine Vorbelegung des GUI-Assistenten (ein Provider, kein Schlüssel); `preset apply` legte daraus nichts an, ein Server ohne GUI bekam so keinen Zugang.
+
+- **Format:** `providers` (Zugangsfelder von `UnifiedProvider`: `name`, `provider_type`, `enabled`, `base_url`, `preferred_model`, `description`, für Ollama `host`/`port`/`use_ssl`/`connection_type`; alle vier Typen, `config_models.PROVIDER_TYPES`) und `default_models` (`general`, `pipeline`, `vision`, `decision` → die `*_default_*`-Felder bzw. `preferred_*`). `FORMAT_VERSION` bleibt 2. `llm` wird nicht mehr gelesen (Hinweis in der Vorschau), nicht mehr exportiert; der Assistent nimmt seine Vorbelegung aus `providers`/`default_models`.
+- **Schlüssel:** einzige Ausnahme vom Verwerfen ist `providers[n].api_key`. Export nur per `--with-provider-key NAME` / Haken je Provider / `export_preset(provider_keys=…)`, Klartext, Datei 0600 von Anfang an (`os.open`), Warnung in `_comment`. Kein Schlüssel in Vorschau, `Plan.as_dict`, `repr(Change)`, Log, CLI-Ausgabe, Ausnahmetext (Test über alle Wege).
+- **Anwenden:** gleichnamig (ohne Groß-/Kleinschreibung) an Ort ersetzt, `id`/`available_models` bleiben, ein Schlüssel ohne Paketschlüssel bleibt. Fremdeingabe geprüft (Typ, Name ohne Pfad-/Shellzeichen, `base_url` http(s) ohne Zugangsdaten, Host, Port); ein ungültiger Eintrag ist ein Hinweis, der Rest bleibt anwendbar. Standardmodelle überschreiben, Opt-out `--no-default-models` / Haken in der Vorschau / `build_plan(default_models=False)` / `apply_plan(default_models=False)` (`Plan.apply_default_models`).
+- **Rückgängig:** Muster des Verlaufs übernommen (je Änderung vorher/nachher); damit stehen vorherige Provider-Schlüssel im Verlauf in der `config.json`. Mit Provider-/Standardmodell-Schritten speichern `apply_plan`/`revert_last` mit `preserve_unified=False`: das bewahrende Speichern schreibt eine leere Providerliste und einen leeren allgemeinen Standard nie, Rückgängig auf einer frischen Installation wäre sonst nicht auf der Platte angekommen.
+- **Nebenbefund:** ein entfernter Provider `gemini`/`anthropic` kam über den Spiegel `gemini_api_key`/`anthropic_api_key` beim nächsten Laden zurück (`_create_providers_from_api_keys`); Preset-Schritte leeren den Spiegel jetzt mit (`_drop_legacy_key_mirror`). Der gleiche Weg über den Anbieter-Dialog ist nicht angefasst und nicht geprüft.
+- **GUI:** Einstellungsdialog folgt (`UnifiedProviderTab.adopt_preset_steps`: Kopie, Cancel-Schnappschuss, ids aus der gespeicherten Konfiguration); ohne das hätte „OK“ die alten Provider zurückgeschrieben und „Abbrechen“ die des Presets entfernt.
+- **Assistent:** `apply_after_setup` baut mit `llm=False` (wendet `providers`/`default_models` nicht an); die Zusammenfassungsseite nennt die Provider des Presets.
+- Tests: `tests/test_preset_providers.py` (35), angepasst in `tests/test_institution_presets.py`: `TestOldPreset::test_loads_unchanged_without_key_and_token`, `TestExport::test_no_secret_no_user_path_and_checksums_match`, `TestExamples::test_template_file_reads`. 32 Mutanten, alle getötet. Nicht geprüft: Windows-Dateirechte, Klick-Test der Dialoge, echte LLM-Dienste.
+
 ### Voreinstellungen, Agent-Fortschritt, Decision-Schalter, Chat-Kontext (November 12, 2026)
 
 Fünf kleine Änderungen aus dem Betrieb, je ein Commit (`48baf19`, `55e6a1c`, `8142148`, `477d60d`, `7be3f77`).

@@ -6,9 +6,12 @@ Reads the wizard pre-fill values (LLM address and models, database, Libero
 addresses) from the institution preset ``alima_presets.json``. The file is
 found by ``preset_apply.find_preset`` (environment variable ``ALIMA_PRESET``,
 then the configuration directory, then the project directory). API keys and
-tokens in the file are not used (``preset_apply.load_preset`` drops them).
-The other parts of a preset (institution, workflow, plugins, files) are
-applied by ``preset_apply.build_plan``/``apply_plan``.
+tokens in the file are not used (``preset_apply.load_preset`` drops them; the
+key a ``providers`` entry may carry is not handed to the wizard either).
+The LLM pre-fill comes from ``providers`` and ``default_models``; a block
+``llm`` of an older preset is not read. The other parts of a preset
+(institution, workflow, plugins, files, providers) are applied by
+``preset_apply.build_plan``/``apply_plan``.
 """
 
 import logging
@@ -135,9 +138,61 @@ class PresetLoader:
                 }
         return {}
 
+    @staticmethod
+    def _llm_prefill(data: dict) -> dict:
+        """The wizard's one provider from ``providers``/``default_models`` - Claude Generated.
+
+        The provider is the one ``default_models.general`` names, else the first
+        enabled entry. Returned: ``provider_type``, ``provider_name``,
+        ``base_url`` (for Ollama built from host/port/SSL when the entry has no
+        ``base_url``), ``default_model`` and ``task_models`` (``pipeline``,
+        ``vision``; only models of a scope that names this provider). Never the
+        key. Empty without a usable entry.
+        """
+        entries = [p for p in data.get('providers') or []
+                   if isinstance(p, dict) and isinstance(p.get('name'), str) and p['name'].strip()
+                   and isinstance(p.get('provider_type'), str) and p['provider_type']
+                   and p.get('enabled', True) is not False]
+        if not entries:
+            return {}
+        defaults = data.get('default_models') if isinstance(data.get('default_models'), dict) else {}
+
+        def scope(name: str) -> dict:
+            item = defaults.get(name)
+            return item if isinstance(item, dict) else {}
+
+        def same(a, b) -> bool:
+            return str(a or '').strip().lower() == str(b or '').strip().lower()
+
+        general = scope('general')
+        chosen = next((p for p in entries if same(p['name'], general.get('provider'))), entries[0])
+        base_url = str(chosen.get('base_url') or '')
+        if not base_url and chosen['provider_type'] == 'ollama' and chosen.get('host'):
+            try:
+                from .ollama_endpoint import base_url as ollama_base_url
+
+                base_url = ollama_base_url(str(chosen['host']), int(chosen.get('port') or 11434),
+                                           bool(chosen.get('use_ssl')))
+            except (TypeError, ValueError) as exc:  # a malformed port in the file
+                logger.warning(f"Preset: Ollama-Adresse von {chosen['name']} nicht lesbar ({exc})")
+        task_models = {}
+        for key in ('pipeline', 'vision'):
+            item = scope(key)
+            if item.get('model') and same(item.get('provider'), chosen['name']):
+                task_models[key] = str(item['model'])
+        default_model = (str(general.get('model') or '') if same(general.get('provider'), chosen['name'])
+                         else '') or str(chosen.get('preferred_model') or '')
+        return {
+            'provider_type': chosen['provider_type'],
+            'provider_name': chosen['name'],
+            'base_url': base_url,
+            'default_model': default_model,
+            'task_models': task_models,
+        }
+
     @classmethod
     def _parse(cls, data: dict) -> InstitutionPresets:
-        llm = data.get('llm') or {}
+        llm = cls._llm_prefill(data)
         catalog = data.get('catalog') or cls._catalog_from_plugins(data)
         database = data.get('database') or {}  # Claude Generated
         return InstitutionPresets(

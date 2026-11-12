@@ -1334,11 +1334,13 @@ class _PresetPlanDialog(QDialog):
     """Preview of a preset plan with "Anwenden" / "Abbrechen" - Claude Generated.
 
     "Anwenden" is offered only for a plan without errors that changes
-    something.
+    something. With changes of ``default_models`` a check box (on by default)
+    decides whether they are applied; it sets ``plan.apply_default_models``.
     """
 
     def __init__(self, plan, parent=None):
         super().__init__(parent)
+        self._plan = plan
         self.setWindowTitle("Preset anwenden: Vorschau")
         self.resize(760, 520)
         v = QVBoxLayout(self)
@@ -1346,6 +1348,15 @@ class _PresetPlanDialog(QDialog):
         self.text.setReadOnly(True)
         self.text.setPlainText("\n".join(plan.lines()))
         v.addWidget(self.text, 1)
+        self.default_models_cb = QCheckBox(
+            "Standardmodelle aus dem Preset übernehmen (überschreibt die eingestellten)")
+        self.default_models_cb.setToolTip(
+            "Ohne Haken bleiben Allgemein, Pipeline, Bild und Entscheidung, wie sie sind; "
+            "Provider und alles andere werden trotzdem angewendet.")
+        self.default_models_cb.setChecked(bool(plan.apply_default_models))
+        self.default_models_cb.setVisible(bool(plan.default_model_changes))
+        self.default_models_cb.toggled.connect(self._on_default_models_toggled)
+        v.addWidget(self.default_models_cb)
         if plan.errors:
             note = ("Das Preset hat Fehler und wird nicht angewendet. Dateien mit falscher "
                     "Prüfsumme oder falschem Schema werden nie installiert.")
@@ -1359,6 +1370,9 @@ class _PresetPlanDialog(QDialog):
             if plan.cache is not None and plan.cache.has_writes:
                 note += (" Der Cache wird in den Cache dieser Installation übernommen; "
                          "„Rückgängig“ nimmt das nicht zurück.")
+            if plan.has_provider_keys:
+                note += (" Provider-Schlüssel aus dem Paket werden im Klartext in die "
+                         "Konfigurationsdatei geschrieben, wie im Anbieter-Dialog eingetragene.")
             tone = "muted"
         self.note = QLabel(note)
         self.note.setWordWrap(True)
@@ -1372,6 +1386,13 @@ class _PresetPlanDialog(QDialog):
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
 
+    def _on_default_models_toggled(self, checked: bool) -> None:
+        """Apply the default models or not: the plan text and "Anwenden"
+        follow - Claude Generated"""
+        self._plan.apply_default_models = bool(checked)
+        self.text.setPlainText("\n".join(self._plan.lines()))
+        self.apply_button.setEnabled(self._plan.ok and not self._plan.is_empty)
+
 
 class _ExportPresetDialog(QDialog):
     """Preset id/version/name and a checklist of the instances to export.
@@ -1380,7 +1401,8 @@ class _ExportPresetDialog(QDialog):
     """
 
     def __init__(self, instances, parent=None, *, database_password_available=False,
-                 server_database=False, cache_offers=None, isil="", cache_error=""):
+                 server_database=False, cache_offers=None, isil="", cache_error="",
+                 providers=None):
         super().__init__(parent)
         self.setWindowTitle("Preset exportieren")
         v = QVBoxLayout(self)
@@ -1430,6 +1452,7 @@ class _ExportPresetDialog(QDialog):
         )
         self.verify_db_cb.setVisible(bool(server_database))
         v.addWidget(self.verify_db_cb)
+        v.addWidget(self._build_provider_group(list(providers or [])))
         v.addWidget(self._build_cache_group(cache_offers or [], str(isil or "").strip(),
                                             str(cache_error or "")))
         buttons = QDialogButtonBox(
@@ -1438,6 +1461,38 @@ class _ExportPresetDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
+
+    def _build_provider_group(self, providers) -> QGroupBox:
+        """Group "LLM-Provider": every enabled provider goes into the package
+        without its key; one unchecked box per provider with a key puts that
+        key in, in plain text. ``providers``: ``(name, provider_type, has_key)``.
+        - Claude Generated"""
+        group = QGroupBox("LLM-Provider")
+        lay = QVBoxLayout(group)
+        self.provider_key_boxes: Dict[str, QCheckBox] = {}
+        if not providers:
+            empty = QLabel("Keine eingeschalteten Provider.")
+            set_tone(empty, "muted")
+            lay.addWidget(empty)
+            return group
+        names = ", ".join(f"{name} ({ptype})" for name, ptype, _has in providers)
+        intro = QLabel(f"Im Paket, ohne Schlüssel: {names}.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        for name, _ptype, has_key in providers:
+            if not has_key:
+                continue
+            box = QCheckBox(f"Schlüssel von „{name}“ im Klartext in das Paket schreiben")
+            box.setToolTip("Der Schlüssel steht dann unverschlüsselt in alima_presets.json (die "
+                           "Datei bekommt nur Besitzerrechte). Das Paket nur an berechtigte "
+                           "Personen weitergeben.")
+            self.provider_key_boxes[name] = box
+            lay.addWidget(box)
+        return group
+
+    def selected_provider_keys(self) -> List[str]:
+        """Names of the providers whose key goes into the package - Claude Generated"""
+        return [name for name, box in self.provider_key_boxes.items() if box.isChecked()]
 
     def _build_cache_group(self, offers, isil: str, error: str = "") -> QGroupBox:
         """Group "Cache einschließen": one box per part with rows, locked
@@ -1799,8 +1854,8 @@ class PluginSettingsTab(QWidget):
 
         def done(entry):
             files = len((entry or {}).get("files") or [])
-            message = (f"Preset {plan.label} angewendet: {len(plan.changes)} Änderungen, "
-                       f"{files} Dateien.")
+            message = (f"Preset {plan.label} angewendet: {len((entry or {}).get('changes') or [])} "
+                       f"Änderungen, {files} Dateien.")
             cache = (entry or {}).get("cache") or []
             if cache:
                 from src.utils.preset_cache import record_lines
@@ -1883,10 +1938,13 @@ class PluginSettingsTab(QWidget):
         server_db = bool(db is not None
                          and str(getattr(db, "db_type", "") or "").lower() in ("mysql", "mariadb"))
         has_db_password = bool(server_db and getattr(db, "password", ""))
+        providers = [(p.name, p.provider_type, bool(p.api_key))
+                     for p in config.unified_config.providers if p.enabled]
         dialog = _ExportPresetDialog(
             exportable_instances(config), self, database_password_available=has_db_password,
             server_database=server_db, cache_offers=offers,
-            isil=getattr(config.system_config, "institution_isil", ""), cache_error=cache_error)
+            isil=getattr(config.system_config, "institution_isil", ""), cache_error=cache_error,
+            providers=providers)
         self._preset_dialog = dialog
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
@@ -1894,6 +1952,7 @@ class PluginSettingsTab(QWidget):
         with_password = dialog.include_database_password
         verify_database = dialog.verify_database
         cache_parts = dialog.selected_cache_parts()
+        provider_keys = dialog.selected_provider_keys()
         pid = dialog.id_edit.text().strip()
         version = dialog.version_edit.text().strip()
         label = dialog.label_edit.text().strip()
@@ -1904,18 +1963,24 @@ class PluginSettingsTab(QWidget):
 
         def done(result):
             self._set_preset_status(f"Exportiert: {result.path}", "success")
+            if result.provider_keys:
+                secrets = (f"Das Paket enthält API-Schlüssel im Klartext "
+                           f"({', '.join(result.provider_keys)}): nur an berechtigte Personen "
+                           "weitergeben.")
+            else:
+                secrets = "Keine API-Schlüssel und Tokens."
             QMessageBox.information(
                 self, "Preset exportiert",
                 "\n".join(result.lines()) + "\n\nExportiert wurde der gespeicherte Stand "
-                "(Einstellungen vorher speichern). Keine Schlüssel und Tokens; ein "
-                "Datenbank-Passwort nur, wenn es angekreuzt war. Endpunkte und Dateien vor "
-                "dem Verteilen prüfen.",
+                f"(Einstellungen vorher speichern). {secrets} Ein Datenbank-Passwort nur, "
+                "wenn es angekreuzt war. Endpunkte und Dateien vor dem Verteilen prüfen.",
             )
 
         self._run_preset_job(
             lambda: export_preset(None, dest, selected, preset_id=pid, version=version,
                                   label=label, include_database_password=with_password,
-                                  verify_database=verify_database, cache_tables=cache_parts),
+                                  verify_database=verify_database, cache_tables=cache_parts,
+                                  provider_keys=provider_keys),
             done, "Preset wird exportiert …")
 
     def _rescan_plugins(self) -> None:

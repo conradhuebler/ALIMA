@@ -6,16 +6,20 @@ the vocabulary of ``local_scheme``), each with its SHA-256. Paths in the
 preset are relative; a file setting becomes ``@file:<id>``. Written are: the
 chosen instances in list order with state, name and the settings they store
 (the vocabulary of ``local_scheme`` also when only its default is in use),
-ISIL/ELN, the standard workflow, the LLM address and models and a server
-database as wizard pre-fill.
+ISIL/ELN, the standard workflow, every enabled LLM provider (block
+``providers``, access fields without key), the default provider/model per
+scope (block ``default_models``) and a server database as wizard pre-fill.
 
 Never written: SECRET fields and keys named like an API key or token (a used
 secret is declared under ``secrets`` instead), the path of a local SQLite
 database, any other setting holding a local path, settings the plugin type does
 not declare. The password of a server database is written only on request
-(``include_database_password``), in plain text, and the preset file then gets
-owner-only permissions. Each omission and the plain-text password are reported
-in ``ExportResult.warnings``. The export reads the saved configuration unless a
+(``include_database_password``), and so is the key of a provider
+(``provider_keys``, by name), both in plain text; the preset file then gets
+owner-only permissions (best effort: where ``chmod`` cannot restrict a file,
+the export does not fail) and, for provider keys, a warning in ``_comment``.
+Each omission and each plain-text secret is reported in
+``ExportResult.warnings``. The export reads the saved configuration unless a
 ``config`` is passed.
 
 A server database is checked first (``verify_database``, default on): the Qt
@@ -42,15 +46,19 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .preset_apply import (
+    DEFAULT_MODEL_FIELDS,
     FILE_REF_PREFIX,
     FORMAT_VERSION,
     KIND_GEO_DB,
     KIND_VOCABULARY,
     PRESET_FILENAME,
+    PROVIDER_KEY_FIELD,
     PresetError,
     _SECRET_KEY,
     _cm,
     _ensure_categories,
+    provider_access,
+    read_provider_entry,
     sha256_file,
 )
 
@@ -80,12 +88,20 @@ class ExportResult:
     #: Cache parts written: id, table, source, sha256, rows, size (packed),
     #: unpacked (bytes), source_filter (raw only).
     cache: List[Dict[str, Any]] = field(default_factory=list)
+    #: Names of the providers in the package, and of those whose key is in it.
+    providers: List[str] = field(default_factory=list)
+    provider_keys: List[str] = field(default_factory=list)
 
     def lines(self) -> List[str]:
+        """Summary for CLI and GUI; names, never a key - Claude Generated"""
         from .preset_cache import size_text
 
         out = [f"Paket: {self.path}",
                f"Instanzen ({len(self.instances)}): {', '.join(self.instances) or '(keine)'}"]
+        if self.providers:
+            out.append(f"Provider ({len(self.providers)}): {', '.join(self.providers)}")
+            out.append("Schlüssel im Klartext enthalten für: "
+                       + (", ".join(self.provider_keys) if self.provider_keys else "keinen"))
         for f in self.files:
             out.append(f"Datei: {f['id']} → {f['source']} (sha256 {f['sha256'][:12]}…)")
         for c in self.cache:
@@ -188,39 +204,93 @@ def _export_instance(inst: Any, stage: Path, files: List[Dict[str, Any]],
     return entry
 
 
-def _llm_block(config: Any) -> Dict[str, Any]:
-    """Provider type, name, address and models of the general default
-    provider, without its key (wizard pre-fill) - Claude Generated"""
-    from .config_models import ProviderScope
+def _providers_block(config: Any, provider_keys: Sequence[str],
+                     warnings: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Every enabled provider in list order, access fields only; the key only
+    for the providers named in ``provider_keys``. Returns ``(entries, names
+    with key)``. An entry that the preset reader would reject (for example a
+    ``base_url`` with a password in it) is not exported, with a warning. Raises
+    :class:`PresetError` for a named provider that does not exist or is
+    switched off. - Claude Generated"""
+    providers = list(getattr(config.unified_config, "providers", None) or [])
+    by_name = {p.name.lower(): p for p in providers}
+    wanted = {str(n).strip().lower() for n in provider_keys if str(n).strip()}
+    unknown = [n for n in provider_keys if str(n).strip().lower() not in by_name]
+    if unknown:
+        raise PresetError(f"Unbekannte(r) Provider: {', '.join(map(str, unknown))}")
+    off = [by_name[n].name for n in sorted(wanted) if not by_name[n].enabled]
+    if off:
+        raise PresetError(f"Provider ausgeschaltet, wird nicht exportiert: {', '.join(off)}")
+    entries: List[Dict[str, Any]] = []
+    with_key: List[str] = []
+    for provider in providers:
+        if not provider.enabled:
+            continue
+        access = provider_access(provider)
+        entry: Dict[str, Any] = {"name": provider.name, "provider_type": provider.provider_type,
+                                 "enabled": True}
+        for key in ("base_url", "preferred_model", "description"):
+            if access.get(key):
+                entry[key] = access[key]
+        if provider.provider_type == "ollama":
+            for key in ("host", "port", "use_ssl", "connection_type"):
+                entry[key] = access[key]
+        if provider.name.lower() in wanted:
+            if provider.api_key:
+                entry[PROVIDER_KEY_FIELD] = provider.api_key
+            else:
+                warnings.append(f"Provider {provider.name}: kein Schlüssel eingetragen; "
+                                "ohne Schlüssel exportiert")
+        _checked, _key, reason, _notes = read_provider_entry(entry)
+        if reason:  # the reader of the package would reject it
+            warnings.append(f"Provider {provider.name}: {reason}; nicht exportiert")
+            continue
+        if PROVIDER_KEY_FIELD in entry:
+            with_key.append(provider.name)
+        entries.append(entry)
+    if with_key:
+        warnings.append(f"Provider-Schlüssel stehen im Klartext im Paket ({', '.join(with_key)}); "
+                        "die Datei nur an berechtigte Personen weitergeben")
+    return entries, with_key
 
+
+def _default_models_block(config: Any, exported: List[str],
+                          warnings: List[str]) -> Dict[str, Dict[str, str]]:
+    """The stored default provider/model per scope (``general`` =
+    ``preferred_provider``/``preferred_model``), only for providers in the
+    package; names and models, no key - Claude Generated"""
     unified = config.unified_config
-    providers = list(getattr(unified, "providers", None) or [])
-    preferred = getattr(unified, "preferred_provider", "")
-    provider = (next((p for p in providers if p.name == preferred and getattr(p, "enabled", True)), None)
-                or next((p for p in providers if getattr(p, "enabled", True)), None))
-    block: Dict[str, Any] = {}
-    if provider is None:
-        return block
-    block["provider_type"] = provider.provider_type
-    block["provider_name"] = provider.name
-    if getattr(provider, "base_url", ""):
-        block["base_url"] = provider.base_url
-    if getattr(provider, "preferred_model", ""):
-        block["default_model"] = provider.preferred_model
-    task_models: Dict[str, str] = {}
-    for name, scope in (("pipeline", ProviderScope.PIPELINE), ("vision", ProviderScope.VISION)):
-        try:
-            _prov, model = unified.resolve_default_provider_model(scope=scope)
-        except Exception as exc:  # resolution reads the provider list only
-            from .error_visibility import log_caught
-
-            log_caught(logger, exc, f"Modell für {name} beim Preset-Export")
-            model = ""
-        if model:
-            task_models[name] = model
-    if task_models:
-        block["task_models"] = task_models
+    names = {n.lower(): n for n in exported}
+    block: Dict[str, Dict[str, str]] = {}
+    for scope, (prov_field, model_field) in DEFAULT_MODEL_FIELDS.items():
+        provider = str(getattr(unified, prov_field, "") or "").strip()
+        if not provider:
+            continue
+        if provider.lower() not in names:
+            warnings.append(f"Standardmodell {scope}: Provider '{provider}' ist nicht im Paket "
+                            "(ausgeschaltet oder nicht vorhanden); nicht exportiert")
+            continue
+        block[scope] = {"provider": names[provider.lower()],
+                        "model": str(getattr(unified, model_field, "") or "")}
     return block
+
+
+def _write_preset_file(path: Path, text: str, private: bool) -> None:
+    """Write ``alima_presets.json``; ``private`` (plain-text secret inside):
+    created with owner-only permissions (0600) from the start. Best effort:
+    where the platform cannot restrict a file (Windows), it is written anyway.
+    - Claude Generated"""
+    if not private:
+        path.write_text(text, encoding="utf-8")
+        return
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+    fd = os.open(str(path), flags, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(text.encode("utf-8"))
+    try:
+        os.chmod(path, 0o600)  # an existing file keeps its mode with os.open
+    except OSError as exc:  # platforms without POSIX permissions
+        logger.warning("Preset-Datei %s: Rechte nicht einschränkbar (%s)", path, exc)
 
 
 def server_database_usable(config_manager: Any, database_config: Any) -> Tuple[bool, str]:
@@ -288,15 +358,19 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
                   config: Any = None,
                   include_database_password: bool = False,
                   verify_database: bool = True,
-                  cache_tables: Optional[Sequence[str]] = None) -> ExportResult:
+                  cache_tables: Optional[Sequence[str]] = None,
+                  provider_keys: Optional[Sequence[str]] = None) -> ExportResult:
     """Write the package folder ``dest_dir`` (new or empty).
 
     ``instance_ids``: the instances to include, in list order; ``None`` = all.
     ``verify_database``: check a server database before writing its block.
     ``cache_tables``: cache parts to ship (``preset_cache.parse_parts``); none
-    by default. Raises :class:`PresetError` for a non-empty folder, an unknown
-    instance id, an unknown cache part, cache parts without ISIL or a cache part
-    too large for a package. - Claude Generated
+    by default. ``provider_keys``: names of providers whose key goes into the
+    package, in plain text (default: none; every enabled provider is exported
+    without key). Raises :class:`PresetError` for a non-empty folder, an unknown
+    instance id, an unknown or switched-off provider in ``provider_keys``, an
+    unknown cache part, cache parts without ISIL or a cache part too large for a
+    package. - Claude Generated
     """
     cm = _cm(config_manager)
     config = config if config is not None else cm.load_config()
@@ -323,6 +397,11 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         if unknown:
             raise PresetError(f"Unbekannte Instanz(en): {', '.join(unknown)}")
         selected = [p for p in plugins if p.instance_id in set(wanted)]
+    provider_warnings: List[str] = []
+    provider_entries, with_key = _providers_block(config, list(provider_keys or []),
+                                                  provider_warnings)
+    default_models = _default_models_block(config, [e["name"] for e in provider_entries],
+                                           provider_warnings)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f".{dest.name}.", dir=str(dest.parent)))
@@ -330,12 +409,20 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         os.chmod(stage, 0o755)  # mkdtemp creates 0700; the package is meant to be shared
         files: List[Dict[str, Any]] = []
         secrets: List[Dict[str, str]] = []
-        warnings: List[str] = []
+        warnings: List[str] = list(provider_warnings)
         entries = [_export_instance(inst, stage, files, secrets, warnings) for inst in selected]
         pid = (preset_id or "").strip() or dest.name
+        if with_key:
+            comment = ("ALIMA-Einrichtungspaket. ACHTUNG: enthält API-Schlüssel im Klartext "
+                       f"(Provider {', '.join(with_key)}). Nur an berechtigte Personen weitergeben, "
+                       "nicht in ein Repository oder eine öffentliche Ablage legen. Anwenden: "
+                       "python3 src/alima_cli.py preset apply <Ordner> (Vorschau mit --dry-run).")
+        else:
+            comment = ("ALIMA-Einrichtungspaket. Anwenden: python3 src/alima_cli.py preset apply "
+                       "<Ordner> (Vorschau mit --dry-run). Enthält keine API-Schlüssel und keine "
+                       "Tokens.")
         data: Dict[str, Any] = {
-            "_comment": "ALIMA-Einrichtungspaket. Anwenden: python3 src/alima_cli.py preset apply <Ordner> "
-                        "(Vorschau mit --dry-run). Enthält keine Schlüssel und keine Tokens.",
+            "_comment": comment,
             "format": FORMAT_VERSION,
             "preset": {"id": pid, "version": (version or "").strip() or "1",
                        "label": (label or "").strip() or pid},
@@ -348,9 +435,10 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         workflow = str(getattr(system, "default_workflow", "") or "").strip()
         if workflow:
             data["workflow"] = workflow
-        llm = _llm_block(config)
-        if llm:
-            data["llm"] = llm
+        if provider_entries:
+            data["providers"] = provider_entries
+        if default_models:
+            data["default_models"] = default_models
         database = _database_block(config, warnings, include_database_password,
                                    verify=verify_database, config_manager=cm)
         if database:
@@ -371,8 +459,9 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
             if block:
                 data["cache"] = block
         preset_path = stage / PRESET_FILENAME
-        preset_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        # plain-text provider key: created owner-only
+        _write_preset_file(preset_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+                           private=bool(with_key))
         if (data.get("database") or {}).get("password"):
             os.chmod(preset_path, 0o600)  # plain-text password: owner only
         if dest.exists():
@@ -381,7 +470,9 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
-    logger.info("Preset exportiert: %s (%d Instanzen, %d Dateien, %d Cache-Teile)", dest,
-                len(entries), len(files), len(cache_info))
+    logger.info("Preset exportiert: %s (%d Instanzen, %d Dateien, %d Cache-Teile, %d Provider, "
+                "Schlüssel für %d)", dest, len(entries), len(files), len(cache_info),
+                len(provider_entries), len(with_key))
     return ExportResult(dest, dest / PRESET_FILENAME, [e["instance"] for e in entries],
-                        files, warnings, cache_info)
+                        files, warnings, cache_info,
+                        [e["name"] for e in provider_entries], list(with_key))

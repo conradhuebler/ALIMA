@@ -232,8 +232,8 @@ class CLISetupWizard:
         """Setup OpenAI-compatible provider - Claude Generated"""
         print("\n🔷 OpenAI-Compatible API Konfiguration\n")
 
-        # Use the preset URL as default if provider type matches (a preset
-        # carries no API keys) - Claude Generated
+        # Use the preset URL as default if provider type matches (the wizard
+        # takes no key from a preset, see preset_loader) - Claude Generated
         preset_url = ""
         if self._presets.llm_provider_type == 'openai_compatible':
             preset_url = self._presets.llm_base_url

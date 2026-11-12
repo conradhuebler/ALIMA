@@ -91,6 +91,35 @@ class UnifiedProviderTab(QWidget):
         self._persist_providers()
         return True
 
+    def adopt_preset_steps(self, steps) -> None:
+        """A preset changed providers or default models and saved them - Claude Generated.
+
+        The steps (``preset_apply.replay_steps`` form) go into this page's
+        configuration copy and, for the providers, into the snapshot "Abbrechen"
+        restores: the preset is saved independently of the dialog, so Cancel
+        must undo only the page's own edits. Then the list and the resolution
+        table are redrawn.
+        """
+        from types import SimpleNamespace
+
+        from ..utils.preset_apply import PROVIDER_PATH, replay_steps
+
+        replay_steps(SimpleNamespace(unified_config=self.unified_config), steps)
+        snapshot = UnifiedProviderConfig(providers=self._providers_at_open)
+        replay_steps(SimpleNamespace(unified_config=snapshot),
+                     [s for s in steps if s["path"][0] == PROVIDER_PATH])
+        self._providers_at_open = snapshot.providers
+        # A replayed new entry got an id of its own; take the saved one, so
+        # the copies compare equal to what is on disk.
+        touched = {str(s["path"][1]).lower() for s in steps if s["path"][0] == PROVIDER_PATH}
+        saved = {p.name.lower(): p.id
+                 for p in self.config_manager.load_config().unified_config.providers}
+        for provider in list(self.unified_config.providers) + list(self._providers_at_open):
+            if provider.name.lower() in touched and provider.name.lower() in saved:
+                provider.id = saved[provider.name.lower()]
+        self._populate_provider_table()
+        self._refresh_effective_defaults()
+
     def _setup_ui(self):
         """Setup the unified provider tab UI - Claude Generated"""
         layout = QVBoxLayout(self)

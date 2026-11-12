@@ -355,10 +355,15 @@ def create_argument_parser():
     preset_apply.add_argument("--dry-run", action="store_true",
                               help="Show the plan only, change nothing")
     preset_apply.add_argument("--yes", action="store_true", help="Apply without asking")
+    preset_apply.add_argument("--no-default-models", action="store_false",
+                              dest="default_models",
+                              help="Keep the default provider/model settings; the block "
+                                   "default_models of the preset is listed, not applied "
+                                   "(default: it overwrites them).")
     preset_revert = preset_sub.add_parser("revert", help="Undo the last applied preset.")
     preset_revert.add_argument("--yes", action="store_true", help="Revert without asking")
     preset_export = preset_sub.add_parser(
-        "export", help="Write the saved setup as a package folder (no secrets).")
+        "export", help="Write the saved setup as a package folder (no secrets unless asked for).")
     preset_export.add_argument("folder", help="New or empty folder for the package")
     preset_export.add_argument("--plugin", action="append", dest="plugins", metavar="INSTANCE_ID",
                                help="Only this instance id (repeatable). Default: all instances.")
@@ -381,6 +386,11 @@ def create_argument_parser():
                                     "mappings, raw:<source> (never kvk). Without a value: "
                                     "dk,mappings. Needs the ISIL of the institution. Put it "
                                     "after the folder or write --with-cache=PARTS.")
+    preset_export.add_argument("--with-provider-key", action="append", dest="provider_keys",
+                               metavar="NAME", default=None,
+                               help="Write the API key of this LLM provider into the package "
+                                    "(repeatable; plain text, file readable by the owner only). "
+                                    "Default: every enabled provider without its key.")
     preset_sub.add_parser("show", help="Show the preset found and the last applied one.")
 
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated

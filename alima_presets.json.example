@@ -1,6 +1,6 @@
 {
   "_comment": "ALIMA-Einrichtungs-Preset (Format 2). Als 'alima_presets.json' in einen Paket-Ordner, ins Konfigurationsverzeichnis oder ins Programmverzeichnis legen, oder den Ordner per Umgebungsvariable ALIMA_PRESET angeben. Alle Werte hier sind erfunden.",
-  "_comment2": "Alle Schlüssel sind optional. API-Schlüssel und Tokens gehören nicht hinein: Felder 'api_key'/'token' werden beim Lesen verworfen. Beschreibung: docs/institutional_presets.md",
+  "_comment2": "Alle Schlüssel sind optional. Felder 'api_key'/'token' werden beim Lesen verworfen, mit einer Ausnahme: 'api_key' in einem Eintrag von 'providers' (nur aus einem Export mit --with-provider-key; steht dann im Klartext hier). Diese Vorlage enthält keinen Schlüssel. Beschreibung: docs/institutional_presets.md",
   "format": 2,
   "preset": {
     "_comment": "Kennung, Version und Name; erscheinen in der Vorschau und im Verlauf (Rückgängig).",
@@ -15,15 +15,32 @@
     "eln": "9998"
   },
   "workflow": "alima_v51",
-  "llm": {
-    "_comment": "Vorbelegung des Einrichtungsassistenten. provider_type: 'ollama', 'openai_compatible', 'gemini', 'anthropic'. Kein Schlüssel.",
-    "provider_type": "ollama",
-    "provider_name": "Uni-LLM-Server",
-    "base_url": "http://llm.uni-example.de:11434",
-    "task_models": {
-      "pipeline": "modell-fuer-die-pipeline",
-      "vision": "modell-fuer-bilder"
+  "providers": [
+    {
+      "_comment": "LLM-Zugänge. Anwenden legt sie an oder ersetzt den gleichnamigen Eintrag (an seiner Stelle); ein vorhandener Schlüssel bleibt. provider_type: 'ollama', 'openai_compatible', 'gemini', 'anthropic'. host/port/use_ssl/connection_type nur für 'ollama'. Der Assistent liest daraus seine Vorbelegung.",
+      "name": "Uni-LLM-Server",
+      "provider_type": "ollama",
+      "enabled": true,
+      "preferred_model": "modell-fuer-die-pipeline",
+      "host": "llm.uni-example.de",
+      "port": 11434,
+      "use_ssl": false,
+      "connection_type": "native_client"
+    },
+    {
+      "name": "Uni-Chat-API",
+      "provider_type": "openai_compatible",
+      "enabled": true,
+      "base_url": "https://chat.uni-example.de/v1",
+      "preferred_model": "modell-fuer-den-chat",
+      "description": "OpenAI-kompatible Schnittstelle; den Schlüssel trägt jede Person selbst ein"
     }
+  ],
+  "default_models": {
+    "_comment": "Standard-Provider und -Modell je Bereich (general = Allgemein/Agentik/Chat, pipeline, vision, decision). Überschreibt beim Anwenden; abwählbar mit --no-default-models. Ohne 'model' gilt das bevorzugte Modell des Providers.",
+    "general": {"provider": "Uni-Chat-API", "model": "modell-fuer-den-chat"},
+    "pipeline": {"provider": "Uni-LLM-Server", "model": "modell-fuer-die-pipeline"},
+    "vision": {"provider": "Uni-LLM-Server", "model": "modell-fuer-bilder"}
   },
   "database": {
     "_comment": "Vorbelegung des Assistenten: 'sqlite' oder 'mariadb' mit host/port/database/username.",

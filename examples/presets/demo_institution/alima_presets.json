@@ -1,5 +1,5 @@
 {
-  "_comment": "Beispielpaket mit erfundenen Werten (Demo-Bibliothek). Vorschau: alima preset apply examples/presets/demo_institution --dry-run",
+  "_comment": "Beispielpaket mit erfundenen Werten (Demo-Bibliothek). Vorschau: python3 src/alima_cli.py preset apply examples/presets/demo_institution --dry-run",
   "format": 2,
   "preset": {
     "id": "demo_institution",
@@ -12,13 +12,31 @@
     "eln": "9999"
   },
   "workflow": "alima_v51",
-  "llm": {
-    "provider_type": "ollama",
-    "provider_name": "Demo-LLM-Server",
-    "base_url": "http://llm.demo-ub.example:11434",
-    "task_models": {
-      "pipeline": "demo-modell:12b",
-      "vision": "demo-vision:7b"
+  "providers": [
+    {
+      "name": "Demo-LLM-Server",
+      "provider_type": "ollama",
+      "enabled": true,
+      "preferred_model": "demo-modell:12b",
+      "description": "LLM-Server der Demo-Bibliothek (erfunden)",
+      "host": "llm.demo-ub.example",
+      "port": 11434,
+      "use_ssl": false,
+      "connection_type": "native_client"
+    }
+  ],
+  "default_models": {
+    "general": {
+      "provider": "Demo-LLM-Server",
+      "model": "demo-modell:12b"
+    },
+    "pipeline": {
+      "provider": "Demo-LLM-Server",
+      "model": "demo-modell:12b"
+    },
+    "vision": {
+      "provider": "Demo-LLM-Server",
+      "model": "demo-vision:7b"
     }
   },
   "plugins": [

@@ -2,7 +2,8 @@
 
 Thin frontend over :mod:`src.utils.preset_apply` and
 :mod:`src.utils.preset_export`; the GUI group "Einrichtung (Preset)" calls the
-same functions. See ``docs/institutional_presets.md``.
+same functions. See ``docs/institutional_presets.md``. The output says for
+which providers a key is set or packed, it never prints a key.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def _handle_apply(args) -> int:
                   "Projektverzeichnis). Pfad angeben: python3 src/alima_cli.py preset apply <ordner|datei>")
             return 1
         preset = pa.load_preset(path, source)
-    plan = pa.build_plan(preset)
+    plan = pa.build_plan(preset, default_models=bool(getattr(args, "default_models", True)))
     print("\n".join(plan.lines()))
     if plan.errors:
         return 1
@@ -43,8 +44,11 @@ def _handle_apply(args) -> int:
         return 1
     entry = pa.apply_plan(plan)
     files = len((entry or {}).get("files") or [])
-    print(f"✅ Angewendet: {len(plan.changes)} Änderungen, {files} Dateien installiert. "
-          "Rückgängig: python3 src/alima_cli.py preset revert")
+    print(f"✅ Angewendet: {len((entry or {}).get('changes') or [])} Änderungen, {files} Dateien "
+          "installiert. Rückgängig: python3 src/alima_cli.py preset revert")
+    if plan.has_provider_keys:
+        print("Provider-Schlüssel aus dem Paket stehen jetzt im Klartext in der config.json "
+              "(wie im Anbieter-Dialog eingetragene Schlüssel).")
     if (entry or {}).get("cache"):
         from src.utils.preset_cache import record_lines
 
@@ -80,10 +84,16 @@ def _handle_export(args) -> int:
                            include_database_password=bool(
                                getattr(args, "with_database_password", False)),
                            verify_database=bool(getattr(args, "verify_database", True)),
-                           cache_tables=getattr(args, "with_cache", None))
+                           cache_tables=getattr(args, "with_cache", None),
+                           provider_keys=getattr(args, "provider_keys", None) or [])
     print("\n".join(result.lines()))
-    print("✅ Exportiert (gespeicherter Stand). Keine Schlüssel und Tokens im Paket; "
-          "Endpunkte und Dateien vor dem Verteilen prüfen.")
+    if result.provider_keys:
+        print("✅ Exportiert (gespeicherter Stand). ⚠ Das Paket enthält API-Schlüssel im "
+              f"Klartext ({', '.join(result.provider_keys)}): nur an berechtigte Personen "
+              "weitergeben. Endpunkte und Dateien vor dem Verteilen prüfen.")
+    else:
+        print("✅ Exportiert (gespeicherter Stand). Keine API-Schlüssel und Tokens im Paket; "
+              "Endpunkte und Dateien vor dem Verteilen prüfen.")
     return 0
 
 

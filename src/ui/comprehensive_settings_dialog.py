@@ -1141,11 +1141,19 @@ class ComprehensiveSettingsDialog(QDialog):
         widgets, and the copy takes the saved ledger, so "Save" does not undo
         the preset. - Claude Generated
         """
-        from ..utils.preset_apply import replay_steps
+        from ..utils.preset_apply import DEFAULT_MODEL_PATH, PROVIDER_PATH, replay_steps
 
         cfg = self.config_to_edit
         system_steps = [s for s in steps if s["path"] and s["path"][0] == "system_config"]
         replay_steps(cfg, system_steps)
+        # Providers and default models the preset saved: into the provider
+        # page's copy and its Cancel snapshot, or "OK" would write the
+        # providers shown at opening back and "Abbrechen" would remove the
+        # preset's. - Claude Generated
+        llm_steps = [s for s in steps
+                     if s["path"] and s["path"][0] in (PROVIDER_PATH, DEFAULT_MODEL_PATH)]
+        if llm_steps:
+            self.unified_provider_tab.adopt_preset_steps(llm_steps)
         cfg.applied_presets = deepcopy(getattr(saved, "applied_presets", []) or [])
         keys = {s["path"][1] for s in system_steps}
         if "institution_isil" in keys:

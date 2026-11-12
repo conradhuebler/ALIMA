@@ -367,6 +367,11 @@ class PipelineStepConfig:
 
 LOCAL_OLLAMA_PRESET_NAME = "ollama_local"
 
+#: The values of ``UnifiedProvider.provider_type`` that ``LlmService``
+#: dispatches (``_init_unified_provider_configs``); a test keeps the two in step.
+#: Read by the preset reader to reject an unknown type. - Claude Generated
+PROVIDER_TYPES = ("ollama", "openai_compatible", "gemini", "anthropic")
+
 
 def local_ollama_preset() -> "UnifiedProvider":
     """Vorkonfigurierter, ausgeschalteter Eintrag für ein lokales Ollama - Claude Generated.

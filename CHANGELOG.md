@@ -18,6 +18,7 @@ This file summarizes notable changes in this branch since the last upstream rele
 - Desktop app: the pipeline tab follows the running step of an agentic workflow; a long answer without line breaks shows a progress line instead of looking stalled.
 - Repetition loops are detected by the information content of the new text (warning, then abort), in the classic and the agentic path, including the thinking channel; what happens after an abort is configurable (stop, retry, or the agent decides).
 - Setup presets: the command to apply a preset is `python3 src/alima_cli.py preset apply <folder>`.
+- Setup presets carry LLM providers (`providers`, without keys unless a key is exported by name with `--with-provider-key`) and the default models (`default_models`, overwritten on apply unless `--no-default-models`); the old block `llm` is ignored.
 
 ### Agentic ↔ Classic Core Convergence
 

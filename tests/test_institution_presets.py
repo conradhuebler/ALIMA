@@ -6,7 +6,9 @@ Pinned here (Nov 2026):
    project directory; the source is named in the log. Without the first two the
    project directory is used as before.
 2. An old preset (``institution_name``, ``llm``, ``catalog``, ``database``) loads
-   unchanged, except that ``api_key``/``token`` are dropped with one warning.
+   unchanged, except that ``api_key``/``token`` are dropped with one warning;
+   its block ``llm`` is no longer read (Nov 12, 2026: ``providers`` and
+   ``default_models`` replace it, ``tests/test_preset_providers.py``).
 3. The plan: ``before``/``after`` per change, state → ``enabled``/``cache_only``,
    list order inside the category, an instance is set (never a sibling) or
    created, SECRET fields never, unknown settings warn, ``@file:`` resolves.
@@ -274,9 +276,12 @@ class TestOldPreset(_Home):
 
         p = PresetLoader.load()
         self.assertEqual(p.institution_name, "Alte UB")
+        # The block ``llm`` is not read any more (was: type, name, URL and the
+        # two models as wizard pre-fill); the plan names it as a hint.
         self.assertEqual((p.llm_provider_type, p.llm_provider_name, p.llm_base_url),
-                         ("openai_compatible", "Uni-LLM", "https://llm.alte-ub.example/v1"))
-        self.assertEqual((p.pipeline_model(), p.vision_model()), ("m-pipe", "m-vis"))
+                         ("", "", ""))
+        self.assertEqual((p.pipeline_model(), p.vision_model()), ("", ""))
+        self.assertFalse(p.has_llm())
         self.assertEqual((p.catalog_soap_search_url, p.catalog_soap_details_url,
                           p.catalog_web_search_url),
                          ("https://lib.alte-ub.example/s", "https://lib.alte-ub.example/d",
@@ -647,8 +652,14 @@ class TestExport(_Home):
                 self.assertNotIn(b"SEKRET", f.read_bytes(), f)
         self.assertNotIn(str(self.tmp), text)
         data = json.loads(text)
-        self.assertNotIn("api_key", data.get("llm", {}))
-        self.assertEqual(data["llm"]["base_url"], "https://llm.example/v1")
+        # Was the block ``llm`` (wizard pre-fill); now ``providers`` without
+        # key and ``default_models`` (Nov 12, 2026).
+        self.assertNotIn("llm", data)
+        self.assertEqual(data["providers"], [{
+            "name": "srv", "provider_type": "openai_compatible", "enabled": True,
+            "base_url": "https://llm.example/v1", "preferred_model": "m1"}])
+        self.assertEqual(data["default_models"], {"general": {"provider": "srv", "model": "m1"}})
+        self.assertEqual((result.providers, result.provider_keys), (["srv"], []))
         self.assertIn({"plugin": "catalog", "key": "token"},
                       [{k: s[k] for k in ("plugin", "key")} for s in data["secrets"]])
         for entry in data["files"]:
@@ -1290,9 +1301,15 @@ class TestExamples(_Home):
 
         preset = pa.load_preset(REPO / "alima_presets.json.example")
         self.assertEqual(preset.ignored_keys, [])
-        self.assertNotIn("api_key", preset.data["llm"])
+        self.assertNotIn("llm", preset.data)
+        for entry in preset.data["providers"]:
+            self.assertNotIn("api_key", entry)
         self.assertNotIn("token", preset.data["catalog"])
         presets = PresetLoader._parse(preset.data)
+        # wizard pre-fill: the provider of default_models.general
+        self.assertEqual((presets.llm_provider_type, presets.llm_provider_name,
+                          presets.llm_base_url),
+                         ("openai_compatible", "Uni-Chat-API", "https://chat.uni-example.de/v1"))
         self.assertEqual(presets.catalog_soap_search_url,
                          "https://libero.ub.uni-example.de/libero/LiberoWebServices.CatalogueSearcher.cls")
         self.assertEqual(preset.label, "UB Musterstadt")
