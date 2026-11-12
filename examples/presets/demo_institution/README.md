@@ -10,6 +10,8 @@ demo_institution/
   files/
     geo_demo.sqlite         # winzige Datenbank im Schema geo_sachdb v1 (3 Schlagwörter, 2 Notationen)
     demo_systematik.yaml    # Aufstellungssystematik für local_scheme (5 Einträge)
+    cache/
+      catalog_dk_cache.jsonl.gz   # DK-Cache mit 2 erfundenen Einträgen (Block "cache", ISIL ZZ-DEMO)
 ```
 
 ## Ausprobieren
@@ -27,7 +29,9 @@ Das Anwenden setzt ISIL und ELN, den Standard-Workflow, Zustand und
 Einstellungen von `catalog`, `swb`, `geo_sachdb` und `local_scheme`, legt die
 SRU-Instanz `k10plus_demo` an und kopiert die beiden Dateien nach
 `<Konfigurationsverzeichnis>/data/`. Der Libero-Token wird nur als „noch
-einzutragen“ gemeldet.
+einzutragen“ gemeldet. Die zwei erfundenen DK-Cache-Einträge werden in den
+Cache der Installation übernommen, weil das Preset die ISIL `ZZ-DEMO` setzt und
+der Cache dieselbe trägt; „Rückgängig“ nimmt sie nicht wieder heraus.
 
 ## Eigene Dateien
 

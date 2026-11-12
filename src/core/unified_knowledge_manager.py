@@ -20,6 +20,7 @@ from ..utils.config_models import DatabaseConfig
 from ._ukm_schema import SchemaMigrationMixin
 from ._ukm_catalog_dk import CatalogDkCacheMixin
 from ._ukm_smart_search import SmartSearchMixin
+from ._ukm_cache_merge import CacheMergeMixin
 
 
 @dataclass
@@ -68,7 +69,8 @@ class SearchMapping:
     titles: Dict[str, str] = field(default_factory=dict)
 
 
-class UnifiedKnowledgeManager(SchemaMigrationMixin, CatalogDkCacheMixin, SmartSearchMixin):
+class UnifiedKnowledgeManager(SchemaMigrationMixin, CatalogDkCacheMixin, SmartSearchMixin,
+                              CacheMergeMixin):
     """Unified knowledge database manager with Facts/Mappings separation - Claude Generated
 
     Singleton Pattern: Only one instance per application lifecycle

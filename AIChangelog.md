@@ -6,6 +6,101 @@
 
 ## 2026
 
+### Cache im Einrichtungs-Preset, Prüfung der Server-Datenbank beim Export (November 11, 2026)
+
+Ausgang (UB Freiberg, entschieden): Libero und finc sind lange nicht
+erreichbar; der Zustand „Nur Cache“ liest den DK-Cache `catalog_dk_cache`.
+Ein Einrichtungs-Paket kann jetzt Teile des Caches mitgeben, die beim Anwenden
+in den Cache der Zielinstallation zusammengeführt werden.
+
+**Umfang und Format.** Neuer Preset-Block `cache` (`isil`, `created`,
+`tables[]` mit `id`, `table`, `source`, `sha256`, `rows`, `merge:
+"newer_wins"`, bei Rohantworten `source_filter`); Format 2 bleibt, Presets ohne
+`cache` laden und planen wie bisher (ohne Datenbankzugriff). Je Tabelle
+`files/cache/<tabelle>.jsonl.gz`: gzip, Kopfzeile `{"table","columns","rows"}`,
+je Eintrag eine JSON-Liste; zwei gzip-Abschnitte mit `mtime` 0, gleiche Zeilen
+ergeben gleiche Bytes. Teile: `dk` (`catalog_dk_cache`, nur `success` mit
+`result_count > 0`, Fehlerfelder nicht in der Datei, beim Zusammenführen
+zurückgesetzt), `mappings` (`search_mappings`, alle Zeilen), `raw:<quelle>`
+(`search_response_cache`, nie `kvk`, HTTP 200 oder ohne Status, nicht leer,
+ohne `error`/`errors`). Nie die GND-Kopie.
+
+**Export.** `export_preset(..., cache_tables=…)`, Standard keine Cache-Teile;
+ohne ISIL der exportierenden Konfiguration `PresetError`. Gelesen über den
+laufenden Wissensmanager oder einen eigenen `DatabaseManager` der
+Konfiguration (in `finally` geschlossen; eine fehlende SQLite-Datei wird nicht
+angelegt), Seiten per Schlüssel (`WHERE key > last ORDER BY key LIMIT n`), jede
+Zeile mit derselben Prüfung wie beim Einlesen. `ExportResult.cache` nennt
+Zeilen und Größe, die Hinweise nennen nicht exportierte Einträge und die Rechte.
+CLI `--with-cache[=dk,mappings,raw:<quelle>]` (ohne Wert `dk,mappings`), GUI
+Gruppe „Cache einschließen“ im Export-Dialog (Zählung vorher im Worker,
+Kästchen mit Zahl und Größe, ohne ISIL gesperrt, ein nicht lesbarer Cache wird
+genannt statt den Export zu verhindern).
+
+**Anwenden.** `build_plan` zählt lesend je Teil „neu / aktualisiert /
+unverändert (lokal neuer oder gleich)“ oder „übersprungen: <Grund>“ (zusätzlich
+lokal neuere DK-Einträge ohne Treffer). Prüfungen: Prüfsumme, Pfad im Paket,
+Whitelist der drei Tabellen und der Spalten (Test gegen eine neu angelegte
+Datenbank), Pflichtspalten, Typen, Export-Regel, Schlüssel doppelt,
+Zeilenzahl, Grenzen 300 MB entpackt / 2 Mio. Zeilen / 16 MB je Zeile
+(benannte Konstanten), zeilenweise gelesen. Fehler überspringen nur den
+betroffenen Cache-Teil, nicht das Preset (Begründung in der Doku: ein
+Cache-Teil ist ein vorgefüllter Zwischenspeicher, den ALIMA selbst aufbaut).
+ISIL-Schutz: `cache.isil` muss zur ISIL nach dem Anwenden passen
+(`institution.isil` des Presets vor der vorhandenen), ohne Groß-/Kleinschreibung
+und Leerraum; keine Sicherheitsgrenze. `apply_plan` installiert Dateien, führt
+den Cache zusammen (Prüfsumme erneut, ISIL gegen die Vorschau), speichert, das
+Ledger bekommt je Teil die Zahlen; `revert_last` fasst den Cache nicht an.
+Geschrieben wird nur über die neue, getestete Methode
+`UnifiedKnowledgeManager.merge_cache_rows` (`src/core/_ukm_cache_merge.py`,
+Mixin): je Schlüssel `SELECT`, dann `INSERT` oder `UPDATE` nur bei neuerem
+`last_updated`, nichts gelöscht, eine Transaktion je 500 Zeilen. Instanz:
+läuft der Wissensmanager schon, wird über ihn geschrieben (nur wenn er auf der
+eingestellten Datenbank und nicht auf dem SQLite-Rückfall läuft, sonst
+übersprungen); sonst entsteht er mit der gespeicherten Einstellung. Der
+Assistent speichert die Datenbankeinstellung vor `apply_after_setup`.
+
+**Prüfung der Server-Datenbank beim Export (Zusatz).** Ist MariaDB/MySQL
+eingestellt, prüft der Export (Standard an, `verify_database`, CLI
+`--no-verify-database`, GUI-Kästchen „Datenbankverbindung vor dem Export
+prüfen“, läuft im Export-Worker) erst den Qt-Treiber
+(`database_manager.server_driver_loads`: `addDatabase` unter eindeutigem
+Namen, `isValid()`, Entfernen in `finally`, ohne Netz), dann eine Verbindung
+(`ConfigManager.test_database_connection`). Scheitert eines, steht im Paket nur
+`{"type": "sqlite"}`, auch mit Passwort-Option, und der Grund als Hinweis. Der
+GUI-Assistent belegt daraus SQLite mit leerem Pfadfeld (Standardpfad) vor; der
+CLI-Assistent fragt keine Datenbank ab und richtet immer SQLite ein (keine
+Änderung nötig).
+
+**Befunde.** (1) `DatabaseManager.fetch_*` liefert für SQL NULL in jeder
+Spalte `""` (QSQLITE, nachgeprüft); der Export liest `""` in Zahl-, Zeit- und
+JSON-Spalten deshalb als NULL. Ohne das fiel jede Rohantwort ohne
+`http_status` aus dem Export. (2) `search_response_cache.result_count`
+schreiben nur kvk und sru, alle anderen Quellen 0; „leer“ wird deshalb am
+Inhalt erkannt. (3) Ein exportiertes Paket trägt die ISIL auch unter
+`institution` und setzt sie beim Anwenden; der ISIL-Schutz greift dann nur bei
+Paketen ohne oder mit anderer `institution.isil`. (4) Ein lokaler
+DK-Fehlereintrag, der neuer ist als der Eintrag im Paket, bleibt nach der
+Regel „neuer gewinnt“ stehen; gerade während eines Ausfalls entstehen solche
+Einträge. Die Vorschau zählt sie eigens, die Regel ist unverändert.
+
+**Grenzen.** Nicht gegen die echte Datenbank, MariaDB/MySQL (Abfragen in
+gemeinsamer Form, nicht gegen einen Server gelaufen; dort vergleicht MariaDB
+Texte meist ohne Groß-/Kleinschreibung, Zeitstempel in Serverzeit), eine
+laufende GUI mit gleichzeitigen Suchen oder Windows geprüft. Im
+GUI-Assistenten läuft das Zusammenführen im UI-Thread (wie das Installieren
+der Dateien).
+
+Tests: `tests/test_preset_cache.py` (57, echte `UnifiedKnowledgeManager`
+auf SQLite-Dateien im temporären Verzeichnis, Singleton vor und nach jedem
+Test zurückgesetzt, Verbindungen geschlossen), `tests/test_institution_presets.py`
+(+7: Datenbankprüfung mit Test-Doppeln, Treiber fehlt über
+`_without_server_drivers`, SQLite-Vorbelegung im Assistenten; `_Home` setzt den
+Wissensmanager zurück, `_ServerDbHome` prüft nie gegen `db.example`).
+53 Mutationen, alle rot (drei doppelte Sperren, SQL-Filter und Zeilenregel bei DK und HTTP-Status sowie die zwei ISIL-Prüfungen des Exports, nur gemeinsam mutiert; dass über den laufenden Wissensmanager geschrieben wird, sichert das Singleton, eine Mutation daran ist gleichwertig), Dateien per sha256 wiederhergestellt. Beispielpaket `examples/presets/demo_institution/` mit zwei
+erfundenen DK-Cache-Einträgen (ISIL `ZZ-DEMO`). Spec:
+[`docs/institutional_presets.md`](docs/institutional_presets.md) „`cache`“ und „Export“.
+
 ### Einrichtungs-Presets statt Bundles (November 9, 2026)
 
 Ausgang (UB Freiberg): das Gesamtpaket einer Einrichtung (Plugin-Zustände und

@@ -16,7 +16,17 @@ not declare. The password of a server database is written only on request
 (``include_database_password``), in plain text, and the preset file then gets
 owner-only permissions. Each omission and the plain-text password are reported
 in ``ExportResult.warnings``. The export reads the saved configuration unless a
-``config`` is passed. Qt-free.
+``config`` is passed.
+
+A server database is checked first (``verify_database``, default on): the Qt
+SQL driver must load (no network) and one connection through
+``ConfigManager.test_database_connection`` must succeed. Otherwise the block
+``database`` is only ``{"type": "sqlite"}`` (no path, no host, no password,
+also with ``include_database_password``) and the reason is a warning.
+
+``cache_tables`` (``dk``, ``mappings``, ``raw:<source>``; default none) adds
+parts of the search cache (``preset_cache.py``); they need the ISIL of the
+exporting configuration. Qt-free at import.
 """
 
 from __future__ import annotations
@@ -29,7 +39,7 @@ import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .preset_apply import (
     FILE_REF_PREFIX,
@@ -67,12 +77,20 @@ class ExportResult:
     instances: List[str] = field(default_factory=list)
     files: List[Dict[str, Any]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    #: Cache parts written: id, table, source, sha256, rows, size (packed),
+    #: unpacked (bytes), source_filter (raw only).
+    cache: List[Dict[str, Any]] = field(default_factory=list)
 
     def lines(self) -> List[str]:
+        from .preset_cache import size_text
+
         out = [f"Paket: {self.path}",
                f"Instanzen ({len(self.instances)}): {', '.join(self.instances) or '(keine)'}"]
         for f in self.files:
             out.append(f"Datei: {f['id']} → {f['source']} (sha256 {f['sha256'][:12]}…)")
+        for c in self.cache:
+            out.append(f"Cache: {c['id']} → {c['source']} ({c['rows']} Einträge, "
+                       f"{size_text(c['size'])} gepackt, {size_text(c['unpacked'])} entpackt)")
         out += [f"⚠ {w}" for w in self.warnings]
         return out
 
@@ -205,14 +223,50 @@ def _llm_block(config: Any) -> Dict[str, Any]:
     return block
 
 
+def server_database_usable(config_manager: Any, database_config: Any) -> Tuple[bool, str]:
+    """Whether the server database of ``database_config`` works on this machine.
+
+    (a) the Qt SQL driver loads (``server_driver_loads``: no connection, no
+    network), then (b) one connection through
+    ``ConfigManager.test_database_connection`` with the configured
+    ``connection_timeout`` (a fallback to SQLite counts as failed). Returns
+    ``(ok, reason)``. - Claude Generated
+    """
+    from src.core.database_manager import server_driver_loads
+
+    db_type = str(getattr(database_config, "db_type", "") or "").lower()
+    ok, reason = server_driver_loads(db_type)
+    if not ok:
+        return False, reason
+    try:
+        ok, message = _cm(config_manager).test_database_connection(database_config)
+    except Exception as exc:  # test_database_connection catches its own errors
+        from .error_visibility import log_caught
+
+        log_caught(logger, exc, "Datenbankprüfung beim Preset-Export")
+        return False, str(exc) or type(exc).__name__
+    if not ok:
+        return False, str(message or "Verbindung fehlgeschlagen").lstrip("❌ ").strip()
+    return True, ""
+
+
 def _database_block(config: Any, warnings: List[str],
-                    include_password: bool = False) -> Dict[str, Any]:
+                    include_password: bool = False, *, verify: bool = False,
+                    config_manager: Any = None) -> Dict[str, Any]:
     """A server database (MariaDB/MySQL); the password only when asked for;
-    nothing for SQLite, whose path is local to the workstation - Claude Generated"""
+    nothing for SQLite, whose path is local to the workstation. With ``verify``
+    a server database that does not work here becomes ``{"type": "sqlite"}``
+    (see :func:`server_database_usable`) - Claude Generated"""
     db = config.database_config
     db_type = str(getattr(db, "db_type", "sqlite") or "sqlite").lower()
     if db_type not in ("mysql", "mariadb"):
         return {}
+    if verify:
+        ok, reason = server_database_usable(config_manager, db)
+        if not ok:
+            warnings.append(f"Datenbank: {db_type.upper()} nicht nutzbar ({reason}); "
+                            "exportiert wird SQLite")
+            return {"type": "sqlite"}
     block: Dict[str, Any] = {"type": db_type}
     for key in ("host", "database", "username", "charset"):
         if getattr(db, key, ""):
@@ -232,16 +286,31 @@ def _database_block(config: Any, warnings: List[str],
 def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[List[str]] = None,
                   *, preset_id: str = "", version: str = "", label: str = "",
                   config: Any = None,
-                  include_database_password: bool = False) -> ExportResult:
+                  include_database_password: bool = False,
+                  verify_database: bool = True,
+                  cache_tables: Optional[Sequence[str]] = None) -> ExportResult:
     """Write the package folder ``dest_dir`` (new or empty).
 
     ``instance_ids``: the instances to include, in list order; ``None`` = all.
-    Raises :class:`PresetError` for a non-empty folder or an unknown instance
-    id. - Claude Generated
+    ``verify_database``: check a server database before writing its block.
+    ``cache_tables``: cache parts to ship (``preset_cache.parse_parts``); none
+    by default. Raises :class:`PresetError` for a non-empty folder, an unknown
+    instance id, an unknown cache part, cache parts without ISIL or a cache part
+    too large for a package. - Claude Generated
     """
     cm = _cm(config_manager)
     config = config if config is not None else cm.load_config()
     _ensure_categories()
+    from . import preset_cache
+
+    try:
+        parts = preset_cache.parse_parts(cache_tables or [])
+    except ValueError as exc:
+        raise PresetError(str(exc)) from exc
+    isil_value = str(getattr(config.system_config, "institution_isil", "") or "").strip()
+    if parts and not isil_value:
+        raise PresetError("Ohne ISIL (Einstellungen ▸ Datenquellen ▸ Einrichtung) wird kein "
+                          "Cache exportiert: beim Anwenden würde er übersprungen")
     dest = Path(dest_dir).expanduser()
     if dest.exists() and (not dest.is_dir() or any(dest.iterdir())):
         raise PresetError(f"{dest}: der Ordner ist nicht leer; bitte einen neuen oder leeren Ordner wählen")
@@ -282,7 +351,8 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
         llm = _llm_block(config)
         if llm:
             data["llm"] = llm
-        database = _database_block(config, warnings, include_database_password)
+        database = _database_block(config, warnings, include_database_password,
+                                   verify=verify_database, config_manager=cm)
         if database:
             data["database"] = database
         if entries:
@@ -291,6 +361,15 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
             data["files"] = files
         if secrets:
             data["secrets"] = secrets
+        cache_info: List[Dict[str, Any]] = []
+        if parts:
+            try:
+                block, cache_info = preset_cache.export_parts(
+                    config.database_config, stage, parts, isil_value, warnings)
+            except ValueError as exc:
+                raise PresetError(str(exc)) from exc
+            if block:
+                data["cache"] = block
         preset_path = stage / PRESET_FILENAME
         preset_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -302,6 +381,7 @@ def export_preset(config_manager: Any, dest_dir: Any, instance_ids: Optional[Lis
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
-    logger.info("Preset exportiert: %s (%d Instanzen, %d Dateien)", dest, len(entries), len(files))
+    logger.info("Preset exportiert: %s (%d Instanzen, %d Dateien, %d Cache-Teile)", dest,
+                len(entries), len(files), len(cache_info))
     return ExportResult(dest, dest / PRESET_FILENAME, [e["instance"] for e in entries],
-                        files, warnings)
+                        files, warnings, cache_info)

@@ -370,6 +370,17 @@ def create_argument_parser():
                                help="Write the server database password into the package "
                                     "(plain text, file readable by the owner only). "
                                     "Default: not exported.")
+    preset_export.add_argument("--no-verify-database", action="store_false",
+                               dest="verify_database",
+                               help="Do not check a server database before exporting it "
+                                    "(default: driver and one connection are checked; a "
+                                    "database that does not work is exported as SQLite).")
+    preset_export.add_argument("--with-cache", nargs="?", const="dk,mappings", default=None,
+                               dest="with_cache", metavar="PARTS",
+                               help="Ship parts of the search cache, comma-separated: dk, "
+                                    "mappings, raw:<source> (never kvk). Without a value: "
+                                    "dk,mappings. Needs the ISIL of the institution. Put it "
+                                    "after the folder or write --with-cache=PARTS.")
     preset_sub.add_parser("show", help="Show the preset found and the last applied one.")
 
     # Workflow v4 commands (generic agents + deterministic steps) - Claude Generated

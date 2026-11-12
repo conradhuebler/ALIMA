@@ -43,6 +43,40 @@ def driver_diagnosis_hint(drivers_dir: str, platform: Optional[str] = None) -> s
     return f"Die Treiberdateien liegen in {drivers_dir}; prüfen, welche Bibliothek dem Treiber fehlt."
 
 
+#: A QCoreApplication created by :func:`server_driver_loads` (QtSql needs one).
+_PROBE_APP: List[Any] = []
+
+
+def server_driver_loads(db_type: str) -> tuple:
+    """``(True, "")`` when the Qt SQL driver for ``mysql``/``mariadb`` loads,
+    else ``(False, reason)``. No connection, no network: the driver is
+    registered under a unique name, checked with ``isValid()`` and removed
+    again in ``finally``. - Claude Generated"""
+    import uuid
+
+    kind = str(db_type or "").lower()
+    driver = {"mysql": "QMYSQL", "mariadb": "QMARIADB"}.get(kind)
+    if driver is None:
+        return False, f"kein Server-Datenbanktyp: {db_type}"
+    if not QCoreApplication.instance():
+        _PROBE_APP.append(QCoreApplication(sys.argv))
+    from ..utils.qt_plugin_setup import setup_qt_plugin_paths
+    setup_qt_plugin_paths()
+    name = f"alima_driver_probe_{uuid.uuid4().hex}"
+    try:
+        connection = QSqlDatabase.addDatabase(driver, name)
+        try:
+            if connection.isValid():
+                return True, ""
+            error = connection.lastError()
+            detail = (error.driverText() or error.text() or "").strip()
+            return False, f"Qt-SQL-Treiber {driver} nicht ladbar" + (f" ({detail})" if detail else "")
+        finally:
+            connection = None
+    finally:
+        QSqlDatabase.removeDatabase(name)
+
+
 class DatabaseManager:
     """
     Unified database manager using PyQt6.QtSql for seamless SQLite/MariaDB support.

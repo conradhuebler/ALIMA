@@ -37,8 +37,10 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+from src.core.database_manager import server_driver_loads as REAL_DRIVER_PROBE
 from src.utils.config_manager import ConfigManager
 from src.utils import preset_apply as pa
+from tests.test_database_fallback_feedback import _without_server_drivers
 from tests.test_geo_sachdb_lookup import build_synthetic_db
 
 REPO = Path(__file__).resolve().parent.parent
@@ -70,6 +72,23 @@ def _need_widgets(case: unittest.TestCase) -> None:
 
     if not isinstance(_app(), QApplication):
         case.skipTest("a bare QCoreApplication exists; widgets cannot be built")
+
+
+def reset_knowledge_manager() -> None:
+    """Close the connections of the knowledge manager singleton, then reset it
+    (``reset`` alone does not close them) - Claude Generated"""
+    from src.core.unified_knowledge_manager import UnifiedKnowledgeManager
+
+    ukm = UnifiedKnowledgeManager._instance
+    if ukm is not None:
+        for db in (getattr(ukm, "db_manager", None),
+                   getattr(getattr(ukm, "local_gnd", None), "db_manager", None)):
+            if db is not None:
+                try:
+                    db.close_connection()
+                except Exception:  # an already closed connection
+                    pass
+    UnifiedKnowledgeManager.reset()
 
 
 def make_package(root: Path, mutate=None) -> Path:
@@ -131,6 +150,8 @@ class _Home(unittest.TestCase):
         self.addCleanup(workflows.stop)
         ConfigManager.reset()
         self.addCleanup(ConfigManager.reset)
+        reset_knowledge_manager()
+        self.addCleanup(reset_knowledge_manager)
         self.cm = ConfigManager()
         self.config_dir = Path(self.cm.config_file).parent
         self.assertTrue(str(self.config_dir).startswith(str(self.tmp)))
@@ -750,7 +771,11 @@ class TestFirstStart(_Home):
 
 
 class _ServerDbHome(_Home):
-    """A home whose saved configuration has a server database with a password."""
+    """A home whose saved configuration has a server database with a password.
+
+    The check before the export (driver, one connection) is a test double that
+    succeeds, unless a test sets ``self.driver``/``self.connection``; no
+    connection to ``db.example`` is ever attempted. - Claude Generated"""
 
     def setUp(self):
         super().setUp()
@@ -762,6 +787,27 @@ class _ServerDbHome(_Home):
         db.username = "alima_user"
         db.password = "DB-GEHEIM"
         self.cm.save_config(cfg)
+        self.driver = lambda kind: (True, "")
+        self.connection = (True, "✅ MARIADB connection successful")
+        self.probed = []
+        self.driver_calls = []
+
+        def probe(kind):
+            self.driver_calls.append(kind)
+            return self.driver(kind)
+
+        driver = patch("src.core.database_manager.server_driver_loads", side_effect=probe)
+        driver.start()
+        self.addCleanup(driver.stop)
+
+        def connect(_cm, database_config=None):
+            self.probed.append(database_config)
+            return self.connection
+
+        conn = patch.object(ConfigManager, "test_database_connection", autospec=True,
+                            side_effect=connect)
+        conn.start()
+        self.addCleanup(conn.stop)
 
 
 class TestExportDatabasePassword(_ServerDbHome):
@@ -837,6 +883,106 @@ class TestCliDatabasePassword(_ServerDbHome):
         self.assertNotIn("password", json.loads(preset.read_text(encoding="utf-8"))["database"])
 
 
+class TestExportDatabaseCheck(_ServerDbHome):
+    """A server database that does not work on the exporting machine is
+    exported as ``{"type": "sqlite"}``. - Claude Generated"""
+
+    def export(self, **kw):
+        from src.utils.preset_export import export_preset
+
+        result = export_preset(self.cm, self.tmp / "out" / "pkg", preset_id="x", **kw)
+        return result, json.loads(result.preset_file.read_text(encoding="utf-8"))
+
+    def assert_sqlite_only(self, result, data):
+        self.assertEqual(data["database"], {"type": "sqlite"})
+        for f in result.path.rglob("*"):
+            if f.is_file():
+                self.assertNotIn(b"DB-GEHEIM", f.read_bytes(), f)
+                self.assertNotIn(b"db.example", f.read_bytes(), f)
+        self.assertNotEqual(result.preset_file.stat().st_mode & 0o077, 0)
+        self.assertTrue(any(w.startswith("Datenbank: MARIADB nicht nutzbar (")
+                            and w.endswith("; exportiert wird SQLite") for w in result.warnings),
+                        result.warnings)
+
+    def test_driver_missing_gives_sqlite_without_password(self):
+        from PyQt6.QtSql import QSqlDatabase
+
+        self.driver = REAL_DRIVER_PROBE
+        with patch.object(QSqlDatabase, "addDatabase", side_effect=_without_server_drivers):
+            result, data = self.export(include_database_password=True)
+        self.assert_sqlite_only(result, data)
+        self.assertTrue(any("QMARIADB" in w for w in result.warnings), result.warnings)
+        self.assertEqual(self.probed, [])  # no connection without a driver
+        self.assertFalse(any(n.startswith("alima_driver_probe_")
+                             for n in QSqlDatabase.connectionNames()))
+
+    def test_failed_connection_gives_sqlite(self):
+        self.connection = (False, "❌ Connection failed: Can't connect to server")
+        result, data = self.export(include_database_password=True)
+        self.assert_sqlite_only(result, data)
+        self.assertTrue(any("Can't connect to server" in w for w in result.warnings))
+        self.assertEqual(len(self.probed), 1)
+        self.assertEqual(self.probed[0].host, "db.example")
+
+    def test_working_database_keeps_the_server_block(self):
+        result, data = self.export()
+        self.assertEqual((data["database"]["type"], data["database"]["host"]),
+                         ("mariadb", "db.example"))
+        self.assertEqual((self.driver_calls, len(self.probed)), (["mariadb"], 1))
+        self.assertFalse(any("nicht nutzbar" in w for w in result.warnings))
+
+    def test_without_check_the_server_block_stays(self):
+        self.connection = (False, "❌ Connection failed")
+        result, data = self.export(verify_database=False, include_database_password=True)
+        self.assertEqual(data["database"]["password"], "DB-GEHEIM")
+        self.assertEqual((self.driver_calls, self.probed), ([], []))
+
+    def test_cli_switch(self):
+        from src.cli.commands import preset_cmd
+        from src.cli.main import create_argument_parser
+
+        self.connection = (False, "❌ Connection failed")
+        for extra, expected in (([], {"type": "sqlite"}), (["--no-verify-database"], "mariadb")):
+            folder = self.tmp / f"cli_{len(extra)}"
+            args = create_argument_parser().parse_args(["preset", "export", str(folder), *extra])
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(preset_cmd.handle_preset(args, logging.getLogger("test")), 0)
+            block = json.loads((folder / pa.PRESET_FILENAME).read_text(encoding="utf-8"))["database"]
+            self.assertEqual(block if extra == [] else block["type"], expected)
+
+
+class TestSqliteBlockPrefill(_Home):
+    """``{"type": "sqlite"}`` without a path pre-fills SQLite with the default
+    path. - Claude Generated"""
+
+    def test_loader_and_gui_wizard(self):
+        from src.utils.config_models import DatabaseConfig
+        from src.utils.preset_loader import PresetLoader
+
+        presets = PresetLoader._parse({"database": {"type": "sqlite"}})
+        self.assertEqual((presets.db_type, presets.db_sqlite_path), ("sqlite", ""))
+        self.assertTrue(presets.has_database_config())
+        pkg = self.tmp / "sqlite_pkg"
+        pkg.mkdir()
+        (pkg / pa.PRESET_FILENAME).write_text(json.dumps(
+            {"format": 2, "preset": {"id": "s"}, "database": {"type": "sqlite"}}), encoding="utf-8")
+        _need_widgets(self)
+        from src.ui.first_start_wizard import FirstStartWizard
+
+        with patch.dict(os.environ, {pa.ENV_VAR: str(pkg)}):
+            wizard = FirstStartWizard()
+        _KEEP.append(wizard)
+        page = wizard.database_page
+        self.assertTrue(page.sqlite_radio.isChecked())
+        self.assertEqual(page.sqlite_path_input.text(), "")
+        self.assertEqual(page.get_database_config(), {"db_type": "sqlite", "sqlite_path": None})
+        with patch("src.ui.first_start_wizard.QMessageBox"):
+            wizard.accept()
+        db = self.config().database_config
+        self.assertEqual((db.db_type, db.sqlite_path), ("sqlite", DatabaseConfig().sqlite_path))
+        self.assertTrue(db.sqlite_path.startswith(str(self.tmp)))
+
+
 class TestExportDialogDatabasePassword(_Home):
     def setUp(self):
         super().setUp()
@@ -863,6 +1009,20 @@ class TestExportDialogDatabasePassword(_Home):
         self.assertFalse(d.include_database_password)
         d.password_cb.setChecked(True)
         self.assertTrue(d.include_database_password)
+
+    def test_database_check_box(self):
+        from src.ui.plugin_settings_tab import _ExportPresetDialog
+
+        server = _ExportPresetDialog([("search_provider", "swb", "SWB", True)], server_database=True)
+        _KEEP.append(server)
+        self.assertEqual(server.verify_db_cb.text(), "Datenbankverbindung vor dem Export prüfen")
+        self.assertTrue(server.verify_db_cb.isVisibleTo(server))
+        self.assertTrue(server.verify_database)
+        server.verify_db_cb.setChecked(False)
+        self.assertFalse(server.verify_database)
+        sqlite = self.dialog(False)
+        self.assertFalse(sqlite.verify_db_cb.isVisibleTo(sqlite))
+        self.assertTrue(sqlite.verify_database)
 
 
 class TestCli(_Home):

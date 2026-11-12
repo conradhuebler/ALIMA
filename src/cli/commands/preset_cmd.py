@@ -45,6 +45,11 @@ def _handle_apply(args) -> int:
     files = len((entry or {}).get("files") or [])
     print(f"✅ Angewendet: {len(plan.changes)} Änderungen, {files} Dateien installiert. "
           "Rückgängig: alima preset revert")
+    if (entry or {}).get("cache"):
+        from src.utils.preset_cache import record_lines
+
+        print("\n".join(record_lines(entry["cache"])))
+        print("Der Cache bleibt auch nach alima preset revert eingespielt.")
     return 0
 
 
@@ -73,7 +78,9 @@ def _handle_export(args) -> int:
                            preset_id=args.id or "", version=args.version or "",
                            label=args.label or "",
                            include_database_password=bool(
-                               getattr(args, "with_database_password", False)))
+                               getattr(args, "with_database_password", False)),
+                           verify_database=bool(getattr(args, "verify_database", True)),
+                           cache_tables=getattr(args, "with_cache", None))
     print("\n".join(result.lines()))
     print("✅ Exportiert (gespeicherter Stand). Keine Schlüssel und Tokens im Paket; "
           "Endpunkte und Dateien vor dem Verteilen prüfen.")

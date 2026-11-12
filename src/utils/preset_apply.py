@@ -6,7 +6,8 @@ shelf vocabulary of ``local_scheme``). This module finds the preset, reads it,
 computes what it would change (:func:`build_plan`, a preview with ``before`` and
 ``after`` per change), applies that plan (:func:`apply_plan`) and undoes the
 last application (:func:`revert_last`) from the ledger
-``AlimaConfig.applied_presets``. The export side is ``preset_export.py``.
+``AlimaConfig.applied_presets``. The export side is ``preset_export.py``; the
+cache parts a package can carry (block ``cache``) are ``preset_cache.py``.
 
 Rules:
 
@@ -22,6 +23,10 @@ Rules:
   passes). A plan with an error is not applied at all. Installation writes a
   temporary file and replaces the target; a replaced file stays as
   ``<name>.bak`` (one generation).
+* **The cache is separate.** Parts of the search cache under ``cache`` are
+  merged only when the ISIL of the package equals the ISIL of the target; a
+  wrong checksum, a missing or invalid cache file skips only that part, never
+  the preset. The merge cannot be undone; :func:`revert_last` leaves it.
 
 The preset is found in this order: the environment variable ``ALIMA_PRESET``
 (file, or folder with ``alima_presets.json``), ``<config_dir>/alima_presets.json``
@@ -90,7 +95,7 @@ _FILE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _TOP_KEYS = {
     "format", "preset", "institution_name", "llm", "catalog", "database",
-    "institution", "workflow", "plugins", "files", "secrets",
+    "institution", "workflow", "plugins", "files", "secrets", "cache",
 }
 _PLUGIN_KEYS = {"instance", "type", "category", "state", "label", "settings"}
 _FILE_KEYS = {"id", "source", "sha256", "target", "kind"}
@@ -336,6 +341,8 @@ class Plan:
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     secrets: List[Dict[str, Any]] = field(default_factory=list)
+    #: ``preset_cache.CachePlan`` of the block ``cache``; ``None`` without one.
+    cache: Any = None
 
     @property
     def ok(self) -> bool:
@@ -343,8 +350,9 @@ class Plan:
 
     @property
     def is_empty(self) -> bool:
-        """Nothing to write: no change and no file to install."""
-        return not self.changes and all(f.status == FILE_UNCHANGED for f in self.files)
+        """Nothing to write: no change, no file to install, no cache row to merge."""
+        return (not self.changes and all(f.status == FILE_UNCHANGED for f in self.files)
+                and not (self.cache is not None and self.cache.has_writes))
 
     def steps(self) -> List[Dict[str, Any]]:
         """The changes as replay steps (see :func:`replay_steps`)."""
@@ -358,6 +366,7 @@ class Plan:
             "files": [f.as_dict() for f in self.files],
             "warnings": list(self.warnings), "errors": list(self.errors),
             "secrets": [dict(s) for s in self.secrets],
+            "cache": self.cache.as_dict() if self.cache is not None else None,
         }
 
     def lines(self) -> List[str]:
@@ -387,6 +396,8 @@ class Plan:
                 extra = " (die vorherige bleibt als .bak)" if fa.status == FILE_REPLACED else ""
                 out.append(f"  {_FILE_STATUS_LABELS.get(fa.status, fa.status)}: {fa.id} → "
                            f"{fa.target} ({_size(fa.size)}, sha256 {fa.sha256[:12]}…){extra}")
+        if self.cache is not None:
+            out += self.cache.lines()
         if self.secrets:
             out.append("Noch einzutragen (nie im Preset):")
             for s in self.secrets:
@@ -470,7 +481,21 @@ def build_plan(preset: Preset, config_manager: Any = None, *, config: Any = None
     _plan_workflow(preset, sim, plan)
     _plan_plugins(preset, sim, plan, files)
     plan.secrets = secret_status(sim, preset.data.get("secrets"))
+    if "cache" in preset.data:
+        _plan_cache(preset, sim, base, plan)
     return plan
+
+
+def _plan_cache(preset: Preset, sim: Any, base: Any, plan: Plan) -> None:
+    """The block ``cache``: checked and counted against the cache database of
+    the configuration; the target ISIL is the one after the preset (``sim``).
+    Reads only. - Claude Generated"""
+    from .preset_cache import plan_cache
+
+    target_isil = str(getattr(sim.system_config, "institution_isil", "") or "")
+    plan.cache = plan_cache(preset.data.get("cache"), preset.base_dir, target_isil,
+                            getattr(base, "database_config", None))
+    plan.warnings.extend(plan.cache.warnings)
 
 
 def sha256_file(path: Any, chunk: int = 1 << 20) -> str:
@@ -990,7 +1015,11 @@ def apply_plan(plan: Plan, config_manager: Any = None) -> Optional[Dict[str, Any
     :class:`PresetError` for a plan with errors (nothing is applied) and when
     the configuration no longer holds a value the plan was built on (preview
     again). Files are installed before the configuration is saved; a failure
-    of either undoes the installed files. - Claude Generated
+    of either undoes the installed files. The cache parts are merged after the
+    files and before the save, into the cache database of the saved
+    configuration (``preset_cache.merge_planned``, never raises); their counts
+    go into the ledger entry. A merged cache stays when the save fails.
+    - Claude Generated
     """
     if plan.errors:
         raise PresetError("Das Preset hat Fehler, es wird nichts angewendet:\n"
@@ -1007,6 +1036,12 @@ def apply_plan(plan: Plan, config_manager: Any = None) -> Optional[Dict[str, Any
             raise PresetError(f"Die Konfiguration hat sich seit der Vorschau geändert "
                               f"({ch.what}); bitte die Vorschau neu erstellen")
         _set(work, ch.path, ch.after)
+    if plan.cache is not None and plan.cache.has_writes:
+        from .preset_cache import normalize_isil
+
+        if normalize_isil(work.system_config.institution_isil) != normalize_isil(plan.cache.target_isil):
+            raise PresetError("Die ISIL der Einrichtung hat sich seit der Vorschau geändert; "
+                              "bitte die Vorschau neu erstellen")
     installed: List[Dict[str, Any]] = []
     try:
         for action in plan.files:
@@ -1015,6 +1050,11 @@ def apply_plan(plan: Plan, config_manager: Any = None) -> Optional[Dict[str, Any
     except BaseException:
         _undo_files(installed)
         raise
+    cache_records: List[Dict[str, Any]] = []
+    if plan.cache is not None and plan.cache.actions:
+        from .preset_cache import merge_planned
+
+        cache_records = merge_planned(plan.cache, getattr(work, "database_config", None))
     entry = {
         "id": plan.preset_id, "version": plan.version, "label": plan.label,
         "source": plan.preset_path,
@@ -1022,13 +1062,19 @@ def apply_plan(plan: Plan, config_manager: Any = None) -> Optional[Dict[str, Any
         "changes": [c.as_dict() for c in plan.changes],
         "files": installed,
     }
+    if cache_records:
+        entry["cache"] = cache_records
     work.applied_presets = list(getattr(work, "applied_presets", None) or []) + [entry]
     if not cm.save_config(work):
         _undo_files(installed)
+        merged = any(r.get("new") or r.get("updated") for r in cache_records)
         raise PresetError("Die Konfiguration konnte nicht gespeichert werden; "
-                          "installierte Dateien wurden zurückgesetzt")
-    logger.info("Preset '%s' %s angewendet: %d Änderungen, %d Dateien", plan.preset_id,
-                plan.version, len(plan.changes), len(installed))
+                          "installierte Dateien wurden zurückgesetzt"
+                          + ("; der eingespielte Cache bleibt" if merged else ""))
+    logger.info("Preset '%s' %s angewendet: %d Änderungen, %d Dateien, Cache %s", plan.preset_id,
+                plan.version, len(plan.changes), len(installed),
+                ", ".join(f"{r['id']} {r['status']} +{r['new']}/~{r['updated']}"
+                          for r in cache_records) or "-")
     return entry
 
 
@@ -1055,6 +1101,10 @@ class RevertResult:
         if self.files:
             out.append("Dateien:")
             out += [f"  {line}" for line in self.files]
+        if any(r.get("new") or r.get("updated") for r in self.entry.get("cache") or []
+               if isinstance(r, dict)):
+            out.append("Cache: bleibt wie eingespielt (das Zusammenführen ist nicht "
+                       "rückgängig zu machen)")
         return out
 
 
@@ -1071,8 +1121,8 @@ def revert_last(config_manager: Any = None) -> RevertResult:
     still holds the value the preset wrote; a key changed since stays. An
     instance the preset created is removed unless it was changed since. Files:
     a new one is deleted, a replaced one comes back from ``<name>.bak``; a file
-    changed since stays. Raises :class:`PresetError` without a ledger entry.
-    - Claude Generated
+    changed since stays. The cache is not touched (its merge is final).
+    Raises :class:`PresetError` without a ledger entry. - Claude Generated
     """
     cm = _cm(config_manager)
     work = copy.deepcopy(cm.load_config())
@@ -1150,14 +1200,21 @@ def describe_preset(preset: Preset) -> List[str]:
     secrets = [s for s in data.get("secrets") or [] if isinstance(s, dict) and s.get("plugin")]
     if secrets:
         out.append("Noch einzutragen: " + ", ".join(f"{s['plugin']}.{s.get('key')}" for s in secrets))
+    cache = data.get("cache")
+    if isinstance(cache, dict) and isinstance(cache.get("tables"), list):
+        ids = [str(t.get("id")) for t in cache["tables"] if isinstance(t, dict) and t.get("id")]
+        if ids:
+            out.append(f"Cache (ISIL {cache.get('isil') or '(fehlt)'}): " + ", ".join(ids))
     return out
 
 
 def apply_after_setup(preset_path: Any, config_manager: Any = None,
                       source: str = SOURCE_GIVEN) -> List[str]:
-    """Apply institution, workflow, plugins and files of a preset after the
-    setup wizard; returns lines for the log or the terminal. Never raises: a
-    broken preset must not stop the wizard. - Claude Generated"""
+    """Apply institution, workflow, plugins, files and cache of a preset after
+    the setup wizard; returns lines for the log or the terminal. Never raises: a
+    broken preset must not stop the wizard. The wizard saves its database
+    setting before calling this, so the cache goes into that database.
+    - Claude Generated"""
     if not preset_path:
         return []
     try:
@@ -1169,9 +1226,13 @@ def apply_after_setup(preset_path: Any, config_manager: Any = None,
             return lines
         if plan.is_empty:
             return [f"Preset {plan.label}: nichts zu ändern"]
-        apply_plan(plan, config_manager)
+        entry = apply_plan(plan, config_manager)
         lines = [f"Preset {plan.label} {plan.version}".rstrip() + " angewendet:"]
         lines += [line for line in plan.lines()[1:] if not line.startswith("Datei: ")]
+        if (entry or {}).get("cache"):
+            from .preset_cache import record_lines
+
+            lines += ["Ergebnis:"] + [f"  {line}" for line in record_lines(entry["cache"])]
         logger.info("\n".join(lines))
         return lines
     except Exception as exc:  # unreadable file, disk full, a defect

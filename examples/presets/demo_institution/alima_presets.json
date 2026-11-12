@@ -78,6 +78,20 @@
       "sha256": "8d0e16512a587778185b94f0d082f5dcaf60f7b3eeada5b22294818b85c2f238"
     }
   ],
+  "cache": {
+    "isil": "ZZ-DEMO",
+    "created": "2026-01-01T00:00:00+00:00",
+    "tables": [
+      {
+        "id": "dk_cache",
+        "table": "catalog_dk_cache",
+        "source": "files/cache/catalog_dk_cache.jsonl.gz",
+        "sha256": "c813223e2115a4db1afc66ddafbbbd27ce85c82292347d0e78cde027069e548b",
+        "rows": 2,
+        "merge": "newer_wins"
+      }
+    ]
+  },
   "secrets": [
     {
       "plugin": "catalog",

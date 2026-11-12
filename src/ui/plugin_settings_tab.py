@@ -1356,6 +1356,9 @@ class _PresetPlanDialog(QDialog):
         else:
             note = ("Die Änderungen werden sofort gespeichert, unabhängig von OK oder Abbrechen "
                     "im Einstellungsdialog. „Rückgängig“ in der Gruppe nimmt sie zurück.")
+            if plan.cache is not None and plan.cache.has_writes:
+                note += (" Der Cache wird in den Cache dieser Installation übernommen; "
+                         "„Rückgängig“ nimmt das nicht zurück.")
             tone = "muted"
         self.note = QLabel(note)
         self.note.setWordWrap(True)
@@ -1376,7 +1379,8 @@ class _ExportPresetDialog(QDialog):
     - Claude Generated
     """
 
-    def __init__(self, instances, parent=None, *, database_password_available=False):
+    def __init__(self, instances, parent=None, *, database_password_available=False,
+                 server_database=False, cache_offers=None, isil="", cache_error=""):
         super().__init__(parent)
         self.setWindowTitle("Preset exportieren")
         v = QVBoxLayout(self)
@@ -1416,6 +1420,18 @@ class _ExportPresetDialog(QDialog):
         )
         self.password_cb.setVisible(bool(database_password_available))
         v.addWidget(self.password_cb)
+        # Only offered for a server database; on by default - Claude Generated
+        self.verify_db_cb = QCheckBox("Datenbankverbindung vor dem Export prüfen")
+        self.verify_db_cb.setChecked(True)
+        self.verify_db_cb.setToolTip(
+            "Baut einmal eine Verbindung zum eingestellten Datenbankserver auf. Lädt der "
+            "Treiber nicht oder scheitert die Verbindung, enthält das Paket nur „SQLite“ "
+            "(ohne Pfad, ohne Server, ohne Passwort)."
+        )
+        self.verify_db_cb.setVisible(bool(server_database))
+        v.addWidget(self.verify_db_cb)
+        v.addWidget(self._build_cache_group(cache_offers or [], str(isil or "").strip(),
+                                            str(cache_error or "")))
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -1423,9 +1439,60 @@ class _ExportPresetDialog(QDialog):
         buttons.rejected.connect(self.reject)
         v.addWidget(buttons)
 
+    def _build_cache_group(self, offers, isil: str, error: str = "") -> QGroupBox:
+        """Group "Cache einschließen": one box per part with rows, locked
+        without ISIL - Claude Generated"""
+        from src.utils.preset_cache import size_text
+
+        group = QGroupBox("Cache einschließen")
+        lay = QVBoxLayout(group)
+        self.cache_boxes: Dict[str, QCheckBox] = {}
+        for offer in offers:
+            text = f"{offer.label}: {offer.rows} Einträge, ca. {size_text(offer.size)}"
+            if offer.part.startswith("raw:"):
+                text += " (leere und fehlerhafte Antworten werden weggelassen)"
+            box = QCheckBox(text)
+            box.setChecked(bool(offer.default) and bool(isil))
+            box.setEnabled(bool(isil))
+            if not isil:
+                box.setToolTip("Ohne ISIL wird kein Cache exportiert.")
+            self.cache_boxes[offer.part] = box
+            lay.addWidget(box)
+        if error:
+            empty = QLabel(f"Cache nicht lesbar: {error}")
+            set_tone(empty, "error")
+            empty.setWordWrap(True)
+            lay.addWidget(empty)
+        elif not offers:
+            empty = QLabel("Keine Cache-Einträge vorhanden.")
+            set_tone(empty, "muted")
+            lay.addWidget(empty)
+        if isil:
+            note = (f"Der Cache enthält Daten aus dem Katalog und den Suchen der Einrichtung "
+                    f"(ISIL {isil}): das Paket nur intern verteilen. Eingespielt wird er nur "
+                    "dort, wo dieselbe ISIL eingestellt ist.")
+        else:
+            note = ("Ohne gesetzte ISIL (Einstellungen ▸ Datenquellen ▸ Einrichtung) wird kein "
+                    "Cache exportiert: beim Anwenden würde er übersprungen.")
+        self.cache_note = QLabel(note)
+        self.cache_note.setWordWrap(True)
+        set_tone(self.cache_note, "muted" if isil else "warning")
+        lay.addWidget(self.cache_note)
+        return group
+
     @property
     def include_database_password(self) -> bool:
         return bool(self.password_cb.isVisibleTo(self) and self.password_cb.isChecked())
+
+    @property
+    def verify_database(self) -> bool:
+        """Checked, or not offered (SQLite: nothing to check) - Claude Generated"""
+        return bool(not self.verify_db_cb.isVisibleTo(self) or self.verify_db_cb.isChecked())
+
+    def selected_cache_parts(self) -> List[str]:
+        """The checked cache parts (``dk``, ``mappings``, ``raw:<source>``) - Claude Generated"""
+        return [part for part, box in self.cache_boxes.items()
+                if box.isEnabled() and box.isChecked()]
 
     def selected_instance_ids(self) -> List[str]:
         out = []
@@ -1732,8 +1799,14 @@ class PluginSettingsTab(QWidget):
 
         def done(entry):
             files = len((entry or {}).get("files") or [])
-            self._after_preset(steps, f"Preset {plan.label} angewendet: {len(plan.changes)} "
-                                      f"Änderungen, {files} Dateien.")
+            message = (f"Preset {plan.label} angewendet: {len(plan.changes)} Änderungen, "
+                       f"{files} Dateien.")
+            cache = (entry or {}).get("cache") or []
+            if cache:
+                from src.utils.preset_cache import record_lines
+
+                message += " " + "; ".join(record_lines(cache))
+            self._after_preset(steps, message)
 
         self._run_preset_job(lambda: pa.apply_plan(plan), done,
                              "Preset wird angewendet (Dateien werden kopiert) …")
@@ -1750,7 +1823,8 @@ class PluginSettingsTab(QWidget):
             f"{entry.get('label') or entry.get('id')} {entry.get('version') or ''} "
             "zurücksetzen?\nJeder Wert, den das Preset gesetzt hat, bekommt seinen vorherigen "
             "Wert, solange er seitdem nicht geändert wurde; neue Dateien werden gelöscht, "
-            "ersetzte kommen aus der .bak-Datei zurück. Wird sofort gespeichert.",
+            "ersetzte kommen aus der .bak-Datei zurück. Ein eingespielter Cache bleibt. "
+            "Wird sofort gespeichert.",
         ) != QMessageBox.StandardButton.Yes:
             return
 
@@ -1779,26 +1853,47 @@ class PluginSettingsTab(QWidget):
         self.preset_applied.emit(list(steps), saved)
 
     def start_preset_export(self) -> None:
-        """Checklist of instances, folder choice, export in the worker.
+        """Count the cache parts in the worker, then the export dialog.
 
         Exports the saved configuration. - Claude Generated
         """
         from src.utils.config_manager import ConfigManager
-        from src.utils.preset_export import exportable_instances, export_preset
+        from src.utils.preset_cache import cache_offers
 
         config = ConfigManager().load_config()
+
+        def job():
+            try:
+                return cache_offers(config.database_config), ""
+            except Exception as exc:  # database not readable: export without cache
+                from src.utils.error_visibility import log_caught
+
+                log_caught(logger, exc, "Cache zählen für den Preset-Export")
+                return [], str(exc) or type(exc).__name__
+
+        self._run_preset_job(job, lambda found: self._show_export_dialog(config, *found),
+                             "Cache wird gezählt …")
+
+    def _show_export_dialog(self, config, offers, cache_error: str = "") -> None:
+        """Checklist of instances and cache parts, folder choice, export in the
+        worker - Claude Generated"""
+        from src.utils.preset_export import exportable_instances, export_preset
+
         db = getattr(config, "database_config", None)
-        has_db_password = bool(
-            db is not None
-            and str(getattr(db, "db_type", "") or "").lower() in ("mysql", "mariadb")
-            and getattr(db, "password", "")
-        )
-        dialog = _ExportPresetDialog(exportable_instances(config), self,
-                                     database_password_available=has_db_password)
+        server_db = bool(db is not None
+                         and str(getattr(db, "db_type", "") or "").lower() in ("mysql", "mariadb"))
+        has_db_password = bool(server_db and getattr(db, "password", ""))
+        dialog = _ExportPresetDialog(
+            exportable_instances(config), self, database_password_available=has_db_password,
+            server_database=server_db, cache_offers=offers,
+            isil=getattr(config.system_config, "institution_isil", ""), cache_error=cache_error)
+        self._preset_dialog = dialog
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         selected = dialog.selected_instance_ids()
         with_password = dialog.include_database_password
+        verify_database = dialog.verify_database
+        cache_parts = dialog.selected_cache_parts()
         pid = dialog.id_edit.text().strip()
         version = dialog.version_edit.text().strip()
         label = dialog.label_edit.text().strip()
@@ -1819,7 +1914,8 @@ class PluginSettingsTab(QWidget):
 
         self._run_preset_job(
             lambda: export_preset(None, dest, selected, preset_id=pid, version=version,
-                                  label=label, include_database_password=with_password),
+                                  label=label, include_database_password=with_password,
+                                  verify_database=verify_database, cache_tables=cache_parts),
             done, "Preset wird exportiert …")
 
     def _rescan_plugins(self) -> None:
