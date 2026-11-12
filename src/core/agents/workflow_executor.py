@@ -270,8 +270,18 @@ class WorkflowExecutor:
         """
         if self.context_callback is None:
             return
-        # Skip "running" snapshots — the widget only needs the final state.
+        # "running": no context copy (large), only a marker so the front ends
+        # can show which step is active. - Claude Generated
         if status == "running":
+            try:
+                self.context_callback(cfg.id, {
+                    "_step_id": cfg.id,
+                    "_step_type": cfg.type,
+                    "_step_description": getattr(cfg, "description", "") or "",
+                    "_step_status": "running",
+                })
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"context_callback raised: {e}")
             return
 
         try:

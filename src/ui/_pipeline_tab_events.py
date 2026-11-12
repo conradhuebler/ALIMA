@@ -413,8 +413,21 @@ class PipelineTabEventsMixin:
                  classification→dk_classification, dk_collect→dk_search, dk_postprocess→dk_classification
         """
         status = snapshot.get("_step_status", "")
+        if status == "running":
+            # Follow the agent: show the step's tab and name it in the status line.
+            mapping = self._AGENTIC_STEP_MAP.get(step_id)
+            if mapping:
+                step_widget = self.step_widgets.get(mapping[0])
+                if step_widget:
+                    step_widget.step.status = "running"
+                    step_widget.update_status_display()
+                if hasattr(self, "pipeline_tabs"):
+                    self.jump_to_step(mapping[0])
+            if hasattr(self, "pipeline_status_label"):
+                self.pipeline_status_label.setText(f"Schritt läuft: {step_id}")
+            return
         if status not in ("completed", "error"):
-            return  # skip running/pending intermediate emissions
+            return  # skip pending intermediate emissions
 
         # Update PipelineStepWidget status indicator (▷▶✓✗) - Claude Generated
         mapping = self._AGENTIC_STEP_MAP.get(step_id)
