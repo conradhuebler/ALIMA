@@ -4,6 +4,23 @@
  */
 
 /**
+ * localStorage that may be missing or blocked (private window, blocked site
+ * data): every access goes through here, so the page works without it and a
+ * choice then lasts for this page only. - Claude Generated
+ */
+const SafeStorage = {
+    get(key) {
+        try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    },
+    set(key, value) {
+        try { window.localStorage.setItem(key, value); } catch (e) { /* page-only */ }
+    },
+    remove(key) {
+        try { window.localStorage.removeItem(key); } catch (e) { /* page-only */ }
+    },
+};
+
+/**
  * ThemeManager — Dark/light mode with localStorage persistence and system-pref auto-detect.
  * Runs synchronously before the DOM renders to prevent FOUC. — Claude Generated
  */
@@ -12,7 +29,7 @@ const ThemeManager = {
 
     /** Returns 'dark' or 'light' based on localStorage or system preference */
     getEffective() {
-        const stored = localStorage.getItem(this.STORAGE_KEY);
+        const stored = SafeStorage.get(this.STORAGE_KEY);
         if (stored === 'dark' || stored === 'light') return stored;
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     },
@@ -28,7 +45,7 @@ const ThemeManager = {
     toggle() {
         const current = document.documentElement.getAttribute('data-theme') || this.getEffective();
         const next = current === 'dark' ? 'light' : 'dark';
-        localStorage.setItem(this.STORAGE_KEY, next);
+        SafeStorage.set(this.STORAGE_KEY, next);
         this.apply(next);
     },
 
@@ -37,7 +54,7 @@ const ThemeManager = {
         this.apply(this.getEffective());
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
             // Only follow system if user has not made a manual choice
-            if (!localStorage.getItem(this.STORAGE_KEY)) {
+            if (!SafeStorage.get(this.STORAGE_KEY)) {
                 this.apply(e.matches ? 'dark' : 'light');
             }
         });
@@ -104,6 +121,34 @@ SchemeManager.init();
 // Run synchronously — prevents flash of wrong theme
 ThemeManager.init();
 
+/**
+ * Result tabs of the log card. The server tags each result card's block event
+ * with the kind the shared producer was given (`card`, see
+ * render_bridge.WebSocketRenderTransport); this table says which tab shows
+ * it. A block without a card, or with a kind not listed here, and every other
+ * event type (tool calls, stream blocks, chat bubbles, notices) go to the log.
+ * tests/test_webapp_result_tabs.py checks that every card kind the server
+ * emits is listed. - Claude Generated
+ */
+const RESULT_TAB_BY_CARD = {
+    final_result: 'result',
+    workflow_report: 'result',
+    dk_classifications: 'classification',
+    dk_statistics: 'classification',
+    dk_search: 'classification',
+};
+// Cards that are shown in their tab and also in the log (chat context).
+const LOG_COPY_CARDS = new Set(['final_result']);
+const RESULT_TABS = ['log', 'result', 'classification'];
+const RESULT_REGION_ID = {
+    log: 'log-region',
+    result: 'result-region',
+    classification: 'classification-region',
+};
+// alima_render.js appends to the element named here (read on every call);
+// the log tab's region is the default target.
+window.__alimaLogId = RESULT_REGION_ID.log;
+
 class AlimaWebapp {
     constructor() {
         this.sessionId = null;
@@ -129,6 +174,14 @@ class AlimaWebapp {
         this.workflowSteps = {};
         this._stepperSteps = [];
 
+        // Result tabs: the shown tab, each panel's scroll position, and what
+        // the session shows (null / 'run' / 'loaded') with its file name.
+        // - Claude Generated
+        this.resultTab = 'log';
+        this._tabScroll = {};
+        this._shownResult = null;
+        this._loadedFrom = null;
+
         this.setupEventListeners();
         this.initializeSession();
     }
@@ -136,6 +189,7 @@ class AlimaWebapp {
     // Initialize session when app loads - Claude Generated
     async initializeSession() {
         await this.createNewSession();
+        this.restoreResultTab();
         await this.loadWorkflows();
         await this.loadModelOverrides();
         // Check if current URL session is already active (page refresh scenario)
@@ -190,8 +244,9 @@ class AlimaWebapp {
                 this.isAnalyzing = true;
                 this.updateButtonState();
                 this.setResultsPanelState('running');
+                this.showResultsPanel();  // status line in the zone header - Claude Generated
                 this.enableExportButton(true);
-                localStorage.setItem('alima_running_session', this.sessionId);
+                SafeStorage.set('alima_running_session', this.sessionId);
                 this.appendLocalNotice(`🔌 Wiederverbunden mit laufender Analyse …`);
                 this.connectWebSocket();
                 return true;
@@ -204,7 +259,8 @@ class AlimaWebapp {
                 this.handleAnalysisComplete({
                     status: 'completed',
                     results,
-                    current_step: data.current_step || 'classification'
+                    current_step: data.current_step || 'classification',
+                    loaded_from: data.loaded_from || null,  // a loaded file, not a run - Claude Generated
                 });
                 return true;
             }
@@ -214,13 +270,13 @@ class AlimaWebapp {
 
     // Check localStorage for a previously running session and offer reconnect - Claude Generated
     async checkForRunningSession() {
-        const savedId = localStorage.getItem('alima_running_session');
+        const savedId = SafeStorage.get('alima_running_session');
         if (!savedId || savedId === this.sessionId) return;
 
         try {
             const resp = await fetch(`/api/session/${savedId}`);
             if (!resp.ok) {
-                localStorage.removeItem('alima_running_session');
+                SafeStorage.remove('alima_running_session');
                 return;
             }
             const data = await resp.json();
@@ -230,11 +286,11 @@ class AlimaWebapp {
             } else if (data.status === 'completed') {
                 this.showReconnectBanner(savedId, 'completed', data);
             } else {
-                localStorage.removeItem('alima_running_session');
+                SafeStorage.remove('alima_running_session');
             }
         } catch (e) {
             console.warn('Could not check saved session:', e);
-            localStorage.removeItem('alima_running_session');
+            SafeStorage.remove('alima_running_session');
         }
     }
 
@@ -263,7 +319,7 @@ class AlimaWebapp {
         };
         dismissBtn.onclick = () => {
             banner.style.display = 'none';
-            localStorage.removeItem('alima_running_session');
+            SafeStorage.remove('alima_running_session');
         };
     }
 
@@ -279,6 +335,7 @@ class AlimaWebapp {
             this.isAnalyzing = true;
             this.updateButtonState();
             this.setResultsPanelState('running');
+            this.showResultsPanel();  // status line in the zone header - Claude Generated
             this.enableExportButton(true);
             this.appendLocalNotice(`🔌 Wiederverbunden mit laufender Analyse (${savedId.substring(0, 8)}…)`);
             this.connectWebSocket();
@@ -294,7 +351,7 @@ class AlimaWebapp {
                         current_step: data.current_step || 'classification'
                     });
                     this.appendLocalNotice(`📂 Ergebnisse der abgeschlossenen Analyse wiederhergestellt.`);
-                    localStorage.removeItem('alima_running_session');
+                    SafeStorage.remove('alima_running_session');
                 });
         }
     }
@@ -452,10 +509,26 @@ class AlimaWebapp {
             this.abortCurrentStep();
         });
 
-        // Clear logs button
+        // Clear logs button: empties the Log / Chat tab only; the result tabs
+        // stay (they are what a run produced). - Claude Generated
         document.getElementById('clear-logs-btn').addEventListener('click', () => {
-            this.clearStreamText();
+            this.clearLogTab();
         });
+
+        // Result tabs: click, arrow keys, Home/End - Claude Generated
+        this.setupResultTabs();
+
+        // "Ergebnis laden…": pick a saved result file and show it - Claude Generated
+        const loadBtn = document.getElementById('load-result-btn');
+        const loadInput = document.getElementById('load-result-input');
+        if (loadBtn && loadInput) {
+            loadBtn.addEventListener('click', () => loadInput.click());
+            loadInput.addEventListener('change', () => {
+                const file = loadInput.files && loadInput.files[0];
+                loadInput.value = '';  // the same file can be picked again
+                if (file) this.loadResultFile(file);
+            });
+        }
 
         // File input
         document.getElementById('file-input').addEventListener('change', (e) => {
@@ -866,16 +939,26 @@ class AlimaWebapp {
     // Submit analysis request
     async submitAnalysis(inputType, content, file, sourceType = null, sourceValue = null) {
         try {
+            // What this run replaces, said in the new log (the server drops the
+            // old render log and results at the start of the run). - Claude Generated
+            const replaced = this._shownResult === 'loaded'
+                ? `Das geladene Ergebnis („${this._loadedFrom || 'Datei'}“) wird durch diese Analyse ersetzt; die Datei bleibt unverändert.`
+                : (this._shownResult === 'run'
+                    ? 'Das Ergebnis der vorigen Analyse wird ersetzt; erhalten bleibt es nur, wenn es gespeichert wurde.'
+                    : null);
             this.isAnalyzing = true;
             this.updateButtonState();
             this.clearStreamText();
             this.resetResultsPanelContent();
             this.hideRecoveryOption();
+            this.hideLoadMessage();
+            this._shownResult = null;
+            this._loadedFrom = null;
             this.setResultsPanelState('running');
-            // The summary card is NOT shown yet: it now sits outside the
-            // collapsing input body, and an empty "Analyse läuft" card would
-            // only steal height from the chat during the run. It appears in
-            // handleAnalysisComplete, when there is something to read. - Claude Generated
+            // One line in the zone header, so it costs no height. - Claude Generated
+            this.showResultsPanel();
+            this.selectResultTab('log');
+            if (replaced) this.appendLocalNotice(`ℹ️ ${replaced}`);
             this.enableExportButton(true);
 
             // Create FormData for multipart request
@@ -938,7 +1021,7 @@ class AlimaWebapp {
             console.log('Analysis started:', data);
 
             // Persist session ID so page reload can reconnect - Claude Generated
-            localStorage.setItem('alima_running_session', this.sessionId);
+            SafeStorage.set('alima_running_session', this.sessionId);
 
             // Connect WebSocket for live updates
             this.connectWebSocket();
@@ -1129,9 +1212,6 @@ class AlimaWebapp {
             return;
         }
         console.debug(`WP12: dispatching ${events.length} render event(s)`);
-        // Reveal the results panel so the embedded #log region is visible.
-        const panel = document.getElementById('results-panel');
-        if (panel) panel.style.display = '';
         for (const ev of events) {
             if (typeof ev.seq === 'number') {
                 if (ev.seq <= this._lastRenderSeq) continue;  // already applied
@@ -1145,11 +1225,43 @@ class AlimaWebapp {
         }
     }
 
+    // Which tab a render event belongs to: result cards by their `card` kind,
+    // everything else to the log. - Claude Generated
+    tabForEvent(ev) {
+        if (ev && ev.type === 'block' && ev.card && RESULT_TAB_BY_CARD[ev.card]) {
+            return RESULT_TAB_BY_CARD[ev.card];
+        }
+        return 'log';
+    }
+
+    // appendBlock into a tab's region: alima_render.js reads
+    // window.__alimaLogId on every call, so it is pointed at the region for
+    // this one append and back to the log. - Claude Generated
+    appendBlockToTab(html, tab) {
+        const regionId = RESULT_REGION_ID[tab] || RESULT_REGION_ID.log;
+        const previous = window.__alimaLogId;
+        window.__alimaLogId = regionId;
+        try {
+            appendBlock(html);
+        } finally {
+            window.__alimaLogId = previous;
+        }
+    }
+
     dispatchRenderEvent(ev) {
+        if (ev.type === 'block' && ev.kind === 'proposal') return;  // GUI-only — Tier-3 webapp ignores
+        if (ev.type !== 'clear' && ev.type !== 'typing') {
+            this.markTabUnread(this.tabForEvent(ev));
+        }
         switch (ev.type) {
             case 'block':
-                if (ev.kind === 'proposal') return;  // GUI-only — Tier-3 webapp ignores
-                appendBlock(ev.html);
+                this.appendBlockToTab(ev.html, this.tabForEvent(ev));
+                // The final result is also kept in the log, so the chat
+                // below it can refer to it; ids are dropped from the copy so
+                // they stay unique in the page. - Claude Generated
+                if (ev.card && LOG_COPY_CARDS.has(ev.card)) {
+                    this.appendBlockToTab(String(ev.html).replace(/\sid="[^"]*"/g, ''), 'log');
+                }
                 break;
             case 'collapsible': appendCollapsible(ev.id, ev.summary, ev.body, ev.open, ev.kind); break;
             case 'collapsible_update': updateCollapsible(ev.id, ev.summary, ev.body, ev.kind, ev.open); break;
@@ -1164,9 +1276,106 @@ class AlimaWebapp {
                 if (ev.active) showTyping(ev.model);
                 else hideTyping();
                 break;
-            case 'clear': clearLog(); this._lastRenderSeq = -1; break;
+            case 'clear': this.clearAllRegions(); this._lastRenderSeq = -1; break;
             default: break;  // unknown/ignorable type — forward-compatible
         }
+    }
+
+    // ─── Result tabs ─── Claude Generated ───
+
+    setupResultTabs() {
+        const tablist = document.getElementById('result-tablist');
+        if (!tablist) return;
+        tablist.querySelectorAll('[role="tab"]').forEach(tab => {
+            tab.addEventListener('click', () => this.selectResultTab(tab.dataset.resultTab));
+        });
+        // Roving tabindex: arrows move and select, Home/End jump to the ends.
+        tablist.addEventListener('keydown', (e) => {
+            const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+            const i = tabs.indexOf(document.activeElement);
+            if (i < 0) return;
+            let j = null;
+            if (e.key === 'ArrowRight') j = (i + 1) % tabs.length;
+            else if (e.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+            else if (e.key === 'Home') j = 0;
+            else if (e.key === 'End') j = tabs.length - 1;
+            if (j === null) return;
+            e.preventDefault();
+            this.selectResultTab(tabs[j].dataset.resultTab, { focus: true });
+        });
+    }
+
+    _resultTabStorageKey() {
+        return `alima_result_tab:${this.sessionId || ''}`;
+    }
+
+    // The tab chosen in this session before a reload; the log otherwise.
+    restoreResultTab() {
+        const stored = SafeStorage.get(this._resultTabStorageKey());
+        this.selectResultTab(RESULT_TABS.includes(stored) ? stored : 'log', { remember: false });
+    }
+
+    selectResultTab(name, { focus = false, remember = true } = {}) {
+        if (!RESULT_TABS.includes(name)) name = 'log';
+        const current = document.getElementById(`result-panel-${this.resultTab}`);
+        if (current && !current.hidden) this._tabScroll[this.resultTab] = current.scrollTop;
+        this.resultTab = name;
+        RESULT_TABS.forEach(tab => {
+            const button = document.getElementById(`result-tab-${tab}`);
+            const panel = document.getElementById(`result-panel-${tab}`);
+            const selected = tab === name;
+            if (button) {
+                button.setAttribute('aria-selected', String(selected));
+                button.tabIndex = selected ? 0 : -1;
+                if (selected) this._setTabUnread(button, false);
+            }
+            if (panel) panel.hidden = !selected;
+        });
+        const panel = document.getElementById(`result-panel-${name}`);
+        if (panel) panel.scrollTop = this._tabScroll[name] || 0;
+        // The chat answers into the log, so its input belongs to the log tab;
+        // "Löschen" empties the log tab and is shown there too.
+        const chat = document.getElementById('chat-input-area');
+        if (chat) chat.hidden = name !== 'log';
+        // (visibility, not hidden: the tab bar keeps its height)
+        const clearBtn = document.getElementById('clear-logs-btn');
+        if (clearBtn) clearBtn.style.visibility = name === 'log' ? '' : 'hidden';
+        if (focus) document.getElementById(`result-tab-${name}`)?.focus();
+        if (remember) SafeStorage.set(this._resultTabStorageKey(), name);
+    }
+
+    // New content in a tab that is not shown: a dot and bold label until the
+    // tab is opened. Nothing switches by itself. - Claude Generated
+    markTabUnread(name) {
+        if (name === this.resultTab) return;
+        const button = document.getElementById(`result-tab-${name}`);
+        if (button) this._setTabUnread(button, true);
+    }
+
+    _setTabUnread(button, unread) {
+        button.classList.toggle('has-unread', unread);
+        const marker = button.querySelector('.result-tab-new');
+        if (marker) marker.hidden = !unread;
+    }
+
+    clearAllRegions() {
+        Object.values(RESULT_REGION_ID).forEach(id => {
+            const region = document.getElementById(id);
+            if (region) region.innerHTML = '';
+        });
+        // clearLog() also resets alima_render.js's open stream/bubble targets.
+        if (typeof clearLog === 'function') clearLog();
+        RESULT_TABS.forEach(tab => {
+            const button = document.getElementById(`result-tab-${tab}`);
+            if (button) this._setTabUnread(button, false);
+        });
+        this._tabScroll = {};
+    }
+
+    // "Löschen": the log tab only. The seq cursor stays, so a reconnect does
+    // not replay the cleared lines (nor the result cards) a second time.
+    clearLogTab() {
+        if (typeof clearLog === 'function') clearLog();
     }
 
     // ─── Pipeline-Stepper (bottom bar) ─── Claude Generated ───
@@ -1300,8 +1509,16 @@ class AlimaWebapp {
         this.dispatchRenderEvents(msg.render_events);
 
         if (msg.status === 'completed') {
-            this.setResultsPanelState('completed');
-            this.markStepperComplete();  // All steps done - Claude Generated
+            if (msg.loaded_from) {
+                // Reload of a session that shows a loaded file: no run, no steps done.
+                this._shownResult = 'loaded';
+                this._loadedFrom = msg.loaded_from;
+                this.setResultsPanelState('loaded', { filename: msg.loaded_from });
+            } else {
+                this._shownResult = 'run';
+                this.setResultsPanelState('completed');
+                this.markStepperComplete();  // All steps done - Claude Generated
+            }
 
             // Display working title if available - Claude Generated
             if (msg.results && msg.results.working_title) {
@@ -1313,6 +1530,8 @@ class AlimaWebapp {
 
             if (isExtractionOnly) {
                 this.appendLocalNotice(`✅ Text erfolgreich extrahiert!`);
+            } else if (msg.loaded_from) {
+                this.appendLocalNotice(`📂 Ergebnis aus „${msg.loaded_from}“ wieder angezeigt.`);
             } else {
                 this.appendLocalNotice(`✅ Analyse erfolgreich abgeschlossen!`);
             }
@@ -1336,18 +1555,20 @@ class AlimaWebapp {
             if (isExtractionOnly && msg.results) {
                 const resultsSummary = document.getElementById('results-summary');
                 if (resultsSummary) {
+                    const esc = (v) => this.escapeHtml(v);
                     const summaryHTML = `
                         <div class="result-item">
-                            <strong>Eingabemethode:</strong> ${msg.results.input_type || 'unbekannt'}
+                            <strong>Eingabemethode:</strong> ${esc(msg.results.input_type || 'unbekannt')}
                         </div>
                         <div class="result-item">
-                            <strong>Extraktionsmethode:</strong> ${msg.results.extraction_method || 'text'}
+                            <strong>Extraktionsmethode:</strong> ${esc(msg.results.extraction_method || 'text')}
                         </div>
                         <div class="result-item">
-                            <strong>Textlänge:</strong> ${msg.results.original_abstract?.length || 0} Zeichen
+                            <strong>Textlänge:</strong> ${Number(msg.results.original_abstract?.length || 0)} Zeichen
                         </div>
                     `;
                     resultsSummary.innerHTML = summaryHTML;
+                    this.showSummaryBlock();
                 }
             } else if (msg.results) {
                 // Render the completed pipeline payload into the stream and summary panel.
@@ -1362,7 +1583,7 @@ class AlimaWebapp {
         this.hideRecoveryOption();
 
         // Clear persisted session - pipeline is done - Claude Generated
-        localStorage.removeItem('alima_running_session');
+        SafeStorage.remove('alima_running_session');
 
         // Update export button to "completed" state - Claude Generated (2026-01-06)
         if (msg.status === 'completed') {
@@ -1379,7 +1600,7 @@ class AlimaWebapp {
 
         // Browser notification on completion - Claude Generated
         const title = msg.results?.working_title || null;
-        this.showPipelineNotification(msg.status, title, msg.error);
+        if (!msg.loaded_from) this.showPipelineNotification(msg.status, title, msg.error);
     }
 
     // Request browser notification permission once, on first pipeline start - Claude Generated
@@ -1533,11 +1754,21 @@ class AlimaWebapp {
     // Display results in stream (Claude Generated - Updated for full results)
     displayResults(results) {
         if (!results) return;
+        // The export endpoint answers with its wrapper ({session_id, …,
+        // results: {…}}); the reload and polling paths pass that here.
+        // - Claude Generated
+        if (results.results && typeof results.results === 'object' && !Array.isArray(results.results)) {
+            results = results.results;
+        }
+        if (results.working_title) {
+            this.displayWorkingTitle(results.working_title);
+            this.setResultsOrigin(results.working_title);
+        }
 
         // Chat-UX 5/9: the old free-text recap into the stream region is
         // gone — the server-side render cards (dk_search /
         // dk_classifications / dk_statistics) already carry that content in
-        // the shared #log; the compact overview lives in the summary panel.
+        // the shared #log; the compact overview sits in the Ergebnis tab.
         if (results.original_abstract) {
             // Update input text field with extracted text - Claude Generated
             document.getElementById('text-input').value = results.original_abstract;
@@ -1547,11 +1778,29 @@ class AlimaWebapp {
         this.populateSummary(results);
     }
 
+    // The overview from the results data (GND check, RVK check, initial
+    // keywords) at the end of the Ergebnis tab: folded when the result card is
+    // there, open when it is the only thing to show (reload, recovery).
+    // - Claude Generated
+    showSummaryBlock() {
+        const details = document.getElementById('results-summary-details');
+        const summaryDiv = document.getElementById('results-summary');
+        if (!details || !summaryDiv) return;
+        const hasContent = summaryDiv.childElementCount > 0;
+        details.hidden = !hasContent;
+        const region = document.getElementById(RESULT_REGION_ID.result);
+        details.open = hasContent && !(region && region.childElementCount > 0);
+        if (hasContent) this.markTabUnread('result');
+    }
+
     populateSummary(results) {
         const summaryDiv = document.getElementById('results-summary');
         if (!summaryDiv) return;
 
         summaryDiv.innerHTML = '';
+        // Values come from the results payload, which for a loaded file is
+        // foreign data: everything below is escaped. - Claude Generated
+        const esc = (v) => this.escapeHtml(v);
 
         const finalKeywords = this.normalizeList(results.final_keywords);
         const classifications = this.normalizeClassifications(results.classifications, results.dk_classifications);
@@ -1561,30 +1810,28 @@ class AlimaWebapp {
         if (finalKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item keyword';
-            item.style.maxHeight = '100px';
-            item.style.overflowY = 'auto';
-            item.style.wordWrap = 'break-word';
-            item.style.whiteSpace = 'normal';
             // Add verification badge if available - Claude Generated
-            const verificationBadge = (results.verification && results.verification.stats)
-                ? ` <span style="color: #4caf50; font-size: 0.85em;">(${results.verification.stats.verified_count}/${results.verification.stats.total_extracted} GND-verifiziert)</span>`
+            const stats = results.verification && results.verification.stats;
+            const verificationBadge = stats
+                ? ` <span class="results-verified">(${esc(stats.verified_count)}/${esc(stats.total_extracted)} GND-verifiziert)</span>`
                 : '';
-            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${finalKeywords.join(', ')}`;
+            item.innerHTML = `<strong>GND-Schlagworte:</strong>${verificationBadge} ${finalKeywords.map(esc).join(', ')}`;
             summaryDiv.appendChild(item);
         }
 
         if (classifications.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item classification';
-            item.style.maxHeight = '220px';
-            item.style.overflowY = 'auto';
-            item.style.wordWrap = 'break-word';
-            item.style.whiteSpace = 'normal';
-            const validationSummary = rvkSummary.total > 0
+            // Counts only when the RVK notations were actually checked: an
+            // unchecked list (a loaded file) would read "0 standard, 0 nicht
+            // standard". - Claude Generated
+            const checked = (Number(rvkSummary.standard) || 0) + (Number(rvkSummary.nonStandard) || 0)
+                + (Number(rvkSummary.errors) || 0);
+            const validationSummary = rvkSummary.total > 0 && checked > 0
                 ? `<div class="classification-validation-summary">
-                    <span class="classification-badge classification-badge--standard">RVK standard: ${rvkSummary.standard}</span>
-                    <span class="classification-badge classification-badge--non-standard">RVK nicht standard: ${rvkSummary.nonStandard}</span>
-                    ${rvkSummary.errors > 0 ? `<span class="classification-badge classification-badge--unknown">API-Fehler: ${rvkSummary.errors}</span>` : ''}
+                    <span class="classification-badge classification-badge--standard">RVK standard: ${esc(rvkSummary.standard)}</span>
+                    <span class="classification-badge classification-badge--non-standard">RVK nicht standard: ${esc(rvkSummary.nonStandard)}</span>
+                    ${rvkSummary.errors > 0 ? `<span class="classification-badge classification-badge--unknown">API-Fehler: ${esc(rvkSummary.errors)}</span>` : ''}
                 </div>`
                 : '';
 
@@ -1657,13 +1904,10 @@ class AlimaWebapp {
         if (initialKeywords.length > 0) {
             const item = document.createElement('div');
             item.className = 'results-summary-item';
-            item.style.maxHeight = '100px';
-            item.style.overflowY = 'auto';
-            item.style.wordWrap = 'break-word';
-            item.style.whiteSpace = 'normal';
-            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${initialKeywords.join(', ')}`;
+            item.innerHTML = `<strong>Initiale Schlagworte:</strong> ${initialKeywords.map(esc).join(', ')}`;
             summaryDiv.appendChild(item);
         }
+        this.showSummaryBlock();
     }
 
     // Enable export button with dynamic text - Claude Generated (2026-01-06)
@@ -1741,8 +1985,12 @@ class AlimaWebapp {
     // Clear results
     async clearResults() {
         this.clearStreamText();
+        this.resetResultsPanelContent();
         this.hideResultsPanel();
-        this.resetSharedRender();  // WP12: empty the shared render region
+        this.hideLoadMessage();
+        this._shownResult = null;
+        this._loadedFrom = null;
+        this.selectResultTab('log');
         this.setInputZoneCollapsed(false);  // Re-open input for a fresh run - Claude Generated
         this._inputZoneAutoCollapsed = false;  // Re-arm one-shot chat auto-collapse - Claude Generated
         this.renderStepperForSelected();     // Reset stepper to pending - Claude Generated
@@ -1755,7 +2003,7 @@ class AlimaWebapp {
         }
 
         // Clear persisted session on explicit "Neue Analyse" - Claude Generated
-        localStorage.removeItem('alima_running_session');
+        SafeStorage.remove('alima_running_session');
 
         // Cleanup old session
         if (this.sessionId) {
@@ -1794,10 +2042,9 @@ class AlimaWebapp {
 
     clearStreamText() {
         // Chat-UX 5/9: the legacy #stream-text region is gone — everything
-        // renders in the shared #log; this clears it plus the seq cursor.
-        if (typeof clearLog === 'function') {
-            clearLog();
-        }
+        // renders in the shared #log; this clears it (all tabs) plus the seq
+        // cursor. - Claude Generated
+        this.clearAllRegions();
         this._lastRenderSeq = -1;
         this.updateDkProgress(null);
     }
@@ -1812,6 +2059,7 @@ class AlimaWebapp {
             ? 'system-message system-message--error' : 'system-message';
         if (typeof appendBlock === 'function') {
             appendBlock(`<div class="${cls}">${esc(text)}</div>`);
+            this.markTabUnread('log');
         } else {
             console.log(`[notice:${level}]`, text);
         }
@@ -1831,6 +2079,10 @@ class AlimaWebapp {
         if (summaryDiv) {
             summaryDiv.innerHTML = '';
         }
+        const details = document.getElementById('results-summary-details');
+        if (details) details.hidden = true;
+        const origin = document.getElementById('result-origin-line');
+        if (origin) { origin.textContent = ''; origin.hidden = true; }
         this.resetSharedRender();
     }
 
@@ -1838,42 +2090,145 @@ class AlimaWebapp {
     // (server buffer restarts at seq 0) renders from a clean slate.
     resetSharedRender() {
         this._lastRenderSeq = -1;
-        if (typeof clearLog === 'function') clearLog();
+        this.clearAllRegions();
     }
 
-    // Results panel
+    // Results status: one line in the input-zone header, in place of the
+    // hint. - Claude Generated
     showResultsPanel() {
-        document.getElementById('results-panel').style.display = 'flex';
+        const panel = document.getElementById('results-panel');
+        if (panel) panel.hidden = false;
+        const hint = document.getElementById('input-zone-hint');
+        if (hint) hint.hidden = true;
     }
 
     hideResultsPanel() {
-        document.getElementById('results-panel').style.display = 'none';
+        const panel = document.getElementById('results-panel');
+        if (panel) panel.hidden = true;
+        const hint = document.getElementById('input-zone-hint');
+        if (hint) hint.hidden = false;
         this.setResultsPanelState('idle');
     }
 
-    setResultsPanelState(state = 'idle') {
+    // state: idle | running | completed | loaded. A loaded result is marked
+    // apart from a run: own wording, own colour, the file name beside it.
+    // All texts via textContent (the file name is foreign). - Claude Generated
+    setResultsPanelState(state = 'idle', { filename = null } = {}) {
         const panel = document.getElementById('results-panel');
         const title = document.getElementById('results-panel-title');
         if (!panel || !title) return;
 
-        panel.classList.remove('card--success', 'card--warning');
-        title.classList.remove('card-label--success', 'card-label--warning');
+        panel.dataset.state = state;
+        this.setResultsOrigin('');
+        const originLine = document.getElementById('result-origin-line');
+        if (originLine && state !== 'loaded') { originLine.textContent = ''; originLine.hidden = true; }
 
         if (state === 'running') {
-            panel.classList.add('card--warning');
-            title.classList.add('card-label--warning');
             title.textContent = '▶ Analyse läuft';
             return;
         }
-
         if (state === 'completed') {
-            panel.classList.add('card--success');
-            title.classList.add('card-label--success');
             title.textContent = '✓ Analyse abgeschlossen';
             return;
         }
-
+        if (state === 'loaded') {
+            title.textContent = '📂 Ergebnis geladen';
+            this.setResultsOrigin(filename ? `aus „${filename}“` : '');
+            if (originLine) {
+                originLine.textContent = `Geladen aus „${filename || 'Datei'}“. In dieser Sitzung lief keine Analyse; „Speichern“ exportiert das geladene Ergebnis.`;
+                originLine.hidden = false;
+            }
+            return;
+        }
         title.textContent = 'Analyse';
+    }
+
+    // Second part of the status line: the working title, after the file name
+    // of a loaded result. - Claude Generated
+    setResultsOrigin(text) {
+        const origin = document.getElementById('results-origin');
+        if (!origin) return;
+        if (!text) { origin.textContent = ''; return; }
+        const panel = document.getElementById('results-panel');
+        const file = panel && panel.dataset.state === 'loaded' && this._loadedFrom
+            ? `aus „${this._loadedFrom}“` : '';
+        origin.textContent = [file, text === file ? '' : text].filter(Boolean).join(' · ');
+    }
+
+    // ─── Ergebnis laden … ─── Claude Generated ───
+
+    showLoadMessage(text, level = 'error') {
+        const el = document.getElementById('load-result-message');
+        if (!el) return;
+        el.textContent = text;
+        el.dataset.level = level;
+        el.hidden = false;
+    }
+
+    hideLoadMessage() {
+        const el = document.getElementById('load-result-message');
+        if (el) { el.textContent = ''; el.hidden = true; }
+    }
+
+    // Send the picked file to POST /api/session/{id}/load; on success the
+    // answer's render events fill the tabs like the end of a run, without
+    // marking any pipeline step done. A running analysis cannot be replaced.
+    async loadResultFile(file) {
+        if (!this.sessionId) return;
+        if (this.isAnalyzing) {
+            this.showLoadMessage('Während einer Analyse kann kein Ergebnis geladen werden.');
+            return;
+        }
+        const btn = document.getElementById('load-result-btn');
+        if (btn) btn.disabled = true;
+        this.hideLoadMessage();
+        const previous = this._shownResult;
+        const previousFile = this._loadedFrom;
+        try {
+            const formData = new FormData();
+            formData.append('file', file, file.name);
+            const response = await fetch(`/api/session/${this.sessionId}/load`, {
+                method: 'POST',
+                body: formData,
+            });
+            let data = {};
+            try { data = await response.json(); } catch (e) { data = {}; }
+            if (!response.ok) {
+                const detail = typeof data.detail === 'string' ? data.detail : `HTTP ${response.status}`;
+                this.showLoadMessage(`Nicht geladen: ${detail}`);
+                return;
+            }
+
+            if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+            this.clearStreamText();
+            this.resetResultsPanelContent();
+            this.hideRecoveryOption();
+            this.renderStepperForSelected();  // no step of a run is done
+            this._shownResult = 'loaded';
+            this._loadedFrom = data.filename || file.name;
+
+            this.dispatchRenderEvents(data.render_events || []);
+            if (previous === 'loaded') {
+                this.appendLocalNotice(`ℹ️ Das vorher geladene Ergebnis („${previousFile || 'Datei'}“) wurde ersetzt.`);
+            } else if (previous === 'run') {
+                this.appendLocalNotice('ℹ️ Das Ergebnis der vorigen Analyse wurde ersetzt; erhalten bleibt es nur, wenn es gespeichert wurde.');
+            }
+            if (Array.isArray(data.ignored_fields) && data.ignored_fields.length) {
+                this.appendLocalNotice(`ℹ️ Nicht übernommene Felder der Datei: ${data.ignored_fields.join(', ')}`);
+            }
+
+            this.setResultsPanelState('loaded', { filename: this._loadedFrom });
+            this.showResultsPanel();
+            if (data.results) this.displayResults(data.results);
+            this.enableExportButton(false);
+            this.setInputZoneCollapsed(true);
+            this.selectResultTab('result');
+        } catch (error) {
+            console.error('Load error:', error);
+            this.showLoadMessage(`Nicht geladen: ${error.message}`);
+        } finally {
+            if (btn) btn.disabled = this.isAnalyzing;
+        }
     }
 
     // Update button state
@@ -1886,6 +2241,10 @@ class AlimaWebapp {
 
         // Show/hide abort-step button - Claude Generated
         document.getElementById('abort-step-btn').style.display = this.isAnalyzing ? 'block' : 'none';
+
+        // A running analysis cannot be replaced by a loaded file - Claude Generated
+        const loadBtn = document.getElementById('load-result-btn');
+        if (loadBtn) loadBtn.disabled = this.isAnalyzing;
 
         // Auto-collapse the input zone when a run starts so the chat/log becomes
         // the focal area. Add-only: the operator re-opens it via the chevron. - Claude Generated

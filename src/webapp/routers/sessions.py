@@ -58,6 +58,8 @@ async def get_session(session_id: str) -> dict:
         "render_events": session.get_new_render_events(),  # WP12: shared chrome
         # Full-pipeline results intentionally omitted (can be large) — polling
         # clients fetch them via /api/export/{id}.
+        # File name of a loaded result (POST /api/session/{id}/load), else None.
+        "loaded_from": getattr(session, "loaded_from", None),  # Claude Generated
     }
     # Exception: the extract-only flow (input_type doi/url/pdf/img) polls THIS
     # endpoint for the extracted text and expects `results.original_abstract`.

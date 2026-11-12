@@ -1623,17 +1623,28 @@ class PipelineResultFormatter:
         return gnd_keywords
 
 
-def render_pipeline_result(renderer, analysis_state, duration_str: Optional[str] = None) -> None:
+def render_pipeline_result(
+    renderer,
+    analysis_state,
+    duration_str: Optional[str] = None,
+    *,
+    announce_completion: bool = True,
+) -> None:
     """Emit the final pipeline result blocks via a UnifiedMessageRenderer - Claude Generated
 
     Qt-free and shared by the GUI chat panel and the webapp: completion line,
     final GND keywords, Schlagwortketten, the DK/Auswertung cards, and a
     workflow ``report_markdown``. Emits nothing for sections without data.
+
+    ``announce_completion=False`` leaves out the completion line: a result
+    loaded from a file (webapp "Ergebnis laden…") was not produced by a run in
+    this session, and the line would claim it was. The cards are the same.
     """
-    duration_suffix = f" in {duration_str}" if duration_str else ""
-    renderer.render_pipeline_log(
-        f"\U0001f389 Pipeline vollständig abgeschlossen{duration_suffix}!", "success"
-    )
+    if announce_completion:
+        duration_suffix = f" in {duration_str}" if duration_str else ""
+        renderer.render_pipeline_log(
+            f"\U0001f389 Pipeline vollständig abgeschlossen{duration_suffix}!", "success"
+        )
 
     # One result card instead of five log lines that scroll apart: core,
     # keywords, chains, notations, shelf place and the catalogue snippet a

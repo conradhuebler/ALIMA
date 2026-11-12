@@ -39,6 +39,7 @@ from src.webapp.routers import websocket as websocket_router
 from src.webapp.routers import analysis as analysis_router
 from src.webapp.routers import agent as agent_router
 from src.webapp.routers import rules as rules_router
+from src.webapp.routers import load as load_router  # Ergebnis laden - Claude Generated
 from src.webapp.routers.workflows import _discover_workflows
 # Re-exports for tests that import/call these via src.webapp.app: run_analysis
 # (analysis); ChatMessageRequest + _build_session_agent_runner (agent). - Claude Generated
@@ -150,6 +151,15 @@ app.add_middleware(
 # Mount static files BEFORE routes - Claude Generated
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
+def _asset_version() -> str:
+    """Newest mtime of the static files; used as ?v= so a browser never mixes
+    cached old JS/CSS with a new page. Claude Generated"""
+    try:
+        return str(max(int(f.stat().st_mtime) for f in static_dir.iterdir() if f.is_file()))
+    except (OSError, ValueError):
+        return "0"
+
+
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 # Setup Jinja2 templates for dynamic HTML generation - Claude Generated (2026-01-13)
@@ -167,6 +177,7 @@ app.include_router(websocket_router.router)
 app.include_router(analysis_router.router)
 app.include_router(agent_router.router)
 app.include_router(rules_router.router)
+app.include_router(load_router.router)
 
 # Session registry (``sessions``), the ``Session`` model and the lazy
 # ``AppContext`` live in session_state.py; the WP12 render bridge classes
@@ -221,7 +232,8 @@ async def get_webapp(request: Request, session: str = None) -> HTMLResponse:
 
     return templates.TemplateResponse(
         "webapp.html",
-        {"request": request, "session_id": session, "i18n_js": catalog_for_js()}
+        {"request": request, "session_id": session, "i18n_js": catalog_for_js(),
+         "asset_v": _asset_version()}
     )
 
 

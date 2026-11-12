@@ -114,6 +114,23 @@
     padding: 0;
 }
 
+/* The hidden attribute wins over the display of a class (tab panels,
+   buttons and the status line are switched with it). - Claude Generated */
+[hidden] { display: none !important; }
+
+/* Text for screen readers only (the "neu" of a result tab). */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 html {
     -webkit-text-size-adjust: 100%;
     scroll-behavior: smooth;
@@ -324,10 +341,11 @@ body {
 .input-zone-header {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-4);
-    cursor: pointer;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) var(--sp-4);
     flex-shrink: 0;
+    min-height: 50px;
 }
 
 .zone-toggle-btn {
@@ -370,7 +388,8 @@ body {
 .input-zone-hint {
     font-size: 0.76rem;
     color: var(--clr-subtle);
-    margin-left: auto;
+    flex: 1 1 0;
+    text-align: right;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -395,12 +414,52 @@ body {
     padding-bottom: 0;
 }
 
-/* Ergebnis-Zusammenfassung: sitzt außerhalb des einklappbaren Körpers, damit sie
-   nach einem Lauf sichtbar ist, während die Eingabe zugeklappt bleibt. */
+/* Result status: one line in the zone header, outside the collapsing body,
+   so it stays readable with the input folded away. A loaded result has its
+   own colour, apart from a run. - Claude Generated */
 .input-zone-results {
-    margin: 0 var(--sp-4) var(--sp-4);
-    border: 1px solid var(--clr-border);
-    box-shadow: none;
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    min-width: 0;
+    flex: 1 1 240px;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+.results-status {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--clr-muted);
+}
+.input-zone-results[data-state="running"] .results-status { color: var(--clr-warning); }
+.input-zone-results[data-state="completed"] .results-status { color: var(--clr-success); }
+.input-zone-results[data-state="loaded"] .results-status {
+    color: var(--clr-info);
+    background: var(--clr-info-bg);
+    border-radius: var(--r-pill);
+    padding: 1px 8px;
+}
+.results-origin {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--clr-text);
+}
+
+/* Load/save controls in the zone header: right-aligned, wrap below on
+   narrow screens. */
+.input-zone-header .bar-group--results { margin-left: auto; }
+.load-note {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--clr-error);
+    flex-basis: 100%;
+    text-align: right;
 }
 
 /* Inner cards inside the zone shed their own shadow; the zone frames them */
@@ -860,107 +919,45 @@ body {
 /* ═══════════════════════════════════════════════════
    RESULTS PANEL
    ═══════════════════════════════════════════════════ */
+/* The overview from the results data, at the end of the Ergebnis tab (the
+   tab scrolls, so the list has no scroll area of its own). It sits inside
+   #log and takes the --alima-* tokens of the log surface. - Claude Generated */
+.results-summary-details {
+    margin: 8px 0 4px;
+    font-family: var(--font-body);
+    color: var(--alima-body);
+}
+.results-summary-details > summary {
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.results-summary-details[open] > summary { margin-bottom: 6px; }
+
 .results-list {
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-    max-height: 200px;
-    overflow-y: auto;
     font-size: 0.88rem;
 }
 
 /* Populated by app.js with .results-summary-item elements */
 .results-summary-item {
     padding: 7px 11px;
-    background: var(--clr-surface-2);
+    background: var(--alima-surface);
+    color: var(--alima-body);
+    border: 1px solid var(--alima-border-soft);
     border-radius: var(--r-sm);
-    border-left: 3px solid var(--clr-primary);
+    border-left: 3px solid var(--alima-accent);
     font-size: 0.88rem;
+    word-wrap: break-word;
 }
 
-.results-summary-item.keyword       { border-left-color: var(--clr-success); }
-.results-summary-item.classification { border-left-color: var(--clr-cool); }
+.results-summary-item.keyword       { border-left-color: var(--alima-green); }
+.results-summary-item.classification { border-left-color: var(--alima-purple); }
+.results-verified { color: var(--alima-green); font-size: 0.85em; }
 
-#results-summary .classification-validation-summary {
-    display: flex;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
-    margin-top: var(--sp-2);
-    margin-bottom: var(--sp-2);
-}
-
-#results-summary .classification-entry-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    margin-top: var(--sp-2);
-}
-
-#results-summary .classification-entry {
-    padding: 8px 10px;
-    border-radius: var(--r-sm);
-    background: var(--clr-surface);
-    border: 1px solid var(--clr-border);
-}
-
-#results-summary .classification-entry__head {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
-}
-
-#results-summary .classification-entry__code {
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    color: var(--clr-text);
-}
-
-#results-summary .classification-entry__meta {
-    margin-top: 4px;
-    font-size: 0.77rem;
-    color: var(--clr-muted);
-}
-
-#results-summary .classification-badge {
-    display: inline-flex;
-    align-items: center;
-    border-radius: var(--r-pill);
-    padding: 2px 8px;
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-}
-
-#results-summary .classification-badge--dk {
-    background: var(--clr-primary-light);
-    color: var(--clr-primary);
-}
-
-#results-summary .classification-badge--ddc {
-    background: var(--clr-warning-bg);
-    color: var(--clr-warning);
-}
-
-#results-summary .classification-badge--rvk {
-    background: var(--clr-info-bg);
-    color: var(--clr-cool);
-}
-
-#results-summary .classification-badge--standard {
-    background: var(--clr-success-bg);
-    color: var(--clr-success);
-}
-
-#results-summary .classification-badge--non-standard {
-    background: var(--clr-warning-bg);
-    color: var(--clr-warning);
-}
-
-#results-summary .classification-badge--unknown {
-    background: var(--clr-error-bg);
-    color: var(--clr-error);
-}
+/* The classification badges of the overview use the #log rules of
+   alima_render.css (the overview sits inside #log). */
 
 .results-actions {
     display: flex;
@@ -1032,20 +1029,14 @@ body {
    ═══════════════════════════════════════════════════ */
 .stream-header {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
     gap: var(--sp-3);
-    padding-bottom: var(--sp-3);
+    padding-bottom: 0;
     border-bottom: 1px solid var(--clr-dark-line);
     flex-shrink: 0;
 }
-
-.stream-header-left {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-}
+.stream-header .btn { margin-bottom: 4px; }
 
 .stream-toggle-btn {
     display: flex;
@@ -1071,45 +1062,66 @@ body {
     line-height: 1;
 }
 
-.stream-title-group {
+/* ── Result tabs (Log / Chat · Ergebnis · Klassifikation) ── Claude Generated
+   The bar replaces the card title; one panel is shown and scrolls by
+   itself. Page tokens (--clr-*) for the bar, which sits outside #log. */
+.result-tablist {
     display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
+    align-items: stretch;
+    gap: 2px;
     min-width: 0;
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
 }
+.result-tablist::-webkit-scrollbar { display: none; }
 
-.stream-title {
+.result-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: var(--r-sm) var(--r-sm) 0 0;
+    background: transparent;
+    color: var(--clr-muted);
     font-family: var(--font-display);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--clr-text);
     white-space: nowrap;
+    cursor: pointer;
+    transition: color var(--ease-fast), background var(--ease-fast), box-shadow var(--ease-fast);
+}
+.result-tab:hover { color: var(--clr-text); background: var(--clr-tab-hover-bg); }
+.result-tab[aria-selected="true"] {
+    color: var(--clr-primary);
+    box-shadow: inset 0 -2px 0 var(--clr-primary);
+}
+.result-tab:focus-visible { outline: 2px solid var(--clr-focus); outline-offset: -2px; }
+/* New content in a tab that is not shown: bold label and a dot. */
+.result-tab.has-unread { color: var(--clr-text); font-weight: 800; }
+.result-tab-new {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--clr-primary);
+    flex: 0 0 auto;
 }
 
-.stream-subtitle {
-    font-size: 0.7rem;
-    color: var(--clr-stream-muted);
-    font-weight: 500;
-    font-family: var(--font-mono);
-    letter-spacing: 0.02em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Collapsible body */
+/* Body of the log card: holds #log, which holds the tab panels. */
 .stream-body {
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
-    transition: max-height var(--ease-slow), opacity var(--ease-base);
-    max-height: 400px;
+    min-height: 0;
     flex: 1;
-}
-
-.stream-body.is-collapsed {
-    max-height: 0;
-    opacity: 0;
+    height: 65vh;
+    min-height: 300px;
 }
 
 /* DK-search progress in the pipeline bar */
@@ -1266,8 +1278,10 @@ body {
     /* Selects wrap two or three per row instead of shrinking to a glyph */
     .bar-group--config { width: 100%; }
     .bar-group--config .field--select { flex: 1 1 128px; }
-    .stream-subtitle { display: none; }
     .input-zone-hint { display: none; }
+    /* Result tabs: tighter, the bar scrolls sideways when they still do not fit */
+    .card--dark { padding: var(--sp-3); }
+    .result-tab { padding: 6px 8px; letter-spacing: 0.02em; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1294,9 +1308,8 @@ body {
     .editor-textarea { min-height: 200px; }
     .btn-analyze { min-height: 44px; }
 
-    /* Stream body: generous height on tablet */
-    .stream-body              { max-height: 460px; }
-    .stream-body.is-collapsed { max-height: 0; }
+    /* Log card body: generous height on tablet; the tab panels scroll in it */
+    .stream-body { height: 70vh; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1331,22 +1344,24 @@ body {
         height: 100%;
         overflow: hidden;
         box-shadow: var(--shadow-md);
+        padding: var(--sp-3) var(--sp-4);
+        gap: var(--sp-2);
     }
 
+    /* The log card fills what the input zone leaves; the shown tab panel
+       scrolls inside it, the page does not. - Claude Generated */
     .stream-body {
         flex: 1;
-        max-height: none;
-        overflow-y: auto;
+        height: auto;
+        min-height: 0;
     }
+}
 
-    .stream-body.is-collapsed {
-        /* Stream never collapses on desktop */
-        max-height: none;
-        opacity: 1;
-    }
-
-    /* Empty log fills the stream card so the mark sits in its centre */
-    .stream-body > #log:empty { min-height: calc(100% - 8px); }
+/* Short windows (a laptop browser without fullscreen): the chat hint line
+   repeats the DE/EN button and the keys, the space goes to the tab. */
+@media (min-width: 1100px) and (max-height: 820px) {
+    .chat-hint { display: none; }
+    .workspace { padding: var(--sp-3) var(--sp-5); gap: var(--sp-3); }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1837,9 +1852,61 @@ body {
 }
 
 /* WP12: shared render region (#log). Colours come from the --alima-*
-   tokens in alima_render.css; these rules are webapp layout only. The empty
-   region stays visible: alima_render.css draws the quiet mark into it. */
-.alima-render-region { border-radius: var(--r-md); margin-top: 8px; overflow: auto; }
+   tokens in alima_render.css; these rules are webapp layout only. #log holds
+   the tab panels, so its chrome rules reach every tab; it does not scroll
+   itself, each panel does. - Claude Generated */
+#log.alima-render-region {
+    border-radius: var(--r-md);
+    margin-top: 0;
+    padding: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+#log .result-tabpanel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 8px 8px;
+}
+#log .result-tabpanel:focus-visible { outline: 2px solid var(--alima-accent); outline-offset: -2px; }
+/* A region lays its blocks out as #log did before the tabs. */
+#log .result-region { display: flex; flex-direction: column; }
+/* Empty log tab: the quiet logo mark in the middle, as the empty #log had. */
+#log #log-region:empty { position: relative; flex: 1 1 auto; min-height: 120px; }
+#log #log-region:empty::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: var(--alima-mark-opacity);
+    filter: var(--alima-mark-filter, none);
+    background: url("/static/alima-mark.svg") center / auto min(72px, 70%) no-repeat;
+}
+/* Empty result tabs say what will appear there. */
+#log .result-empty {
+    margin: auto;
+    padding: 24px 12px;
+    max-width: 36em;
+    text-align: center;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    color: var(--alima-muted);
+}
+#log .result-region:not(:empty) ~ .result-empty,
+#log .results-summary-details:not([hidden]) ~ .result-empty { display: none; }
+/* A loaded result says so at the top of its tab. */
+#log .result-origin-line {
+    margin: 0 0 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    color: var(--alima-info);
+    background: var(--alima-info-bg);
+    border: 1px solid var(--alima-info-border);
+}
 
 /* The light palette for the shared #log chrome lives in alima_render.css
    (also used by the GUI log). */
@@ -1912,3 +1979,31 @@ body {
     }
     .btn-primary:hover:not(:disabled) { transform: none; }
 }
+
+/* ═══════════════════════════════════════════════════
+   WORK ROW — side column (steps, settings, run) beside the log
+   Input zone stays on top and collapsible. - Claude Generated
+   ═══════════════════════════════════════════════════ */
+.work-row { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.work-row > .panel-stream { flex: 1; min-width: 0; }
+.side-panel {
+    border: 1px solid var(--clr-border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+}
+.side-panel .pipeline-controls { flex-direction: column; align-items: stretch; }
+.side-panel .bar-group--config { flex-direction: column; align-items: stretch; }
+.side-panel .bar-group--config .field--select { max-width: none !important; width: 100%; }
+.side-panel .bar-group--run { margin-left: 0; order: -1; }
+.side-panel .bar-group--run .btn-analyze { flex: 1 1 auto; }
+.side-panel .pipeline-stepper { flex-direction: column; align-items: flex-start; overflow: visible; padding: 4px 2px; }
+.side-panel .step-node { white-space: normal; }
+.side-panel .step-node:not(:last-child)::after { display: none; }
+.side-panel .step-node:not(:last-child) { padding-bottom: var(--sp-2); }
+
+@media (min-width: 1100px) {
+    .work-row { flex: 1; min-height: 0; flex-direction: row; align-items: stretch; }
+    .side-panel { flex: 0 0 280px; overflow-y: auto; border-top: 1px solid var(--clr-border); }
+    .work-row > .panel-stream { height: 100%; }
+}
+.side-panel .pipeline-controls { order: -1; }

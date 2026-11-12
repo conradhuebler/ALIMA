@@ -84,6 +84,12 @@ async def start_analysis(
             logger.error(f"Failed to read file: {e}")
             raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
+    # The run replaces whatever result the session showed (a previous run or a
+    # loaded file): its render log, results and title. The browser has already
+    # cleared its view and says so in the log. - Claude Generated
+    if session.loaded_from:
+        logger.info(f"Session {session_id}: new run replaces the result loaded from {session.loaded_from!r}")
+    session.start_new_result()
     session.status = "running"
     if workflow:
         session.workflow_name = workflow
@@ -388,7 +394,7 @@ async def run_analysis(
                 session.current_step = sid
                 snap_status = (snapshot or {}).get("_step_status") or "completed"
                 session.current_step_status = (
-                    "error" if snap_status == "error" else "completed"
+                    snap_status if snap_status in ("running", "error") else "completed"
                 )
             except Exception:
                 logger.debug("agentic context step update failed", exc_info=True)

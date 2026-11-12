@@ -9,6 +9,8 @@ re-exports these names for backward compatibility.
 """
 
 import logging
+import threading
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from src.utils.i18n import t
@@ -42,12 +44,33 @@ class WebSocketRenderTransport:
 
     The WebSocket handler broadcasts the buffer to connected clients with replay
     on reconnect. Control ops (autoscroll/scroll) are server-side no-ops.
+
+    ``card`` (webapp only): a ``block`` event sent inside :meth:`card` carries
+    the result-card kind the producer was given (``final_result``,
+    ``dk_classifications``, …) as an extra ``card`` field. The browser sorts
+    the blocks into its result tabs by it; ``kind`` stays ``html_block`` as in
+    the shared protocol. The GUI transport never sees this field.
+    - Claude Generated
     """
 
     def __init__(self, session: "Session"):
         self._session = session
+        self._card = threading.local()
+
+    @contextmanager
+    def card(self, kind: Optional[str]):
+        """Tag the blocks sent in this block with ``kind`` - Claude Generated"""
+        previous = getattr(self._card, "kind", None)
+        self._card.kind = kind or None
+        try:
+            yield
+        finally:
+            self._card.kind = previous
 
     def send(self, event: dict) -> None:
+        card = getattr(self._card, "kind", None)
+        if card and event.get("type") == "block":
+            event = {**event, "card": card}
         self._session.append_render_event(event)
 
     def set_autoscroll(self, enabled: bool) -> None:
@@ -57,16 +80,45 @@ class WebSocketRenderTransport:
         pass
 
 
+_CARD_TAGGING_RENDERER = None
+
+
+def _card_tagging_renderer_class():
+    """``UnifiedMessageRenderer`` that passes a card's kind into its block event.
+
+    The shared producer puts the semantic kind of a result card (the ``kind``
+    argument of ``render_html_block`` / ``render_markdown_block``) only into its
+    history; the event says ``html_block`` for every card. The webapp needs the
+    kind to sort the cards into its tabs, so this subclass sends the block
+    inside :meth:`WebSocketRenderTransport.card`. Everything else, including the
+    HTML, is the producer's. Built lazily: the base class imports QtWidgets.
+    - Claude Generated
+    """
+    global _CARD_TAGGING_RENDERER
+    if _CARD_TAGGING_RENDERER is None:
+        from src.ui.unified_message_renderer import UnifiedMessageRenderer
+
+        class CardTaggingRenderer(UnifiedMessageRenderer):
+            def render_html_block(self, html, *, kind=None, plain_text=""):
+                tag = getattr(self.transport, "card", None)
+                if tag is None:
+                    return super().render_html_block(html, kind=kind, plain_text=plain_text)
+                with tag(kind):
+                    return super().render_html_block(html, kind=kind, plain_text=plain_text)
+
+        _CARD_TAGGING_RENDERER = CardTaggingRenderer
+    return _CARD_TAGGING_RENDERER
+
+
 def _build_session_renderer(session: "Session"):
     """Per-session UnifiedMessageRenderer wired to a WebSocket render transport.
 
     WP12: the webapp drives the *same* producer as the GUI (single source of the
     chrome), but the events flow over the WebSocket instead of runJavaScript.
     The import is lazy so QtWidgets is only pulled in when a pipeline runs.
+    Result cards carry their kind as ``card`` (see ``_card_tagging_renderer_class``).
     """
-    from src.ui.unified_message_renderer import UnifiedMessageRenderer
-
-    renderer = UnifiedMessageRenderer(
+    renderer = _card_tagging_renderer_class()(
         WebSocketRenderTransport(session), _HeadlessAutoScroll()
     )
     # Webapp parity with the GUI panel: wire the catalog web-OPAC base + hosts so

@@ -9,9 +9,10 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 **Backend** — FastAPI, split into a thin app factory + `APIRouter` modules (F-6, 2026-06-30):
 - `app.py` — app factory, lifespan, middleware/static/templates, `include_router`, the 3 pages (`/`, `/webapp`, `/health`), and re-export shims (tests import/patch via `src.webapp.app`).
 - `session_state.py` — `sessions` registry, `Session` model, lazy `AppContext` service container, autosave/websocket constants.
-- `render_bridge.py` — WP12 transport + `_SessionBusSubscriber` (StateBus→`UnifiedMessageRenderer`).
+- `render_bridge.py`: WP12 transport + `_SessionBusSubscriber` (StateBus→`UnifiedMessageRenderer`); `CardTaggingRenderer` puts a result card's kind into its block event as `card`.
 - `session_io.py` — shared helpers: `make_json_serializable`, `sanitize_filename`, autosave, `_parse_think_override`.
-- `routers/` — `workflows`, `models`, `sessions`, `export`, `websocket`, `analysis` (analyze/input + `run_analysis`), `agent` (`/agent/run` + chat).
+- `result_loading.py`: validation + rendering of an uploaded result file (both formats), Qt-free apart from the lazily imported renderer.
+- `routers/`: `workflows`, `models`, `sessions`, `export`, `websocket`, `analysis` (analyze/input + `run_analysis`), `agent` (`/agent/run` + chat), `load` (`/api/session/{id}/load`).
 - DAG: `session_state` ← `render_bridge`/`session_io` ← `routers/*` ← `app`. Routers never import `app`.
 - Direct PipelineManager integration (same as CLI/GUI); in-memory sessions; CORS enabled.
 
@@ -19,7 +20,7 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - Vanilla JavaScript (no dependencies)
 - Tab-based input UI (text, DOI, file upload)
 - Workflow dropdown (classical + YAML agentic workflows)
-- Unified chat/log panel (user/assistant bubbles, tool-call collapsibles, live LLM streaming)
+- Log card with result tabs (Log / Chat with bubbles, tool-call collapsibles, live LLM streaming · Ergebnis · Klassifikation)
 - WebSocket client for live progress
 - JSON download handler
 
@@ -27,14 +28,22 @@ The `src/webapp/` directory provides a FastAPI-based web interface for the ALIMA
 - Simple entry point: `python3 src/alima_webapp.py`
 - Runs on `localhost:8000`
 
-## Layout (vertical-stack redesign — 2026-06-23)
+## Layout (result tabs, 2026-11-12)
 
-Two stacked zones (replaces the old 3-column `input | editor | stream` grid):
-- **Top `#input-zone`** — a framed widget with three parts:
-  - `.input-zone-header` (chevron + label) — always visible.
-  - `.input-zone-body` (**collapsible**) — input sources (DOI/Datei/Kamera) + text editor + extracted text + `#results-panel` **summary only**. Auto-collapses on run start (`updateButtonState` → `setInputZoneCollapsed`); operator toggles via `#input-zone-toggle`.
-  - `.pipeline-bar` (**persistent footer inside the zone** — never collapses) — live step-stepper (`#pipeline-stepper`) + configs (workflow/provider/model/thinking) + run controls (Analyse/Abbrechen/Schritt-abbrechen) + save/load (`#export-btn` Speichern / `#recovery-btn` Laden / `#clear-btn` Neue Analyse). So when the body collapses during a run, header + bar stay visible (status + abort + save/load reachable); `#export-btn` is `disabled` until results exist.
-- **Bottom `.panel-stream`** — chat/log, `flex:1`, the dominant focal element; grows as the input body collapses.
+Two stacked zones; at ≥1100 px they fill the window and the page does not scroll:
+- **Top `#input-zone`**:
+  - `.input-zone-header`: always visible: chevron + label, the result status line `#results-panel` (`role=status`; `data-state` idle/running/completed/loaded, working title, file name of a loaded result), and the load/save group (`#load-result-btn` Ergebnis laden… / `#export-btn` Speichern / `#recovery-btn` Wiederherstellen / `#clear-btn` Neue Analyse, `#load-result-message` for a refused file).
+  - `.input-zone-body` (**collapsible**): input sources, text editor, extracted text. Collapses on run start, on the first chat send and after loading a file.
+- **`.work-row`** below: left column `.pipeline-bar.side-panel` (run button, selects, stepper; ≥1100 px 280 px wide, stacked above on smaller screens; thinking defaults to Aus, budget to 65536) beside **`.panel-stream`**: the log card, tab bar `#result-tablist` (Log / Chat · Ergebnis · Klassifikation) replaces the card title; `#log` holds the three `role=tabpanel` panels, one shown, each scrolling by itself.
+  - The panels sit **inside `#log`**, so the `#log`-scoped chrome of `alima_render.css` reaches every tab. `alima_render.js` writes into `window.__alimaLogId` (default `log-region`); `appendBlockToTab` points it at a tab's region for one card. Shared assets unchanged.
+  - Routing (`RESULT_TAB_BY_CARD` in `app.js`): `final_result`, `workflow_report` → Ergebnis; `dk_classifications`, `dk_statistics`, `dk_search` → Klassifikation; every other event → Log. `tests/test_webapp_result_tabs.py` fails when the server emits a card kind without an entry.
+  - `final_result` is also appended to the Log tab (`LOG_COPY_CARDS`, ids stripped) so the chat can refer to it.
+  - WinIBW entry, geo block and source overview are sections of the one `final_result` card, so they are in the Ergebnis tab; „Alles kopieren“ copies the whole card.
+  - Run end: no switch; a tab that got new content while hidden shows a dot + bold label. Run start selects Log, loading a file selects Ergebnis.
+  - The chat input `#chat-input-area` is shown with the Log tab only (answers render there); „Löschen“ empties the Log tab only.
+  - The overview lists (`populateSummary`: GND check, RVK check, initial keywords) are a `<details>` at the end of the Ergebnis tab, open only when no card is there (reload/recovery paths).
+  - Tab choice per session in `localStorage` (`alima_result_tab:<session>`); all storage access goes through `SafeStorage` (works with storage blocked).
+- **Loading a file** (`POST /api/session/{id}/load`, `result_loading.py`): webapp export or saved `KeywordAnalysisState`; ≤ 20 MB, UTF-8 JSON object of a known shape (413/422 with a message, 409 while running); rendered by `render_pipeline_result(..., announce_completion=False)` into a scratch buffer, then into the session; the answer carries the render events. Session: `status=completed`, `loaded_from` (also in `GET /api/session/{id}`). A new run calls `Session.start_new_result()` (render log, results, title cleared) and says in the log what it replaced.
 
 Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workflow (agentic from YAML `steps:`, `__classic__` from `PipelineManager.step_definitions`). Frontend caches it (`workflowSteps`), `renderStepper`/`updateStepper` highlight by `current_step` (done/active). Agentic progress reaches the session via `agentic_context` callback (per-completed-step); classic via `step_started/completed`. CSS: `.input-zone`/`.pipeline-bar`/`.pipeline-stepper` in `styles.css`.
 
@@ -42,7 +51,8 @@ Stepper data: `/api/workflows` returns an ordered `steps:[{id,label}]` per workf
 
 ✅ **Agentic Platform** - Workflow dropdown + agentic pipeline mode shared with Qt6 GUI
 ✅ **Unified Chat/Log Panel** - Central panel renders pipeline log, tool-call collapsibles, LLM streaming, user/assistant chat bubbles (old 5-step timeline removed)
-✅ **Pipeline-Stepper** - Horizontal live step overview in the bottom bar, per-workflow (classic + agentic)
+✅ **Result tabs + „Ergebnis laden…“** (Nov 12, 2026) - Log / Ergebnis / Klassifikation from the same render events; a saved result file is shown without a run (see Layout)
+✅ **Pipeline-Stepper** - Live step overview (vertical) in the side column, per-workflow (classic + agentic)
 ✅ **Workflow Selection** - Classical pipeline (`__classic__`) and YAML agentic workflows via `/api/workflows`
 ✅ **Session Chat Agent** - `POST /api/session/{id}/chat` reuses pipeline context and streams over WebSocket
 ✅ **Pipeline Widget as Webapp** - Analysis visualization via shared WP12 render layer
@@ -151,6 +161,7 @@ Root:             /                    → 301-redirect to /webapp
 | GET | `/api/queue/status` | Get global queue statistics |
 | WS | `/ws/{id}` | WebSocket for live updates (30 min timeout, heartbeat every 5s) |
 | GET | `/api/export/{id}` | Download JSON results |
+| POST | `/api/session/{id}/load` | Show a saved result file (multipart `file`) without a run |
 | GET | `/api/session/{id}/recover` | Recover results from auto-save after timeout |
 | DELETE | `/api/session/{id}` | Delete session |
 

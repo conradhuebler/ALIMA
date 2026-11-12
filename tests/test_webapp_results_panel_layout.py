@@ -1,13 +1,15 @@
-"""The results summary must survive a collapsed input zone - Claude Generated.
+"""The result status must survive a collapsed input zone - Claude Generated.
 
 The webapp collapses ``.input-zone-body`` when a run starts (``max-height: 0``).
 While ``#results-panel`` lived inside that body, showing the summary at the end
 of a run required re-expanding the whole input, which pushed the result out of
 view: the operator had to collapse the input again to read what came out.
 
-The panel therefore sits OUTSIDE the collapsing body. This test holds that
-structure, because moving it back inside brings the old behaviour with it and
-nothing else would notice.
+The panel therefore sits OUTSIDE the collapsing body. Since the result tabs
+(Nov 2026) it is a one-line status in the zone header ("Analyse
+abgeschlossen" / "Ergebnis geladen", the title, the file); the overview lists
+moved into the Ergebnis tab. This test holds that structure, because moving it
+back inside brings the old behaviour with it and nothing else would notice.
 """
 
 import unittest
@@ -69,6 +71,12 @@ class TestResultsPanelOutsideCollapsingBody(unittest.TestCase):
     def test_panel_carries_its_own_styling_hook(self):
         """Outside the body it no longer inherits `.input-zone-body .card`."""
         self.assertIn("input-zone-results", self.parser.attrs_at_target.get("class", ""))
+
+    def test_panel_is_a_line_in_the_zone_header(self):
+        """A status line costs no height of its own (result tabs, Nov 2026)."""
+        classes = [a.get("class", "") for _tag, a in self.parser.ancestors]
+        self.assertIn("input-zone-header", " ".join(classes).split())
+        self.assertEqual(self.parser.attrs_at_target.get("role"), "status")
 
 
 if __name__ == "__main__":

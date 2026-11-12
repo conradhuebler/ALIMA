@@ -162,110 +162,7 @@ class PipelineJsonManager:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # Detect and unwrap webapp session format - Claude Generated (Support both CLI/GUI and Webapp formats)
-            if "session_id" in data and "results" in data:
-                logger.info(f"Detected webapp session format (session_id: {data.get('session_id')}), unwrapping results...")
-                # Extract the actual analysis state from webapp's session wrapper
-                data = data["results"]
-
-                # Map webapp field names to KeywordAnalysisState field names
-                if "final_llm_call_details" in data and "final_llm_analysis" not in data:
-                    logger.info("Mapping 'final_llm_call_details' → 'final_llm_analysis'")
-                    data["final_llm_analysis"] = data.pop("final_llm_call_details")
-
-                # Map webapp LLM field names to LlmKeywordAnalysis field names - Claude Generated
-                def fix_llm_field_names(llm_dict):
-                    """Fix field names in LLM analysis objects from webapp format"""
-                    if not isinstance(llm_dict, dict):
-                        return llm_dict
-
-                    # Map provider → provider_used
-                    if "provider" in llm_dict and "provider_used" not in llm_dict:
-                        llm_dict["provider_used"] = llm_dict.pop("provider")
-
-                    # Map model → model_used
-                    if "model" in llm_dict and "model_used" not in llm_dict:
-                        llm_dict["model_used"] = llm_dict.pop("model")
-
-                    # Remove webapp-specific fields not in LlmKeywordAnalysis
-                    for field in ["extracted_keywords", "token_count"]:
-                        llm_dict.pop(field, None)
-
-                    # Fill in missing required fields with defaults (webapp doesn't store these)
-                    llm_dict.setdefault("task_name", "webapp-import")
-                    llm_dict.setdefault("prompt_template", "")
-                    llm_dict.setdefault("filled_prompt", "")
-                    llm_dict.setdefault("temperature", 0.7)
-                    llm_dict.setdefault("seed", None)
-
-                    return llm_dict
-
-                # Apply mappings to LLM analysis objects
-                if isinstance(data.get("initial_llm_call_details"), dict):
-                    data["initial_llm_call_details"] = fix_llm_field_names(data["initial_llm_call_details"])
-
-                if isinstance(data.get("final_llm_analysis"), dict):
-                    data["final_llm_analysis"] = fix_llm_field_names(data["final_llm_analysis"])
-
-                # Remap property aliases before filtering — Claude Generated
-                if "classifications" in data and "dk_classifications" not in data:
-                    data["dk_classifications"] = data.pop("classifications")
-
-                # Whitelist filter: keep only KeywordAnalysisState fields — Claude Generated
-                # GUI/webapp exports add extra keys (keyword_chains, classifications_deprecated_alias,
-                # pipeline_metadata, etc.) that KeywordAnalysisState.__init__() doesn't accept.
-                valid_fields = {f.name for f in dataclasses.fields(KeywordAnalysisState)}
-                unknown = [k for k in list(data.keys()) if k not in valid_fields]
-                if unknown:
-                    for k in unknown:
-                        data.pop(k)
-                    logger.info(f"Removed non-KeywordAnalysisState fields: {', '.join(unknown)}")
-
-                # Fill in missing required fields from webapp format - Claude Generated
-                data.setdefault("search_suggesters_used", [])
-                data.setdefault("initial_gnd_classes", [])
-                data.setdefault("timestamp", datetime.now().isoformat())
-                data.setdefault("pipeline_step_completed", "classification")
-                data.setdefault("initial_llm_call_details", None)  # May not be in webapp export
-
-            # Deep reconstruction of nested dataclass objects
-            from ..core.data_models import SearchResult, LlmKeywordAnalysis
-
-            # Reconstruct SearchResult objects
-            if data.get("search_results"):
-                reconstructed_search_results = []
-                for item in data["search_results"]:
-                    # Convert known list fields back to sets (classification code sets)
-                    if "results" in item:
-                        item["results"] = PipelineJsonManager.convert_lists_to_sets(item["results"])
-                    reconstructed_search_results.append(SearchResult(**item))
-                data["search_results"] = reconstructed_search_results
-
-            # Reconstruct LlmKeywordAnalysis objects
-            if data.get("initial_llm_call_details"):
-                data["initial_llm_call_details"] = LlmKeywordAnalysis(**data["initial_llm_call_details"])
-
-            if data.get("final_llm_analysis"):
-                data["final_llm_analysis"] = LlmKeywordAnalysis(**data["final_llm_analysis"])
-
-            if data.get("dk_llm_analysis"):
-                data["dk_llm_analysis"] = LlmKeywordAnalysis(**data["dk_llm_analysis"])
-
-            # Ensure list fields are actually lists - Claude Generated (Fix for string parsing bug)
-            # This prevents "B, a, t, t, e, r, i, e" issue when JSON contains strings instead of lists
-            if "initial_keywords" in data and isinstance(data["initial_keywords"], str):
-                # Split comma-separated string back to list
-                data["initial_keywords"] = [kw.strip() for kw in data["initial_keywords"].split(",") if kw.strip()]
-
-            if data.get("final_llm_analysis") and hasattr(data["final_llm_analysis"], "extracted_gnd_keywords"):
-                if isinstance(data["final_llm_analysis"].extracted_gnd_keywords, str):
-                    kw_str = data["final_llm_analysis"].extracted_gnd_keywords
-                    data["final_llm_analysis"].extracted_gnd_keywords = [kw.strip() for kw in kw_str.split(",") if kw.strip()]
-
-            if "dk_classifications" in data and isinstance(data["dk_classifications"], str):
-                data["dk_classifications"] = [dk.strip() for dk in data["dk_classifications"].split(",") if dk.strip()]
-
-            return KeywordAnalysisState(**data)
+            return PipelineJsonManager.analysis_state_from_dict(data)
 
         except FileNotFoundError:
             raise ValueError(f"Analysis state file not found: {file_path}")
@@ -275,6 +172,121 @@ class PipelineJsonManager:
             raise ValueError(f"JSON structure incompatible with KeywordAnalysisState: {e}")
         except Exception as e:
             raise ValueError(f"Error loading analysis state: {e}")
+
+    @staticmethod
+    def analysis_state_from_dict(data: Dict[str, Any]) -> KeywordAnalysisState:
+        """KeywordAnalysisState from already parsed JSON data (both formats) - Claude Generated
+
+        The body of ``load_analysis_state`` without the file access, so a
+        caller holding the data (the webapp's upload) builds the state the same
+        way. Mutates ``data``. Raises the reconstruction errors unwrapped
+        (``TypeError`` for a structure that does not fit, …);
+        ``load_analysis_state`` wraps them in ``ValueError`` as before.
+        """
+        # Detect and unwrap webapp session format - Claude Generated (Support both CLI/GUI and Webapp formats)
+        if "session_id" in data and "results" in data:
+            logger.info(f"Detected webapp session format (session_id: {data.get('session_id')}), unwrapping results...")
+            # Extract the actual analysis state from webapp's session wrapper
+            data = data["results"]
+
+            # Map webapp field names to KeywordAnalysisState field names
+            if "final_llm_call_details" in data and "final_llm_analysis" not in data:
+                logger.info("Mapping 'final_llm_call_details' → 'final_llm_analysis'")
+                data["final_llm_analysis"] = data.pop("final_llm_call_details")
+
+            # Map webapp LLM field names to LlmKeywordAnalysis field names - Claude Generated
+            def fix_llm_field_names(llm_dict):
+                """Fix field names in LLM analysis objects from webapp format"""
+                if not isinstance(llm_dict, dict):
+                    return llm_dict
+
+                # Map provider → provider_used
+                if "provider" in llm_dict and "provider_used" not in llm_dict:
+                    llm_dict["provider_used"] = llm_dict.pop("provider")
+
+                # Map model → model_used
+                if "model" in llm_dict and "model_used" not in llm_dict:
+                    llm_dict["model_used"] = llm_dict.pop("model")
+
+                # Remove webapp-specific fields not in LlmKeywordAnalysis
+                for field in ["extracted_keywords", "token_count"]:
+                    llm_dict.pop(field, None)
+
+                # Fill in missing required fields with defaults (webapp doesn't store these)
+                llm_dict.setdefault("task_name", "webapp-import")
+                llm_dict.setdefault("prompt_template", "")
+                llm_dict.setdefault("filled_prompt", "")
+                llm_dict.setdefault("temperature", 0.7)
+                llm_dict.setdefault("seed", None)
+
+                return llm_dict
+
+            # Apply mappings to LLM analysis objects
+            if isinstance(data.get("initial_llm_call_details"), dict):
+                data["initial_llm_call_details"] = fix_llm_field_names(data["initial_llm_call_details"])
+
+            if isinstance(data.get("final_llm_analysis"), dict):
+                data["final_llm_analysis"] = fix_llm_field_names(data["final_llm_analysis"])
+
+            # Remap property aliases before filtering — Claude Generated
+            if "classifications" in data and "dk_classifications" not in data:
+                data["dk_classifications"] = data.pop("classifications")
+
+            # Whitelist filter: keep only KeywordAnalysisState fields — Claude Generated
+            # GUI/webapp exports add extra keys (keyword_chains, classifications_deprecated_alias,
+            # pipeline_metadata, etc.) that KeywordAnalysisState.__init__() doesn't accept.
+            valid_fields = {f.name for f in dataclasses.fields(KeywordAnalysisState)}
+            unknown = [k for k in list(data.keys()) if k not in valid_fields]
+            if unknown:
+                for k in unknown:
+                    data.pop(k)
+                logger.info(f"Removed non-KeywordAnalysisState fields: {', '.join(unknown)}")
+
+            # Fill in missing required fields from webapp format - Claude Generated
+            data.setdefault("search_suggesters_used", [])
+            data.setdefault("initial_gnd_classes", [])
+            data.setdefault("timestamp", datetime.now().isoformat())
+            data.setdefault("pipeline_step_completed", "classification")
+            data.setdefault("initial_llm_call_details", None)  # May not be in webapp export
+
+        # Deep reconstruction of nested dataclass objects
+        from ..core.data_models import SearchResult, LlmKeywordAnalysis
+
+        # Reconstruct SearchResult objects
+        if data.get("search_results"):
+            reconstructed_search_results = []
+            for item in data["search_results"]:
+                # Convert known list fields back to sets (classification code sets)
+                if "results" in item:
+                    item["results"] = PipelineJsonManager.convert_lists_to_sets(item["results"])
+                reconstructed_search_results.append(SearchResult(**item))
+            data["search_results"] = reconstructed_search_results
+
+        # Reconstruct LlmKeywordAnalysis objects
+        if data.get("initial_llm_call_details"):
+            data["initial_llm_call_details"] = LlmKeywordAnalysis(**data["initial_llm_call_details"])
+
+        if data.get("final_llm_analysis"):
+            data["final_llm_analysis"] = LlmKeywordAnalysis(**data["final_llm_analysis"])
+
+        if data.get("dk_llm_analysis"):
+            data["dk_llm_analysis"] = LlmKeywordAnalysis(**data["dk_llm_analysis"])
+
+        # Ensure list fields are actually lists - Claude Generated (Fix for string parsing bug)
+        # This prevents "B, a, t, t, e, r, i, e" issue when JSON contains strings instead of lists
+        if "initial_keywords" in data and isinstance(data["initial_keywords"], str):
+            # Split comma-separated string back to list
+            data["initial_keywords"] = [kw.strip() for kw in data["initial_keywords"].split(",") if kw.strip()]
+
+        if data.get("final_llm_analysis") and hasattr(data["final_llm_analysis"], "extracted_gnd_keywords"):
+            if isinstance(data["final_llm_analysis"].extracted_gnd_keywords, str):
+                kw_str = data["final_llm_analysis"].extracted_gnd_keywords
+                data["final_llm_analysis"].extracted_gnd_keywords = [kw.strip() for kw in kw_str.split(",") if kw.strip()]
+
+        if "dk_classifications" in data and isinstance(data["dk_classifications"], str):
+            data["dk_classifications"] = [dk.strip() for dk in data["dk_classifications"].split(",") if dk.strip()]
+
+        return KeywordAnalysisState(**data)
 
     @staticmethod
     def save_task_state(task_state: TaskState, file_path: str):

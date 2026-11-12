@@ -56,6 +56,70 @@ werden beim Laden ohne Tippfehler-Warnung verworfen. Tests:
 24 Mutationen, alle von den Gate-Tests erkannt. Nicht gegen echte Anbieter
 geprüft.
 
+### Webapp: Ergebnis-Reiter und „Ergebnis laden…“ (November 12, 2026)
+
+Ausgang (Anwender): nach einem Lauf passten Zusammenfassung oben und Log/Karten
+darunter nicht auf einen üblichen Bildschirm. Gemessen (Chromium, synthetischer
+Lauf, Harness außerhalb des Repos): bei 1366×768 war der Log-Bereich **0 px**
+hoch (Zusammenfassung 276 px, Pipeline-Leiste 169 px), bei 1536×864 83 px, bei
+1366×658 (Fenster ohne Vollbild) blieb von der Log-Karte 29 px. Die Seite
+scrollte nicht, der Inhalt war abgeschnitten.
+
+**Reiter.** Die Log-Karte hat drei Reiter: „Log / Chat“, „Ergebnis“,
+„Klassifikation“ (`role=tablist/tab/tabpanel`, Pfeiltasten/Pos1/Ende, Wahl je
+Sitzung in `localStorage` über `SafeStorage`). Ein Reiter ist sichtbar und
+scrollt in sich. Die Panels liegen **in** `#log`, damit die `#log`-Regeln von
+`alima_render.css` für alle Reiter gelten; `alima_render.js`/`.css` sind
+unverändert, `app.js` setzt `window.__alimaLogId` je Karte auf den Bereich des
+Reiters. Zuordnung nach Kartenart (`RESULT_TAB_BY_CARD`): `final_result`,
+`workflow_report` → Ergebnis; `dk_classifications`, `dk_statistics`,
+`dk_search` → Klassifikation; alles andere → Log. Die Kartenart stand bisher nur
+in der Historie des Renderers (das Ereignis sagte für jede Karte
+`html_block`); `render_bridge` gibt sie jetzt als Zusatzfeld `card` mit
+(`CardTaggingRenderer`, `WebSocketRenderTransport.card`), der GUI-Transport
+liest es nicht. WinIBW-Eintrag, Geo-Block und Quellen sind Abschnitte der einen
+Karte `final_result` und bleiben im Reiter „Ergebnis“ (eigene Reiter hätten die
+Karte zerlegt, „Alles kopieren“ hätte sie nicht mehr enthalten). Am Laufende
+wechselt die Ansicht nicht; Reiter mit neuem Inhalt bekommen Punkt und Fettung.
+Die Chat-Eingabe gehört zum Reiter „Log / Chat“ (die Antworten erscheinen dort).
+
+**Kopfzeile statt Zusammenfassungskarte.** `#results-panel` ist eine Zeile in
+der Kopfzeile der Eingabezone (Status, Arbeitstitel, Datei); „Ergebnis laden…“,
+„Speichern“, „Wiederherstellen“ (vorher „Laden“) und „Neue Analyse“ stehen
+dort, die Pipeline-Leiste hat damit bei 1366 px zwei statt drei Zeilen. Die
+Listen der Zusammenfassung (GND-Prüfung, RVK-Prüfung, initiale Schlagwörter)
+stehen eingeklappt am Ende des Reiters „Ergebnis“, offen, wenn keine Karte da
+ist (Neuladen, Wiederherstellung). Nachher: Log-Reiter 361 px (1366×768),
+414 px (1536×864), 251 px (1366×658); Ergebnis-Reiter 422/498/312 px; die Seite
+scrollt in keiner gemessenen Größe.
+
+**Laden.** `POST /api/session/{id}/load` (`routers/load.py`,
+`result_loading.py`): Export der Webapp und gespeicherter
+`KeywordAnalysisState`, beide über `PipelineJsonManager.analysis_state_from_dict`
+(der Körper von `load_analysis_state` ohne Dateizugriff); höchstens 20 MB,
+UTF-8-JSON mit Objekt, bekannte Form, sonst 413/422 mit Meldung; 409 während
+eines Laufs. Gerendert mit `render_pipeline_result(..., announce_completion=False)`
+(neuer Schalter, Standard unverändert) erst in einen Zwischenpuffer, dann in die
+Sitzung. Beim Export wird `classifications` zu `classification_entries`, sonst
+ginge der Rang („Kern“) verloren. Unbekannte Felder eines Zustands werden
+genannt und weggelassen. Die Sitzung meldet `loaded_from` (auch im Poll).
+`start_new_result()` leert beim Start eines Laufs Render-Log, Ergebnisse und
+Titel: vorher spielte ein zweiter Lauf in derselben Sitzung die Ereignisse des
+ersten beim Wiederverbinden erneut ab.
+
+**Nebenbefunde (behoben).** `populateSummary` setzte Schlagwörter, initiale
+Schlagwörter und Prüfzahlen ungeescaped ein (bei geladenen Fremddaten ein
+XSS-Weg, bei „Toleranz <Biologie>“ eine falsche Anzeige). Neuladen,
+Wiederverbinden und Polling reichten die Hülle des Exports (`{…, results}`) an
+die Zusammenfassung, die deshalb leer blieb. `ThemeManager` und
+`alima_running_session` griffen ohne `try` auf `localStorage` zu; bei
+gesperrtem Speicher brach `app.js` beim Laden ab.
+
+Tests: `tests/test_webapp_result_load.py`, `tests/test_webapp_result_tabs.py`,
+`tests/test_webapp_tabs_browser.py` (Chromium, überspringt ohne Playwright),
+angepasst `tests/test_webapp_results_panel_layout.py`. Jeder neue Prüftest per
+Mutation geprüft (42 Mutationen, alle rot). Suite 3638 passed, 12 skipped.
+
 ### Cache im Einrichtungs-Preset, Prüfung der Server-Datenbank beim Export (November 11, 2026)
 
 Ausgang (UB Freiberg, entschieden): Libero und finc sind lange nicht

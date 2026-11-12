@@ -4,10 +4,12 @@ Web-basierte Schnittstelle für die ALIMA Pipeline.
 
 ## Features
 
-✅ **Pipeline Widget** - Visuelle Darstellung der 5 Analyseschritte
+✅ **Schrittleiste** - Die Schritte des gewählten Workflows, live hervorgehoben
 ✅ **Input-Modi** - Text, DOI/URL, PDF, Bilder
 ✅ **Live-Feedback** - WebSocket-basierte Echtzeitupdates
+✅ **Ergebnis-Reiter** - „Log / Chat“, „Ergebnis“ (Abschlusskarte mit WinIBW-Eintrag, lokalen Treffern und Quellen) und „Klassifikation“ (DK/RVK-Karten); ein Reiter füllt den Platz und scrollt in sich
 ✅ **JSON-Export** - Vollständige Analyseergebnisse als JSON
+✅ **Ergebnis laden** - Ein gespeichertes Ergebnis (Export der Webapp oder in GUI/CLI gespeicherter Analysezustand) ansehen, ohne eine Analyse zu starten
 ✅ **Responsive Design** - Funktioniert auf Desktop und Mobile
 
 ## Installation
@@ -47,9 +49,29 @@ Wichtig:
 ### 3. Analyse durchführen
 
 1. **Input wählen**: Text, DOI/URL, oder Datei
-2. **Auto-Pipeline Button** klicken
-3. **Live-Feedback** ansehen (aktualisiert in Echtzeit)
-4. **Ergebnisse exportieren** als JSON
+2. **Analyse starten** klicken
+3. **Live-Feedback** im Reiter „Log / Chat“ ansehen (aktualisiert in Echtzeit)
+4. Nach dem Lauf zeigt die Kopfzeile der Eingabe „Analyse abgeschlossen“, und die Reiter „Ergebnis“ und „Klassifikation“ sind markiert. Die Ansicht wechselt nicht von selbst.
+5. **Speichern** exportiert das Ergebnis als JSON
+
+### 4. Gespeichertes Ergebnis ansehen
+
+„Ergebnis laden…“ in der Kopfzeile der Eingabe öffnet eine JSON-Datei, die ALIMA
+gespeichert hat: den Export der Webapp („Speichern“) oder einen in GUI oder CLI
+gespeicherten Analysezustand. Das Ergebnis erscheint in den Reitern, gekennzeichnet
+mit „Ergebnis geladen“ und dem Dateinamen; es läuft keine Analyse. Kopieren,
+Aufklappen und „Speichern“ funktionieren wie nach einem Lauf.
+
+- Höchstens 20 MB; die Datei muss UTF-8-JSON mit einem der beiden Formate sein,
+  sonst erscheint eine Meldung neben dem Knopf.
+- Während einer Analyse ist Laden gesperrt.
+- Ein geladenes Ergebnis ersetzt das bisher angezeigte; eine neue Analyse ersetzt
+  das geladene. Das Log nennt jeweils, was ersetzt wurde. Die geladene Datei
+  bleibt unverändert; das Ergebnis eines vorigen Laufs bleibt nur erhalten, wenn
+  es gespeichert wurde.
+- Ein Webapp-Export enthält nicht alles, was ein Lauf zeigt: Es fehlen der
+  Auszug einer Zusatzregel in der Ergebniskarte, ein Workflow-Bericht und die
+  Liste der Zusatzregeln des Laufs. Ein gespeicherter Analysezustand enthält sie.
 
 ## API Endpoints
 
@@ -67,6 +89,9 @@ Wichtig:
   - `file`: PDF/Bild Datei
 
 - `GET /api/export/{session_id}?format=json` - JSON exportieren
+- `POST /api/session/{session_id}/load` - Gespeichertes Ergebnis anzeigen
+  - `file`: JSON-Datei (Export der Webapp oder gespeicherter Analysezustand), höchstens 20 MB
+  - Antwort: Render-Ereignisse und Ergebnisse; 413 (zu groß), 422 (kein ALIMA-Ergebnis, mit Meldung), 409 (Analyse läuft)
 
 ### WebSocket
 
@@ -160,8 +185,6 @@ Die CLI wird unter `PROJECT_ROOT` ausgeführt. Stellen Sie sicher:
 
 ## Zukunftspläne
 
-- [ ] Drag & Drop für Dateien
-- [ ] Webcam-Integration
 - [ ] Batch-Processing UI
 - [ ] Analyseverlauf speichern
 - [ ] Docker-Support

@@ -6,9 +6,9 @@
     <title>ALIMA · Intelligente Sacherschließung mit KI</title>
     <meta name="theme-color" content="#120e1a">
     <link rel="icon" type="image/svg+xml" href="/static/alima-icon.svg">
-    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/styles.css?v={{ asset_v }}">
     <!-- WP12: shared render-layer theme (scoped under #log) -->
-    <link rel="stylesheet" href="/static/alima_render.css">
+    <link rel="stylesheet" href="/static/alima_render.css?v={{ asset_v }}">
 </head>
 <body>
 
@@ -67,7 +67,8 @@
 
     <!-- ═══════════════════════════════════
          MAIN WORKSPACE — vertical stack:
-         input-zone (collapsible) · chat/log (central) · pipeline-bar (bottom)
+         input-zone (header with result status + load/save · collapsible
+         body · pipeline-bar) · log card with the result tabs (central)
          ═══════════════════════════════════ -->
     <main class="workspace">
 
@@ -79,7 +80,33 @@
                     <span class="toggle-chevron" aria-hidden="true">▾</span>
                 </button>
                 <h2 class="input-zone-label"><span aria-hidden="true">✏</span> Eingabe</h2>
-                <span class="input-zone-hint">Quelle wählen oder Text einfügen (klappt beim Start zu)</span>
+                <span id="input-zone-hint" class="input-zone-hint">Quelle wählen oder Text einfügen (klappt beim Start zu)</span>
+
+                <!-- Result status, one line in the zone header: stays readable
+                     while the body below is collapsed. The result itself is in
+                     the tabs of the log card. - Claude Generated -->
+                <div id="results-panel" class="input-zone-results" role="status" hidden>
+                    <span id="results-panel-title" class="results-status">Analyse</span>
+                    <span id="results-origin" class="results-origin"></span>
+                </div>
+
+                <!-- Load/save controls: in the header, so they are reachable
+                     with the body collapsed (during and after a run). -->
+                <div class="bar-group bar-group--results">
+                    <button id="load-result-btn" class="btn btn-outline btn-sm" type="button"
+                            title="Ein gespeichertes Ergebnis (JSON) ansehen, ohne eine Analyse zu starten">📂 Ergebnis laden…</button>
+                    <input type="file" id="load-result-input" accept=".json,application/json"
+                           aria-label="Ergebnisdatei wählen" hidden>
+                    <button id="export-btn" class="btn btn-outline btn-sm" disabled
+                            title="Exportiert die Ergebnisse als JSON">📥 Speichern</button>
+                    <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;"
+                            title="Ergebnisse aus der automatischen Sicherung dieser Sitzung wiederherstellen">
+                        🔄 Wiederherstellen
+                    </button>
+                    <button id="clear-btn" class="btn btn-ghost btn-sm">Neue Analyse</button>
+                    <span id="recovery-message" class="recovery-note" style="display: none;"></span>
+                    <span id="load-result-message" class="load-note" role="alert" hidden></span>
+                </div>
             </div>
 
             <div class="input-zone-body">
@@ -202,103 +229,119 @@
 
             </div><!-- /.input-zone-body -->
 
-            <!-- Results Panel summary (conditional) — deliberately OUTSIDE
-                 .input-zone-body: the summary must be readable after a run
-                 without re-opening the whole input above it. Actions live in
-                 the persistent pipeline-bar for the same reason. -->
-            <div id="results-panel" class="card input-zone-results" style="display: none;">
-                <div class="card-header">
-                    <h2 id="results-panel-title" class="card-label">Analyse</h2>
-                </div>
-                <div id="results-summary" class="results-list"></div>
-            </div>
-
-            <!-- Pipeline-Leiste — persistent footer of the input zone: stays
-                 visible when the body above collapses during a run. -->
-            <footer class="pipeline-bar">
-                <!-- Live step overview (rendered by app.js) -->
-                <div id="pipeline-stepper" class="pipeline-stepper" aria-label="Pipeline-Übersicht"></div>
-                <span id="dk-progress" class="dk-progress" aria-live="polite"></span>
-
-                <div class="pipeline-controls">
-                    <div class="bar-group bar-group--config">
-                        <select id="workflow-select" class="field field--select"
-                                title="Workflow für Analyse / Pipeline">
-                            <option value="">— Workflow laden … —</option>
-                        </select>
-                        <select id="provider-override" class="field field--select"
-                                title="Provider-Override" style="max-width: 130px;">
-                            <option value="">— Provider —</option>
-                        </select>
-                        <select id="model-override" class="field field--select"
-                                title="Globaler Modell-Override für alle LLM-Steps"
-                                style="max-width: 180px;">
-                            <option value="">— Modell —</option>
-                        </select>
-                        <select id="think-override" class="field field--select"
-                                title="Thinking/Reasoning für alle LLM-Steps überschreiben"
-                                style="max-width: 130px;">
-                            <option value="">Thinking: Standard</option>
-                            <option value="on">Thinking: An</option>
-                            <option value="off">Thinking: Aus</option>
-                        </select>
-                        <select id="max-tokens-override" class="field field--select"
-                                title="max_tokens für alle agentischen LLM-Steps; Standard = Wert aus dem Workflow-YAML"
-                                style="max-width: 150px;">
-                            <option value="">Budget: Standard</option>
-                            <option value="8192">Budget: 8192</option>
-                            <option value="16384">Budget: 16384</option>
-                            <option value="32768">Budget: 32768</option>
-                            <option value="65536">Budget: 65536</option>
-                        </select>
-                        <button id="refresh-models-btn" class="btn btn-sm" title="Modelle neu laden">🔄</button>
-                    </div>
-
-                    <div class="bar-group bar-group--run">
-                        <button id="analyze-btn" class="btn btn-primary btn-analyze">
-                            <span aria-hidden="true">▶</span> Analyse starten
-                        </button>
-                        <button id="cancel-btn" class="btn btn-danger btn-sm" style="display: none;">
-                            ⏹ Abbrechen
-                        </button>
-                        <button id="abort-step-btn" class="btn btn-warning btn-sm" style="display: none;">
-                            🛑 Schritt abbrechen
-                        </button>
-                    </div>
-
-                    <!-- Load/save controls — always reachable, even while the
-                         input body above is collapsed during a run. -->
-                    <div class="bar-group bar-group--results">
-                        <button id="export-btn" class="btn btn-outline btn-sm" disabled
-                                title="Exportiert die Ergebnisse als JSON">📥 Speichern</button>
-                        <button id="recovery-btn" class="btn btn-warning btn-sm" style="display: none;">
-                            🔄 Laden
-                        </button>
-                        <button id="clear-btn" class="btn btn-ghost btn-sm">Neue Analyse</button>
-                        <span id="recovery-message" class="recovery-note" style="display: none;"></span>
-                    </div>
-                </div>
-            </footer><!-- /.pipeline-bar -->
         </section><!-- /#input-zone -->
 
-        <!-- ─── CENTER: Stream / Chat (dominant) ─── -->
+        <div class="work-row">
+        <!-- Pipeline-Leiste — side column left of the log: steps, settings and run buttons stay
+             visible when the input zone is collapsed. -->
+        <aside class="pipeline-bar side-panel">
+            <!-- Live step overview (rendered by app.js) -->
+            <div id="pipeline-stepper" class="pipeline-stepper" aria-label="Pipeline-Übersicht"></div>
+            <span id="dk-progress" class="dk-progress" aria-live="polite"></span>
+
+            <div class="pipeline-controls">
+                <div class="bar-group bar-group--config">
+                    <select id="workflow-select" class="field field--select"
+                            title="Workflow für Analyse / Pipeline">
+                        <option value="">— Workflow laden … —</option>
+                    </select>
+                    <select id="provider-override" class="field field--select"
+                            title="Provider-Override" style="max-width: 130px;">
+                        <option value="">— Provider —</option>
+                    </select>
+                    <select id="model-override" class="field field--select"
+                            title="Globaler Modell-Override für alle LLM-Steps"
+                            style="max-width: 180px;">
+                        <option value="">— Modell —</option>
+                    </select>
+                    <select id="think-override" class="field field--select"
+                            title="Thinking/Reasoning für alle LLM-Steps überschreiben"
+                            style="max-width: 130px;">
+                        <option value="">Thinking: Modell-Standard</option>
+                        <option value="on">Thinking: An</option>
+                        <option value="off" selected>Thinking: Aus</option>
+                    </select>
+                    <select id="max-tokens-override" class="field field--select"
+                            title="max_tokens für alle agentischen LLM-Steps; Standard = Wert aus dem Workflow-YAML"
+                            style="max-width: 150px;">
+                        <option value="">Budget: Workflow-Standard</option>
+                        <option value="8192">Budget: 8192</option>
+                        <option value="16384">Budget: 16384</option>
+                        <option value="32768">Budget: 32768</option>
+                        <option value="65536" selected>Budget: 65536</option>
+                    </select>
+                    <button id="refresh-models-btn" class="btn btn-sm" title="Modelle neu laden">🔄</button>
+                </div>
+
+                <div class="bar-group bar-group--run">
+                    <button id="analyze-btn" class="btn btn-primary btn-analyze">
+                        <span aria-hidden="true">▶</span> Analyse starten
+                    </button>
+                    <button id="cancel-btn" class="btn btn-danger btn-sm" style="display: none;">
+                        ⏹ Abbrechen
+                    </button>
+                    <button id="abort-step-btn" class="btn btn-warning btn-sm" style="display: none;">
+                        🛑 Schritt abbrechen
+                    </button>
+                </div>
+            </div>
+        </aside><!-- /.pipeline-bar -->
+
+        <!-- ─── CENTER: Log / Chat and the result tabs (dominant) ─── -->
         <section class="panel panel-stream">
             <div id="stream-output" class="card card--dark">
                 <div class="stream-header">
-                    <div class="stream-header-left">
-                        <div class="stream-title-group">
-                            <h2 class="stream-title">Log / Chat</h2>
-                            <span class="stream-subtitle">Pipeline-Log, Tool-Calls, Streaming, Chat</span>
-                        </div>
+                    <!-- One tab is shown at a time and scrolls by itself. app.js
+                         sorts the render events into the tabs by their card kind
+                         (RESULT_TAB_BY_CARD); everything else is log. - Claude Generated -->
+                    <div id="result-tablist" class="result-tablist" role="tablist" aria-label="Ansicht">
+                        <button type="button" id="result-tab-log" class="result-tab" role="tab"
+                                aria-selected="true" aria-controls="result-panel-log" data-result-tab="log">
+                            Log / Chat<span class="result-tab-new" hidden><span class="sr-only"> (neu)</span></span>
+                        </button>
+                        <button type="button" id="result-tab-result" class="result-tab" role="tab"
+                                aria-selected="false" aria-controls="result-panel-result" tabindex="-1"
+                                data-result-tab="result">
+                            Ergebnis<span class="result-tab-new" hidden><span class="sr-only"> (neu)</span></span>
+                        </button>
+                        <button type="button" id="result-tab-classification" class="result-tab" role="tab"
+                                aria-selected="false" aria-controls="result-panel-classification" tabindex="-1"
+                                data-result-tab="classification">
+                            Klassifikation<span class="result-tab-new" hidden><span class="sr-only"> (neu)</span></span>
+                        </button>
                     </div>
-                    <button id="clear-logs-btn" class="btn btn-ghost-dark btn-sm">Löschen</button>
+                    <button id="clear-logs-btn" class="btn btn-ghost-dark btn-sm"
+                            title="Log und Chat leeren; die Ergebnis-Reiter bleiben">Löschen</button>
                 </div>
 
                 <div id="stream-body" class="stream-body">
-                    <!-- WP12: shared render region — DK/GND cards, tool calls, chat
-                         bubbles, LLM stream blocks and system messages all render
-                         here (the legacy #stream-text region is gone, Chat-UX 5/9). -->
-                    <div id="log" class="alima-render-region"></div>
+                    <!-- WP12: shared render region. The tab panels sit INSIDE #log,
+                         so the #log-scoped chrome of alima_render.css applies to
+                         every tab; alima_render.js writes into the region named
+                         by window.__alimaLogId (app.js switches it per card). -->
+                    <div id="log" class="alima-render-region">
+                        <div id="result-panel-log" class="result-tabpanel" role="tabpanel"
+                             aria-labelledby="result-tab-log" tabindex="0">
+                            <div id="log-region" class="result-region"></div>
+                        </div>
+                        <div id="result-panel-result" class="result-tabpanel" role="tabpanel"
+                             aria-labelledby="result-tab-result" tabindex="0" hidden>
+                            <p id="result-origin-line" class="result-origin-line" hidden></p>
+                            <div id="result-region" class="result-region"></div>
+                            <details id="results-summary-details" class="results-summary-details" hidden>
+                                <summary>Übersicht aus den Ergebnisdaten</summary>
+                                <div id="results-summary" class="results-list"></div>
+                            </details>
+                            <p class="result-empty">Noch kein Ergebnis. Es erscheint hier nach einer Analyse
+                                oder über „Ergebnis laden…“.</p>
+                        </div>
+                        <div id="result-panel-classification" class="result-tabpanel" role="tabpanel"
+                             aria-labelledby="result-tab-classification" tabindex="0" hidden>
+                            <div id="classification-region" class="result-region"></div>
+                            <p class="result-empty">Noch keine Klassifikation. Die DK/RVK-Karten mit
+                                Katalogtiteln und Häufigkeiten erscheinen hier.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Unified chat input -->
@@ -318,6 +361,7 @@
                 </div>
             </div>
         </section><!-- /.panel-stream -->
+        </div><!-- /.work-row -->
 
     </main><!-- /.workspace -->
 
@@ -329,8 +373,8 @@
     <!-- UI-chrome i18n catalog (js.* keys) — must precede alima_render.js -->
     <script>window.__alimaI18n = {{ i18n_js | tojson }};</script>
     <!-- WP12: shared render-layer DOM dispatcher (must load before app.js) -->
-    <script src="/static/alima_render.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/alima_render.js?v={{ asset_v }}"></script>
+    <script src="/static/app.js?v={{ asset_v }}"></script>
 
 </body>
 </html>

@@ -143,6 +143,31 @@ class Session:
         self.last_provider: Optional[str] = None  # Effective provider from last pipeline run - Claude Generated
         self.last_model: Optional[str] = None  # Effective model from last pipeline run - Claude Generated
         self.chat_history: list = []  # Chat-agent conversation history - Claude Generated
+        # Display name of the file the shown result was loaded from
+        # (POST /api/session/{id}/load); None for a result of a run. - Claude Generated
+        self.loaded_from: Optional[str] = None
+
+    def start_new_result(self):
+        """Forget the shown result before a new run or a loaded file - Claude Generated
+
+        Without this a second run in the same session kept the previous run's
+        render events, and a reconnecting client replayed them into the new
+        run's view; the previous results stayed exportable as the new run's
+        "partial" state. Chat history and workflow choice are left alone.
+        """
+        with self._streaming_lock:
+            self.streaming_buffer.clear()
+            self.streaming_buffer_sent_count.clear()
+            self.render_buffer.clear()
+            self.render_buffer_sent_count = 0
+        self.results = {}
+        self.current_analysis_state = None
+        self.working_title = None
+        self.loaded_from = None
+        self.error_message = None
+        self.dk_search_progress = None
+        self.current_step = None
+        self.current_step_status = None
 
     def add_temp_file(self, path: str):
         """Track temporary files for cleanup - Claude Generated"""
@@ -213,6 +238,7 @@ class Session:
         self.abort_requested = False
         self.workflow_name = None
         self.chat_history = []
+        self.loaded_from = None
         self.cleanup()
         logger.info(f"Session {self.session_id} cleared")
 
